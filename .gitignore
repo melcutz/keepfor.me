@@ -8,3 +8,8 @@ pylock.toml
 
 # macOS
 .DS_Store
+
+# git worktrees, brainstorm mockups, local dev state
+.worktrees/
+.superpowers/
+.wrangler/
