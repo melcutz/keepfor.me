@@ -114,7 +114,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline' "
-            "https://cdn.tailwindcss.com https://unpkg.com; "
+            "https://cdn.tailwindcss.com https://unpkg.com "
+            "https://static.cloudflareinsights.com; "
             "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
             "img-src 'self' https: data:; "
             "font-src 'self' https: data:; "
@@ -357,7 +358,14 @@ async def reader_page(request: Request, item_id: str):
     env = get_env_from_request(request)
     item = await get_item(db, user["id"], item_id)
     if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+        return HTMLResponse(
+            content="<div style='font-family:sans-serif;max-width:40rem;"
+            "margin:4rem auto;text-align:center;'>"
+            "<h2>Article not found</h2>"
+            "<p>It may have been deleted.</p>"
+            "<p><a href='/'>Back to Library</a></p></div>",
+            status_code=404,
+        )
 
     clean_html = await get_item_clean_html(db, env, user["id"], item_id)
     tag_styles = tag_styles_for(item.get("tags") or [])

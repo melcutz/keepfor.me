@@ -371,6 +371,23 @@ async def test_api_delete_item(client, db, auth_headers):
     assert check_response.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_reader_missing_item_returns_html_404(client, db, auth_headers):
+    """Browser navigation to a deleted item gets an HTML page, not JSON."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/items/does-not-exist")
+    assert response.status_code == 404
+    assert "Article not found" in response.text
+    assert "Back to Library" in response.text
+
+
+def test_csp_allows_cloudflare_beacon(client):
+    """Web Analytics beacon must not trip console CSP errors."""
+    response = client.get("/auth/login")
+    csp = response.headers.get("content-security-policy", "")
+    assert "static.cloudflareinsights.com" in csp
+
+
 # ==========================================
 # Import/Export Tests
 # ==========================================
