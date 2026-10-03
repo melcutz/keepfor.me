@@ -1,32 +1,56 @@
 import os
 import time
 from typing import Any
-from fastapi import FastAPI, Request, Response, Form, UploadFile, File, HTTPException, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
-from fastapi.middleware.cors import CORSMiddleware
-from jinja2 import Environment, FileSystemLoader
 
-from src.models.db import Database
-from src.utils.logging import logger, set_user_context, get_request_id
-from src.schemas import (
-    SaveItemRequest, SearchRequest, LoginRequest, RegisterRequest,
-    CreatePATRequest, TagItemRequest, ImportRequest
+from fastapi import (
+    FastAPI,
+    Form,
+    HTTPException,
+    Request,
+    Response,
 )
-from src.config import config
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from jinja2 import Environment, FileSystemLoader
+from starlette.middleware.base import BaseHTTPMiddleware
+
 from src.auth.service import (
-    register_user, login_user, validate_session, logout_session,
-    create_pat, validate_pat, list_pats, delete_pat, RegistrationClosedError, InvalidCredentialsError
+    InvalidCredentialsError,
+    RegistrationClosedError,
+    create_pat,
+    delete_pat,
+    list_pats,
+    login_user,
+    logout_session,
+    register_user,
+    validate_pat,
+    validate_session,
 )
-from src.models.items import (
-    save_item, get_item, get_item_clean_html, delete_item, list_user_tags
-)
-from src.search.engine import hybrid_search, get_recent_items
 from src.mcp.server import process_mcp_request
-from src.utils.importer import (
-    parse_netscape_bookmarks, parse_csv_bookmarks, import_bookmarks,
-    export_library_json, export_library_html
+from src.models.db import Database
+from src.models.items import (
+    delete_item,
+    get_item,
+    get_item_clean_html,
+    list_user_tags,
+    save_item,
 )
+from src.schemas import (
+    CreatePATRequest,
+    LoginRequest,
+    RegisterRequest,
+    SaveItemRequest,
+    SearchRequest,
+)
+from src.search.engine import get_recent_items, hybrid_search
+from src.utils.importer import (
+    export_library_html,
+    export_library_json,
+    import_bookmarks,
+    parse_csv_bookmarks,
+    parse_netscape_bookmarks,
+)
+from src.utils.logging import get_request_id, logger
 
 # Initialize Jinja2 templates
 templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
@@ -34,29 +58,31 @@ jinja_env = Environment(loader=FileSystemLoader(templates_dir), autoescape=True)
 
 app = FastAPI(title="Keepfor.me API & UI", version="0.1.0")
 
+
 # Logging middleware
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        request_id = get_request_id()
+        get_request_id()
         start_time = time.time()
-        
+
         try:
             response = await call_next(request)
-            duration = time.time() - start_time
-            
+            time.time() - start_time
+
             logger.info(
                 f"{request.method} {request.url.path} -> {response.status_code}"
             )
             return response
         except Exception as exc:
-            duration = time.time() - start_time
+            time.time() - start_time
             logger.error(
-                f"Exception in {request.method} {request.url.path}",
-                exc_info=exc
+                f"Exception in {request.method} {request.url.path}", exc_info=exc
             )
             raise
 
+
 app.add_middleware(LoggingMiddleware)
+
 
 # Security headers middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -69,7 +95,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Referrer policy
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         # Permissions policy (disable unnecessary APIs)
-        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Permissions-Policy"] = (
+            "geolocation=(), microphone=(), camera=()"
+        )
         # Content Security Policy
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
@@ -85,6 +113,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
         return response
 
+
 app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS middleware for API access from browser extensions
@@ -97,18 +126,21 @@ app.add_middleware(
     expose_headers=["Content-Type"],
 )
 
+
 def get_env_from_request(request: Request) -> Any:
     """Extracts Cloudflare env bindings from ASGI scope or fallback."""
     return request.scope.get("env", None)
+
 
 def get_db(request: Request) -> Database:
     env = get_env_from_request(request)
     d1 = getattr(env, "DB", None) if env else None
     return Database(d1_binding=d1)
 
+
 async def get_current_user(request: Request) -> dict[str, Any] | None:
     db = get_db(request)
-    
+
     # 1. Check Bearer PAT
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
@@ -126,15 +158,18 @@ async def get_current_user(request: Request) -> dict[str, Any] | None:
 
     return None
 
+
 async def require_user(request: Request) -> dict[str, Any]:
     user = await get_current_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
     return user
 
+
 # ==========================================
 # Web UI Pages
 # ==========================================
+
 
 @app.get("/", response_class=HTMLResponse)
 async def library_page(request: Request, tag: str | None = None, q: str | None = None):
@@ -153,16 +188,18 @@ async def library_page(request: Request, tag: str | None = None, q: str | None =
 
     template = jinja_env.get_template("library.html")
     html = template.render(
-        current_user=user,
-        items=items,
-        tags=tags,
-        active_tag=tag,
-        query=q or ""
+        current_user=user, items=items, tags=tags, active_tag=tag, query=q or ""
     )
     return HTMLResponse(content=html)
 
+
 @app.post("/search", response_class=HTMLResponse)
-async def search_htmx(request: Request, query: str = Form(""), mode: str = Form("hybrid"), tag: str = Form("")):
+async def search_htmx(
+    request: Request,
+    query: str = Form(""),
+    mode: str = Form("hybrid"),
+    tag: str = Form(""),
+):
     user = await get_current_user(request)
     if not user:
         return HTMLResponse("<p>Please log in</p>", status_code=401)
@@ -170,14 +207,20 @@ async def search_htmx(request: Request, query: str = Form(""), mode: str = Form(
     db = get_db(request)
     env = get_env_from_request(request)
     clean_tag = tag.strip() if tag.strip() else None
-    items = await hybrid_search(db, env, user["id"], query=query, mode=mode, tag=clean_tag, limit=30)
+    items = await hybrid_search(
+        db, env, user["id"], query=query, mode=mode, tag=clean_tag, limit=30
+    )
 
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
-        return HTMLResponse('<div class="text-center py-12 text-slate-400 text-xs">No matching articles found.</div>')
+        return HTMLResponse(
+            '<div class="text-center py-12 text-slate-400 text-xs">'
+            "No matching articles found.</div>"
+        )
 
     cards = [template.render(item=it) for it in items]
     return HTMLResponse(content="".join(cards))
+
 
 @app.get("/items/{item_id}", response_class=HTMLResponse)
 async def reader_page(request: Request, item_id: str):
@@ -196,32 +239,39 @@ async def reader_page(request: Request, item_id: str):
     html = template.render(current_user=user, item=item, clean_html=clean_html)
     return HTMLResponse(content=html)
 
+
 @app.post("/save")
 async def save_form(request: Request, url: str = Form(...), tags: str = Form("")):
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
-    
+
     # Validate URL is not empty
     if not url or not url.strip():
-        logger.warning(f"Save validation failed: empty URL")
+        logger.warning("Save validation failed: empty URL")
         raise HTTPException(status_code=400, detail="URL cannot be empty")
-    
+
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     await save_item(db, env, user["id"], url, tag_list)
     return RedirectResponse(url="/", status_code=303)
+
 
 @app.get("/save-popup", response_class=HTMLResponse)
 async def save_popup_get(request: Request, url: str = "", title: str = ""):
     user = await get_current_user(request)
     if not user:
-        return RedirectResponse(url=f"/auth/login?next=/save-popup?url={url}&title={title}", status_code=303)
+        return RedirectResponse(
+            url=f"/auth/login?next=/save-popup?url={url}&title={title}", status_code=303
+        )
     template = jinja_env.get_template("save_popup.html")
     html = template.render(url=url, title=title, success=False)
     return HTMLResponse(content=html)
 
+
 @app.post("/save-popup", response_class=HTMLResponse)
-async def save_popup_post(request: Request, url: str = Form(...), title: str = Form(""), tags: str = Form("")):
+async def save_popup_post(
+    request: Request, url: str = Form(...), title: str = Form(""), tags: str = Form("")
+):
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
@@ -230,6 +280,7 @@ async def save_popup_post(request: Request, url: str = Form(...), title: str = F
     template = jinja_env.get_template("save_popup.html")
     html = template.render(url=url, title=title, success=True)
     return HTMLResponse(content=html)
+
 
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, new_token: str | None = None):
@@ -243,12 +294,10 @@ async def settings_page(request: Request, new_token: str | None = None):
 
     template = jinja_env.get_template("settings.html")
     html = template.render(
-        current_user=user,
-        pats=pats,
-        new_token=new_token,
-        base_url=base_url
+        current_user=user, pats=pats, new_token=new_token, base_url=base_url
     )
     return HTMLResponse(content=html)
+
 
 @app.post("/settings/tokens")
 async def create_token_route(request: Request, name: str = Form(...)):
@@ -260,9 +309,10 @@ async def create_token_route(request: Request, name: str = Form(...)):
     except Exception as e:
         logger.warning(f"PAT creation validation failed: {e}")
         return JSONResponse(content={"error": "Invalid token name"}, status_code=400)
-    
+
     res = await create_pat(db, user["id"], validated.name)
     return JSONResponse(content=res, status_code=201)
+
 
 @app.post("/settings/tokens/{pat_id}/delete")
 async def delete_token_route(request: Request, pat_id: str):
@@ -271,16 +321,21 @@ async def delete_token_route(request: Request, pat_id: str):
     await delete_pat(db, user["id"], pat_id)
     return RedirectResponse(url="/settings", status_code=303)
 
+
 @app.post("/import")
-async def import_route(request: Request, content: str = Form(...), format: str = Form("csv")):
+async def import_route(
+    request: Request, content: str = Form(...), format: str = Form("csv")
+):
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
-    
+
     # Validate format
     if format not in ["csv", "netscape"]:
-        raise HTTPException(status_code=400, detail="Invalid format. Must be 'csv' or 'netscape'")
-    
+        raise HTTPException(
+            status_code=400, detail="Invalid format. Must be 'csv' or 'netscape'"
+        )
+
     if format == "csv":
         bookmarks = parse_csv_bookmarks(content)
     else:
@@ -289,17 +344,22 @@ async def import_route(request: Request, content: str = Form(...), format: str =
     await import_bookmarks(db, env, user["id"], bookmarks)
     return RedirectResponse(url="/", status_code=303)
 
+
 # ==========================================
 # Auth Handlers
 # ==========================================
+
 
 @app.get("/auth/login", response_class=HTMLResponse)
 async def login_get(request: Request, error: str | None = None):
     template = jinja_env.get_template("login.html")
     return HTMLResponse(content=template.render(error=error))
 
+
 @app.post("/auth/login")
-async def login_post(request: Request, email: str = Form(...), password: str = Form(...)):
+async def login_post(
+    request: Request, email: str = Form(...), password: str = Form(...)
+):
     db = get_db(request)
     # Validate input with model
     try:
@@ -307,8 +367,10 @@ async def login_post(request: Request, email: str = Form(...), password: str = F
     except Exception as e:
         logger.warning(f"Login validation failed: {e}")
         template = jinja_env.get_template("login.html")
-        return HTMLResponse(content=template.render(error="Invalid input"), status_code=400)
-    
+        return HTMLResponse(
+            content=template.render(error="Invalid input"), status_code=400
+        )
+
     try:
         user, session_id = await login_user(db, validated.email, validated.password)
         resp = RedirectResponse(url="/", status_code=303)
@@ -318,23 +380,29 @@ async def login_post(request: Request, email: str = Form(...), password: str = F
             max_age=30 * 86400,
             httponly=True,
             samesite="strict",
-            secure=True
+            secure=True,
         )
         return resp
     except InvalidCredentialsError as err:
         template = jinja_env.get_template("login.html")
         return HTMLResponse(content=template.render(error=str(err)), status_code=400)
 
+
 @app.get("/auth/register", response_class=HTMLResponse)
 async def register_get(request: Request, error: str | None = None):
     template = jinja_env.get_template("register.html")
     return HTMLResponse(content=template.render(error=error))
 
+
 @app.post("/auth/register")
-async def register_post(request: Request, email: str = Form(...), password: str = Form(...)):
+async def register_post(
+    request: Request, email: str = Form(...), password: str = Form(...)
+):
     db = get_db(request)
     env = get_env_from_request(request)
-    allow_signups = getattr(env, "ALLOW_PUBLIC_SIGNUPS", "false") == "true" if env else False
+    allow_signups = (
+        getattr(env, "ALLOW_PUBLIC_SIGNUPS", "false") == "true" if env else False
+    )
 
     # Validate input with model
     try:
@@ -342,10 +410,14 @@ async def register_post(request: Request, email: str = Form(...), password: str 
     except Exception as e:
         logger.warning(f"Register validation failed: {e}")
         template = jinja_env.get_template("register.html")
-        return HTMLResponse(content=template.render(error="Invalid input"), status_code=400)
+        return HTMLResponse(
+            content=template.render(error="Invalid input"), status_code=400
+        )
 
     try:
-        user = await register_user(db, validated.email, validated.password, allow_public_signups=allow_signups)
+        await register_user(
+            db, validated.email, validated.password, allow_public_signups=allow_signups
+        )
         # Automatically log in after registration
         _, session_id = await login_user(db, validated.email, validated.password)
         resp = RedirectResponse(url="/", status_code=303)
@@ -355,7 +427,7 @@ async def register_post(request: Request, email: str = Form(...), password: str 
             max_age=30 * 86400,
             httponly=True,
             samesite="strict",
-            secure=True
+            secure=True,
         )
         return resp
     except RegistrationClosedError as err:
@@ -364,6 +436,7 @@ async def register_post(request: Request, email: str = Form(...), password: str 
     except Exception as err:
         template = jinja_env.get_template("register.html")
         return HTMLResponse(content=template.render(error=str(err)), status_code=400)
+
 
 @app.get("/auth/logout")
 async def logout_route(request: Request):
@@ -376,9 +449,11 @@ async def logout_route(request: Request):
     resp.delete_cookie("rk_session")
     return resp
 
+
 # ==========================================
 # REST API & MCP Endpoints
 # ==========================================
+
 
 @app.post("/api/save")
 async def api_save_item(request: Request, body: SaveItemRequest):
@@ -390,12 +465,16 @@ async def api_save_item(request: Request, body: SaveItemRequest):
     status_code = 202 if is_new else 200
     return JSONResponse(content={**item, "is_new": is_new}, status_code=status_code)
 
+
 @app.get("/api/items")
-async def api_list_items(request: Request, tag: str | None = None, limit: int = 20, offset: int = 0):
+async def api_list_items(
+    request: Request, tag: str | None = None, limit: int = 20, offset: int = 0
+):
     user = await require_user(request)
     db = get_db(request)
     items = await get_recent_items(db, user["id"], tag=tag, limit=limit, offset=offset)
     return JSONResponse(content=items)
+
 
 @app.get("/api/items/{item_id}")
 async def api_get_item(request: Request, item_id: str):
@@ -406,6 +485,7 @@ async def api_get_item(request: Request, item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
     return JSONResponse(content=item)
 
+
 @app.get("/api/items/{item_id}/content")
 async def api_get_item_content(request: Request, item_id: str):
     user = await require_user(request)
@@ -413,6 +493,7 @@ async def api_get_item_content(request: Request, item_id: str):
     env = get_env_from_request(request)
     html = await get_item_clean_html(db, env, user["id"], item_id)
     return HTMLResponse(content=html)
+
 
 @app.delete("/api/items/{item_id}")
 async def api_delete_item(request: Request, item_id: str):
@@ -424,6 +505,7 @@ async def api_delete_item(request: Request, item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
     return JSONResponse(content={"deleted": True, "id": item_id})
 
+
 @app.post("/api/search")
 async def api_search(request: Request, body: SearchRequest):
     user = await require_user(request)
@@ -431,13 +513,16 @@ async def api_search(request: Request, body: SearchRequest):
     env = get_env_from_request(request)
     # body is already validated by Pydantic
     results = await hybrid_search(
-        db, env, user["id"],
+        db,
+        env,
+        user["id"],
         query=body.query,
         mode=body.mode,
         tag=body.tag,
-        limit=body.limit
+        limit=body.limit,
     )
     return JSONResponse(content=results)
+
 
 @app.post("/api/mcp")
 async def mcp_endpoint(request: Request):
@@ -452,6 +537,7 @@ async def mcp_endpoint(request: Request):
     response_payload = await process_mcp_request(body, db, env, user)
     return JSONResponse(content=response_payload)
 
+
 @app.get("/api/export")
 async def api_export(request: Request, format: str = "json"):
     user = await require_user(request)
@@ -461,11 +547,15 @@ async def api_export(request: Request, format: str = "json"):
         return Response(
             content=content,
             media_type="text/html",
-            headers={"Content-Disposition": "attachment; filename=keepfor_me_bookmarks.html"}
+            headers={
+                "Content-Disposition": "attachment; filename=keepfor_me_bookmarks.html"
+            },
         )
     else:
         items = await export_library_json(db, user["id"])
         return JSONResponse(
             content=items,
-            headers={"Content-Disposition": "attachment; filename=keepfor_me_library.json"}
+            headers={
+                "Content-Disposition": "attachment; filename=keepfor_me_library.json"
+            },
         )

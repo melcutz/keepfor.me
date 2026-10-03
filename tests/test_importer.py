@@ -1,7 +1,7 @@
 """Tests for bookmark import functionality."""
 
-import pytest
-from src.utils.importer import parse_netscape_bookmarks, parse_csv_bookmarks
+from src.utils.importer import parse_csv_bookmarks, parse_netscape_bookmarks
+
 
 def test_parse_netscape_html():
     """Test Netscape bookmark HTML format parsing."""
@@ -11,7 +11,8 @@ def test_parse_netscape_html():
     <TITLE>Bookmarks</TITLE>
     <H1>Bookmarks</H1>
     <DL><p>
-        <DT><A HREF="https://example.com/1" ADD_DATE="1700000000" TAGS="tech,news">Example One</A>
+        <DT><A HREF="https://example.com/1" ADD_DATE="1700000000"
+        TAGS="tech,news">Example One</A>
         <DT><A HREF="https://example.com/2" ADD_DATE="1700000001">Example Two</A>
     </DL><p>
     """
@@ -21,6 +22,7 @@ def test_parse_netscape_html():
     assert bookmarks[0]["title"] == "Example One"
     assert bookmarks[0]["tags"] == ["tech", "news"]
     assert bookmarks[1]["title"] == "Example Two"
+
 
 def test_parse_csv():
     """Test CSV bookmark format parsing."""

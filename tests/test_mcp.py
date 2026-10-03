@@ -1,12 +1,16 @@
 """Tests for MCP server functionality."""
 
 import json
+
 import pytest
+
 from src.auth.service import register_user
 from src.mcp.server import process_mcp_request
 
+
 class MockEnv:
     """Mock Cloudflare environment for testing."""
+
     def __init__(self):
         self.DB = None
         self.QUEUE = None
@@ -14,11 +18,13 @@ class MockEnv:
         self.VECTORIZE = None
         self.BUCKET = None
 
+
 @pytest.fixture
 async def mcp_user(db):
     """Create user for MCP testing."""
     user = await register_user(db, "mcpuser@example.com", "password123")
     return user, MockEnv(), db
+
 
 @pytest.mark.asyncio
 async def test_initialize(mcp_user):
@@ -28,6 +34,7 @@ async def test_initialize(mcp_user):
     res = await process_mcp_request(req, db, env, user)
     assert res["id"] == 1
     assert res["result"]["serverInfo"]["name"] == "keepfor-me-mcp"
+
 
 @pytest.mark.asyncio
 async def test_tools_list(mcp_user):
@@ -44,6 +51,7 @@ async def test_tools_list(mcp_user):
     assert "tag_item" in tool_names
     assert "delete_item" in tool_names
 
+
 @pytest.mark.asyncio
 async def test_save_and_get_tool(mcp_user):
     """Test MCP save_url and get_item tools."""
@@ -55,8 +63,8 @@ async def test_save_and_get_tool(mcp_user):
         "method": "tools/call",
         "params": {
             "name": "save_url",
-            "arguments": {"url": "https://python.org", "tags": ["python", "code"]}
-        }
+            "arguments": {"url": "https://python.org", "tags": ["python", "code"]},
+        },
     }
     res = await process_mcp_request(save_req, db, env, user)
     save_data = json.loads(res["result"]["content"][0]["text"])
@@ -68,10 +76,7 @@ async def test_save_and_get_tool(mcp_user):
         "jsonrpc": "2.0",
         "id": 4,
         "method": "tools/call",
-        "params": {
-            "name": "get_item",
-            "arguments": {"item_id": item_id}
-        }
+        "params": {"name": "get_item", "arguments": {"item_id": item_id}},
     }
     res_get = await process_mcp_request(get_req, db, env, user)
     get_data = json.loads(res_get["result"]["content"][0]["text"])

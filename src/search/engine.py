@@ -1,23 +1,27 @@
-import asyncio
 from typing import Any
+
 from src.models.db import Database
 
 RRF_K = 60  # Standard RRF constant
 
-async def search_fts(db: Database, user_id: str, query: str, limit: int = 50) -> list[dict[str, Any]]:
+
+async def search_fts(
+    db: Database, user_id: str, query: str, limit: int = 50
+) -> list[dict[str, Any]]:
     """Runs FTS5 keyword query returning ranked item_ids with snippets."""
     # Escape special FTS characters
     clean_q = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
     if not clean_q:
         return []
-    
+
     # Format for prefix matching: word1* word2*
     fts_terms = " ".join(f'"{term}"*' for term in clean_q.split() if term)
     if not fts_terms:
         return []
 
     sql = """
-        SELECT item_id, rank, snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
+        SELECT item_id, rank,
+               snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
         FROM items_fts
         WHERE items_fts MATCH ? AND user_id = ?
         ORDER BY rank
@@ -36,9 +40,17 @@ async def search_fts(db: Database, user_id: str, query: str, limit: int = 50) ->
         like_term = f"%{clean_q}%"
         return await db.query_all(fallback_sql, (user_id, like_term, like_term, limit))
 
-async def search_vectorize(env: Any, user_id: str, query: str, limit: int = 50) -> list[dict[str, Any]]:
+
+async def search_vectorize(
+    env: Any, user_id: str, query: str, limit: int = 50
+) -> list[dict[str, Any]]:
     """Generates embedding for query and searches Vectorize."""
-    if not hasattr(env, "AI") or not hasattr(env, "VECTORIZE") or env.AI is None or env.VECTORIZE is None:
+    if (
+        not hasattr(env, "AI")
+        or not hasattr(env, "VECTORIZE")
+        or env.AI is None
+        or env.VECTORIZE is None
+    ):
         return []
 
     try:
@@ -46,16 +58,17 @@ async def search_vectorize(env: Any, user_id: str, query: str, limit: int = 50) 
         raw_data = getattr(ai_res, "data", ai_res)
         if hasattr(raw_data, "to_py"):
             raw_data = raw_data.to_py()
-        embeddings = raw_data.get("data", raw_data) if isinstance(raw_data, dict) else raw_data
+        embeddings = (
+            raw_data.get("data", raw_data) if isinstance(raw_data, dict) else raw_data
+        )
         if not embeddings:
             return []
         query_vector = embeddings[0]
 
         # Vectorize query
-        vec_res = await env.VECTORIZE.query(query_vector, {
-            "topK": limit,
-            "filter": {"user_id": user_id}
-        })
+        vec_res = await env.VECTORIZE.query(
+            query_vector, {"topK": limit, "filter": {"user_id": user_id}}
+        )
         matches = getattr(vec_res, "matches", [])
         if hasattr(matches, "to_py"):
             matches = matches.to_py()
@@ -76,6 +89,7 @@ async def search_vectorize(env: Any, user_id: str, query: str, limit: int = 50) 
     except Exception:
         return []
 
+
 async def hybrid_search(
     db: Database,
     env: Any,
@@ -83,9 +97,9 @@ async def hybrid_search(
     query: str,
     mode: str = "hybrid",
     tag: str | None = None,
-    limit: int = 20
+    limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Executes hybrid search with Reciprocal Rank Fusion, with mode and tag filtering."""
+    """Execute hybrid search with Reciprocal Rank Fusion and optional filters."""
     query = query.strip()
     if not query:
         # Return recent items
@@ -129,14 +143,18 @@ async def hybrid_search(
         return []
 
     # Sort item_ids by RRF score descending
-    sorted_item_ids = [item_id for item_id, _ in sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)]
-    top_ids = sorted_item_ids[:limit * 2]  # Fetch extra in case tag filter drops some
+    sorted_item_ids = [
+        item_id
+        for item_id, _ in sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    ]
+    top_ids = sorted_item_ids[: limit * 2]  # Fetch extra in case tag filter drops some
 
     # Fetch full item details from D1
     placeholders = ",".join("?" for _ in top_ids)
     sql = f"""
-        SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name, 
-               i.published_date, i.excerpt, i.status, i.is_fallback, i.word_count, i.created_at
+        SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
+               i.published_date, i.excerpt, i.status, i.is_fallback,
+               i.word_count, i.created_at
         FROM items i
         WHERE i.id IN ({placeholders}) AND i.user_id = ?;
     """
@@ -172,12 +190,16 @@ async def hybrid_search(
 
     return final_items
 
-async def get_recent_items(db: Database, user_id: str, tag: str | None = None, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
+
+async def get_recent_items(
+    db: Database, user_id: str, tag: str | None = None, limit: int = 20, offset: int = 0
+) -> list[dict[str, Any]]:
     """Retrieves recent items for user with pagination and optional tag filtering."""
     if tag:
         sql = """
             SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
-                   i.published_date, i.excerpt, i.status, i.is_fallback, i.word_count, i.created_at
+                    i.published_date, i.excerpt, i.status, i.is_fallback,
+                    i.word_count, i.created_at
             FROM items i
             JOIN item_tags it ON i.id = it.item_id
             JOIN tags t ON it.tag_id = t.id

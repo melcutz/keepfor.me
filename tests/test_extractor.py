@@ -1,7 +1,7 @@
 """Tests for HTML extraction and sanitization."""
 
-import pytest
-from src.consumer.extractor import sanitize_clean_html, extract_article
+from src.consumer.extractor import extract_article, sanitize_clean_html
+
 
 def test_sanitize_html():
     """Test HTML sanitization removes scripts and dangerous attributes."""
@@ -9,7 +9,8 @@ def test_sanitize_html():
     <div>
         <h1>Clean Header</h1>
         <script>alert('xss');</script>
-        <p>Clean paragraph with <a href="https://example.com" onclick="steal()">link</a>.</p>
+        <p>Clean paragraph with <a href="https://example.com"
+        onclick="steal()">link</a>.</p>
         <iframe src="https://evil.com"></iframe>
     </div>
     """
@@ -19,6 +20,7 @@ def test_sanitize_html():
     assert "onclick" not in clean
     assert "<h1>Clean Header</h1>" in clean
     assert 'href="https://example.com"' in clean
+
 
 def test_fallback_when_empty_body():
     """Test extraction uses OpenGraph metadata when body is empty."""

@@ -1,13 +1,15 @@
 """Pytest configuration and shared fixtures."""
 
-import pytest
-import sqlite3
 import os
+import sqlite3
 import tempfile
 from typing import AsyncGenerator
 
+import pytest
+
 from src.models.db import Database
 from src.utils.logging import clear_context
+
 
 @pytest.fixture
 def db_path() -> str:
@@ -19,45 +21,43 @@ def db_path() -> str:
     if os.path.exists(path):
         os.remove(path)
 
+
 @pytest.fixture
 def sqlite_conn(db_path: str) -> sqlite3.Connection:
     """Create and initialize SQLite connection with schema."""
     # Use check_same_thread=False to allow async code to use the connection
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    
+
     # Apply schema
     schema_path = os.path.join(
-        os.path.dirname(__file__), 
-        "..", 
-        "migrations", 
-        "0001_initial_schema.sql"
+        os.path.dirname(__file__), "..", "migrations", "0001_initial_schema.sql"
     )
-    
+
     if os.path.exists(schema_path):
-        with open(schema_path, 'r') as f:
+        with open(schema_path, "r") as f:
             schema = f.read()
             # Split by semicolon and execute each statement
-            for statement in schema.split(';'):
+            for statement in schema.split(";"):
                 if statement.strip():
                     conn.execute(statement)
             conn.commit()
-    
+
     yield conn
     conn.close()
+
 
 @pytest.fixture
 def db(sqlite_conn: sqlite3.Connection) -> Database:
     """Create Database instance wrapping SQLite connection."""
     return Database(sqlite_conn=sqlite_conn)
 
+
 @pytest.fixture
 def test_user_data() -> dict:
     """Standard test user data."""
-    return {
-        "email": "test@example.com",
-        "password": "test_password_123"
-    }
+    return {"email": "test@example.com", "password": "test_password_123"}
+
 
 @pytest.fixture
 def test_item_data() -> dict:
@@ -73,12 +73,14 @@ def test_item_data() -> dict:
         "word_count": 4,
     }
 
+
 @pytest.fixture(autouse=True)
 def clear_logging_context():
     """Clear logging context before each test."""
     clear_context()
     yield
     clear_context()
+
 
 @pytest.fixture
 async def async_db(sqlite_conn: sqlite3.Connection) -> AsyncGenerator[Database, None]:

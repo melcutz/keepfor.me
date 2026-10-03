@@ -1,26 +1,42 @@
 """Tests for database and authentication services."""
 
 import pytest
+
 from src.auth.service import (
-    register_user, login_user, validate_session, logout_session,
-    create_pat, validate_pat, list_pats, delete_pat, RegistrationClosedError
+    RegistrationClosedError,
+    create_pat,
+    delete_pat,
+    list_pats,
+    login_user,
+    logout_session,
+    register_user,
+    validate_pat,
+    validate_session,
 )
+
 
 @pytest.mark.asyncio
 async def test_first_user_admin_claim_and_lockout(db):
     """Test that first user claims admin role and public registration is locked."""
     # 1. First user registers -> claims admin
-    admin = await register_user(db, "admin@keepfor.me", "password123", allow_public_signups=False)
+    admin = await register_user(
+        db, "admin@keepfor.me", "password123", allow_public_signups=False
+    )
     assert admin["role"] == "admin"
     assert admin["email"] == "admin@keepfor.me"
 
     # 2. Second user attempts registration -> blocked
     with pytest.raises(RegistrationClosedError):
-        await register_user(db, "intruder@keepfor.me", "password123", allow_public_signups=False)
+        await register_user(
+            db, "intruder@keepfor.me", "password123", allow_public_signups=False
+        )
 
     # 3. If allow_public_signups=True -> allowed as user
-    user2 = await register_user(db, "friend@keepfor.me", "password123", allow_public_signups=True)
+    user2 = await register_user(
+        db, "friend@keepfor.me", "password123", allow_public_signups=True
+    )
     assert user2["role"] == "user"
+
 
 @pytest.mark.asyncio
 async def test_session_lifecycle(db):
@@ -38,6 +54,7 @@ async def test_session_lifecycle(db):
     await logout_session(db, session_id)
     logged_out = await validate_session(db, session_id)
     assert logged_out is None
+
 
 @pytest.mark.asyncio
 async def test_pat_lifecycle(db):

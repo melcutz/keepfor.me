@@ -1,16 +1,33 @@
-from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 TRACKING_PARAMS = {
-    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-    "ref", "ref_src", "ref_url",
-    "fbclid", "gclid", "gclsrc", "dclid",
-    "mc_cid", "mc_eid",
-    "igshid", "si", "spm", "_hsenc", "_hsmi",
-    "yclid", "_ga", "_gl"
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "ref",
+    "ref_src",
+    "ref_url",
+    "fbclid",
+    "gclid",
+    "gclsrc",
+    "dclid",
+    "mc_cid",
+    "mc_eid",
+    "igshid",
+    "si",
+    "spm",
+    "_hsenc",
+    "_hsmi",
+    "yclid",
+    "_ga",
+    "_gl",
 }
 
+
 def canonicalize_url(url: str) -> str:
-    """Canonicalizes a URL by lowercasing host, removing default ports and tracking parameters."""
+    """Canonicalize a URL, removing default ports and tracking parameters."""
     url = url.strip()
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
@@ -28,7 +45,8 @@ def canonicalize_url(url: str) -> str:
     # Filter query parameters
     query_pairs = parse_qsl(parsed.query, keep_blank_values=False)
     filtered_pairs = [
-        (k, v) for k, v in query_pairs 
+        (k, v)
+        for k, v in query_pairs
         if k.lower() not in TRACKING_PARAMS and not k.lower().startswith("utm_")
     ]
     # Sort query params for deterministic canonical URL

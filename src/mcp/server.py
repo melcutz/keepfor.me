@@ -1,58 +1,101 @@
 import json
 from typing import Any
-from src.models.items import save_item, get_item, delete_item, add_tags_to_item, remove_tags_from_item
-from src.search.engine import hybrid_search, get_recent_items
+
 from src.models.db import Database
+from src.models.items import (
+    add_tags_to_item,
+    delete_item,
+    get_item,
+    remove_tags_from_item,
+    save_item,
+)
+from src.search.engine import get_recent_items, hybrid_search
 
 MCP_TOOLS = [
     {
         "name": "save_url",
-        "description": "Saves a URL to the user's personal library and enqueues it for content extraction and semantic indexing.",
+        "description": "Saves a URL to the user's personal library and enqueues "
+        "it for content extraction and semantic indexing.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "url": {"type": "string", "description": "The webpage or article URL to save."},
-                "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional list of tags."}
+                "url": {
+                    "type": "string",
+                    "description": "The webpage or article URL to save.",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of tags.",
+                },
             },
-            "required": ["url"]
-        }
+            "required": ["url"],
+        },
     },
     {
         "name": "search_library",
-        "description": "Searches the library by keyword and meaning using hybrid search (FTS5 + Vectorize).",
+        "description": "Searches the library by keyword and meaning using "
+        "hybrid search (FTS5 + Vectorize).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search query terms or semantic question."},
-                "mode": {"type": "string", "enum": ["hybrid", "keyword", "semantic"], "default": "hybrid"},
-                "tag": {"type": "string", "description": "Filter results by a specific tag."},
-                "limit": {"type": "integer", "default": 10, "description": "Max results to return."}
+                "query": {
+                    "type": "string",
+                    "description": "Search query terms or semantic question.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["hybrid", "keyword", "semantic"],
+                    "default": "hybrid",
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Filter results by a specific tag.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Max results to return.",
+                },
             },
-            "required": ["query"]
-        }
+            "required": ["query"],
+        },
     },
     {
         "name": "get_item",
-        "description": "Retrieves the full extracted text content and metadata of a saved article by item ID.",
+        "description": "Retrieves the full extracted text content and metadata "
+        "of a saved article by item ID.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "item_id": {"type": "string", "description": "The unique ID of the library item."}
+                "item_id": {
+                    "type": "string",
+                    "description": "The unique ID of the library item.",
+                }
             },
-            "required": ["item_id"]
-        }
+            "required": ["item_id"],
+        },
     },
     {
         "name": "list_items",
-        "description": "Lists recent items from the library with pagination and tag filtering.",
+        "description": "Lists recent items from the library with pagination "
+        "and tag filtering.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "tag": {"type": "string", "description": "Filter by tag."},
-                "limit": {"type": "integer", "default": 20, "description": "Number of items to return."},
-                "offset": {"type": "integer", "default": 0, "description": "Pagination offset."}
-            }
-        }
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Number of items to return.",
+                },
+                "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Pagination offset.",
+                },
+            },
+        },
     },
     {
         "name": "tag_item",
@@ -61,26 +104,45 @@ MCP_TOOLS = [
             "type": "object",
             "properties": {
                 "item_id": {"type": "string", "description": "The library item ID."},
-                "add_tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to add."},
-                "remove_tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to remove."}
+                "add_tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to add.",
+                },
+                "remove_tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to remove.",
+                },
             },
-            "required": ["item_id"]
-        }
+            "required": ["item_id"],
+        },
     },
     {
         "name": "delete_item",
-        "description": "Permanently deletes an item, its raw/clean snapshots, and its vector embeddings.",
+        "description": "Permanently deletes an item, its raw/clean snapshots, "
+        "and its vector embeddings.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "item_id": {"type": "string", "description": "The library item ID to delete."}
+                "item_id": {
+                    "type": "string",
+                    "description": "The library item ID to delete.",
+                }
             },
-            "required": ["item_id"]
-        }
-    }
+            "required": ["item_id"],
+        },
+    },
 ]
 
-async def handle_tool_call(tool_name: str, arguments: dict[str, Any], db: Database, env: Any, user: dict[str, Any]) -> Any:
+
+async def handle_tool_call(
+    tool_name: str,
+    arguments: dict[str, Any],
+    db: Database,
+    env: Any,
+    user: dict[str, Any],
+) -> Any:
     user_id = user["id"]
 
     if tool_name == "save_url":
@@ -92,7 +154,9 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any], db: Databa
             "url": item["url"],
             "status": item["status"],
             "is_new": is_new,
-            "message": "URL saved and enqueued for extraction." if is_new else "Existing URL updated with tags."
+            "message": "URL saved and enqueued for extraction."
+            if is_new
+            else "Existing URL updated with tags.",
         }
 
     elif tool_name == "search_library":
@@ -100,7 +164,9 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any], db: Databa
         mode = arguments.get("mode", "hybrid")
         tag = arguments.get("tag")
         limit = arguments.get("limit", 10)
-        items = await hybrid_search(db, env, user_id, query, mode=mode, tag=tag, limit=limit)
+        items = await hybrid_search(
+            db, env, user_id, query, mode=mode, tag=tag, limit=limit
+        )
         return [
             {
                 "id": it["id"],
@@ -109,7 +175,7 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any], db: Databa
                 "excerpt": it.get("snippet") or it.get("excerpt"),
                 "tags": it.get("tags", []),
                 "status": it.get("status"),
-                "rrf_score": it.get("rrf_score")
+                "rrf_score": it.get("rrf_score"),
             }
             for it in items
         ]
@@ -128,7 +194,7 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any], db: Databa
             "site_name": item.get("site_name"),
             "word_count": item.get("word_count"),
             "tags": item.get("tags", []),
-            "content_text": item.get("content_text") or item.get("excerpt") or ""
+            "content_text": item.get("content_text") or item.get("excerpt") or "",
         }
 
     elif tool_name == "list_items":
@@ -143,7 +209,7 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any], db: Databa
                 "url": it["url"],
                 "excerpt": it.get("excerpt"),
                 "tags": it.get("tags", []),
-                "status": it.get("status")
+                "status": it.get("status"),
             }
             for it in items
         ]
@@ -167,7 +233,10 @@ async def handle_tool_call(tool_name: str, arguments: dict[str, Any], db: Databa
     else:
         raise ValueError(f"Unknown tool: {tool_name}")
 
-async def process_mcp_request(body: dict[str, Any], db: Database, env: Any, user: dict[str, Any]) -> dict[str, Any]:
+
+async def process_mcp_request(
+    body: dict[str, Any], db: Database, env: Any, user: dict[str, Any]
+) -> dict[str, Any]:
     """Handles an incoming JSON-RPC 2.0 MCP request."""
     method = body.get("method")
     req_id = body.get("id")
@@ -178,24 +247,13 @@ async def process_mcp_request(body: dict[str, Any], db: Database, env: Any, user
             "id": req_id,
             "result": {
                 "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "tools": {"listChanged": False}
-                },
-                "serverInfo": {
-                    "name": "keepfor-me-mcp",
-                    "version": "0.1.0"
-                }
-            }
+                "capabilities": {"tools": {"listChanged": False}},
+                "serverInfo": {"name": "keepfor-me-mcp", "version": "0.1.0"},
+            },
         }
 
     elif method == "tools/list":
-        return {
-            "jsonrpc": "2.0",
-            "id": req_id,
-            "result": {
-                "tools": MCP_TOOLS
-            }
-        }
+        return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": MCP_TOOLS}}
 
     elif method == "tools/call":
         params = body.get("params", {})
@@ -210,27 +268,21 @@ async def process_mcp_request(body: dict[str, Any], db: Database, env: Any, user
                     "content": [
                         {
                             "type": "text",
-                            "text": json.dumps(res, indent=2, ensure_ascii=False)
+                            "text": json.dumps(res, indent=2, ensure_ascii=False),
                         }
                     ]
-                }
+                },
             }
         except Exception as exc:
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "error": {
-                    "code": -32603,
-                    "message": str(exc)
-                }
+                "error": {"code": -32603, "message": str(exc)},
             }
 
     else:
         return {
             "jsonrpc": "2.0",
             "id": req_id,
-            "error": {
-                "code": -32601,
-                "message": f"Method '{method}' not found"
-            }
+            "error": {"code": -32601, "message": f"Method '{method}' not found"},
         }

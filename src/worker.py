@@ -15,9 +15,12 @@ except ImportError:
     # Local runtime / testing fallback
     pass
 
+
 async def on_fetch(request, env):
     from workers import asgi
+
     return await asgi.fetch(app, request, env)
+
 
 async def on_queue(batch, env):
     await process_queue_batch(batch, env)

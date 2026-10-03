@@ -1,7 +1,13 @@
 """Tests for authentication cryptography utilities."""
 
-import pytest
-from src.auth.crypto import hash_password, verify_password, generate_pat, hash_token, generate_session_token
+from src.auth.crypto import (
+    generate_pat,
+    generate_session_token,
+    hash_password,
+    hash_token,
+    verify_password,
+)
+
 
 def test_password_hashing():
     """Test password hashing and verification."""
@@ -10,12 +16,14 @@ def test_password_hashing():
     assert verify_password(pw, hashed)
     assert not verify_password("wrongpassword", hashed)
 
+
 def test_pat_generation():
     """Test PAT generation and hashing."""
     raw, token_hash = generate_pat()
     assert raw.startswith("kfm_live_")
     assert hash_token(raw) == token_hash
     assert raw != token_hash
+
 
 def test_session_token():
     """Test session token generation uniqueness and length."""
