@@ -134,7 +134,9 @@ def get_env_from_request(request: Request) -> Any:
 
 def get_db(request: Request) -> Database:
     env = get_env_from_request(request)
-    d1 = getattr(env, "DB", None) if env else None
+    d1 = None
+    if env:
+        d1 = getattr(env, "DB", None) or getattr(env, "keepfor_me_db", None) or getattr(env, "D1", None)
     return Database(d1_binding=d1)
 
 

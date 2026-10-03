@@ -57,7 +57,8 @@ async def fetch_page_html(url: str) -> str:
 
 async def process_single_item(item_id: str, url: str, env: Any) -> None:
     """Fetch, extract, upload snapshots to R2, and update D1 and Vectorize."""
-    db = Database(env.DB)
+    d1 = getattr(env, "DB", None) or getattr(env, "keepfor_me_db", None) or getattr(env, "D1", None)
+    db = Database(d1_binding=d1)
 
     # Fetch user_id for this item
     item_row = await db.query_first(

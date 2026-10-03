@@ -37,6 +37,7 @@
 		{
 			"binding": "keepfor_me_db",
 			"database_name": "keepfor-me-db",
+			"database_id": "46107ebb-e820-41e2-92f1-089c7eac4fbf",
 			"remote": true
 		}
 	],
