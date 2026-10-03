@@ -46,9 +46,20 @@ async def save_item(
     if tags:
         await add_tags_to_item(db, user_id, item_id, tags)
 
-    # Enqueue extraction job
-    if hasattr(env, "QUEUE") and env.QUEUE is not None:
-        await env.QUEUE.send({"item_id": item_id, "url": clean_url})
+    # Enqueue extraction job; without a queue binding (local dev without
+    # queue delivery, tests) extract inline so items never stick in 'queued'.
+    queue = getattr(env, "QUEUE", None) if env is not None else None
+    if queue is not None:
+        await queue.send({"item_id": item_id, "url": clean_url})
+    else:
+        try:
+            from src.consumer.processor import extract_and_store
+
+            await extract_and_store(db, env, item_id, clean_url)
+        except Exception as exc:
+            # extract_and_store already marked the item failed in D1;
+            # never fail the save itself because of extraction.
+            logger.warning(f"Inline extraction failed: item={item_id}: {exc}")
 
     logger.info(f"New item saved: {item_id}, user: {user_id}, url: {clean_url}")
     return {
@@ -148,6 +159,13 @@ async def get_item_clean_html(
             pass
 
     # Fallback to plain text / excerpt formatted into HTML paragraphs
+    if item.get("status") == "failed":
+        reason = item.get("fail_reason") or "unknown error"
+        return (
+            f"<h1>{item.get('title', item['url'])}</h1>"
+            f"<p>Content extraction failed: {reason}</p>"
+            f"<p><a href='{item['url']}' target='_blank'>Visit original link</a></p>"
+        )
     text = (
         item.get("content_text")
         or item.get("excerpt")

@@ -55,16 +55,14 @@ async def fetch_page_html(url: str) -> str:
         return await loop.run_in_executor(None, _sync_fetch)
 
 
-async def process_single_item(item_id: str, url: str, env: Any) -> None:
-    """Fetch, extract, upload snapshots to R2, and update D1 and Vectorize."""
-    d1 = (
-        getattr(env, "DB", None)
-        or getattr(env, "keepfor_me_db", None)
-        or getattr(env, "D1", None)
-    )
-    db = Database(d1_binding=d1)
+async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> None:
+    """Fetch, extract, upload snapshots to R2, and update D1 and Vectorize.
 
-    # Fetch user_id for this item
+    Shared core used by both the queue consumer (via process_single_item,
+    which builds Database from the D1 binding) and the synchronous inline
+    fallback in save_item (which reuses the caller's Database handle).
+    On failure the item is marked failed in D1 and the error re-raised.
+    """
     item_row = await db.query_first(
         "SELECT user_id, title FROM items WHERE id = ?;", (item_id,)
     )
@@ -197,6 +195,17 @@ async def process_single_item(item_id: str, url: str, env: Any) -> None:
             f"Extraction failed: item={item_id}, error={str(exc)}", exc_info=exc
         )
         raise exc
+
+
+async def process_single_item(item_id: str, url: str, env: Any) -> None:
+    """Queue-consumer entry point: builds Database from the D1 binding."""
+    d1 = (
+        getattr(env, "DB", None)
+        or getattr(env, "keepfor_me_db", None)
+        or getattr(env, "D1", None)
+    )
+    db = Database(d1_binding=d1)
+    await extract_and_store(db, env, item_id, url)
 
 
 async def process_queue_batch(batch: Any, env: Any) -> None:

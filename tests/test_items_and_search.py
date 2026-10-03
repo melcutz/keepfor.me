@@ -7,12 +7,22 @@ from src.models.items import delete_item, get_item, save_item
 from src.search.engine import hybrid_search
 
 
+class FakeQueue:
+    """In-test queue: records sends without delivery."""
+
+    def __init__(self):
+        self.sent: list[dict] = []
+
+    async def send(self, message: dict) -> None:
+        self.sent.append(message)
+
+
 class MockEnv:
     """Mock Cloudflare environment for testing."""
 
     def __init__(self):
         self.DB = None
-        self.QUEUE = None
+        self.QUEUE = FakeQueue()
         self.AI = None
         self.VECTORIZE = None
         self.BUCKET = None
@@ -94,3 +104,62 @@ async def test_delete_item(user_with_env):
 
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched is None
+
+
+@pytest.mark.asyncio
+async def test_save_enqueues_extraction_job(user_with_env):
+    """Saving with a queue binding enqueues instead of extracting inline."""
+    user, env, db = user_with_env
+    item, is_new = await save_item(db, env, user["id"], "https://example.com/q")
+    assert is_new
+    assert item["status"] == "queued"
+    assert len(env.QUEUE.sent) == 1
+    assert env.QUEUE.sent[0]["item_id"] == item["id"]
+
+
+@pytest.mark.asyncio
+async def test_save_without_queue_extracts_inline(user_with_env, monkeypatch):
+    """No queue binding must not leave items stuck in 'queued'."""
+    user, env, db = user_with_env
+    env.QUEUE = None
+    html = (
+        "<html><head><title>Inline Article</title>"
+        '<meta property="og:site_name" content="Example">'
+        '<meta property="og:description" content="An inline excerpt.">'
+        "</head><body><p>body text here</p></body></html>"
+    )
+
+    async def fake_fetch(url: str) -> str:
+        return html
+
+    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    item, is_new = await save_item(
+        db, env, user["id"], "https://example.com/inline", []
+    )
+    assert is_new
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "ok"
+    assert fetched["title"] == "Inline Article"
+    assert fetched["site_name"] == "Example"
+    fts = await db.query_first(
+        "SELECT title FROM items_fts WHERE item_id = ?;", (item["id"],)
+    )
+    assert fts is not None
+
+
+@pytest.mark.asyncio
+async def test_save_without_queue_marks_failed_on_fetch_error(
+    user_with_env, monkeypatch
+):
+    """Inline extraction failure surfaces as failed, never stuck extracting."""
+    user, env, db = user_with_env
+    env.QUEUE = None
+
+    async def boom(url: str) -> str:
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr("src.consumer.processor.fetch_page_html", boom)
+    item, _ = await save_item(db, env, user["id"], "https://example.com/broken", [])
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "failed"
+    assert "connection refused" in (fetched["fail_reason"] or "")

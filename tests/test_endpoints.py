@@ -9,12 +9,22 @@ from src.models.items import save_item
 
 
 # Mock environment for testing
+class FakeQueue:
+    """In-test queue: records sends without delivery."""
+
+    def __init__(self):
+        self.sent: list[dict] = []
+
+    async def send(self, message: dict) -> None:
+        self.sent.append(message)
+
+
 class MockEnv:
     """Mock Cloudflare environment for endpoint testing."""
 
     def __init__(self, sqlite_conn=None):
         self.DB = None  # D1 binding stays None for tests
-        self.QUEUE = None
+        self.QUEUE = FakeQueue()
         self.AI = None
         self.VECTORIZE = None
         self.BUCKET = None
@@ -30,6 +40,9 @@ def client(db, monkeypatch):
         return db
 
     monkeypatch.setattr("src.app.get_db", mock_get_db)
+    # Pin a queue-bearing env so request handlers enqueue instead of
+    # extracting inline over the real network (TestClient scope has no env).
+    monkeypatch.setattr("src.app.get_env_from_request", lambda request: MockEnv())
 
     return TestClient(app)
 
@@ -295,7 +308,7 @@ async def test_api_delete_item(client, db, auth_headers):
 
 @pytest.mark.asyncio
 async def test_import_csv_bookmarks(client, db, auth_headers):
-    """Test CSV bookmark import."""
+    """Test CSV bookmark import via file upload."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
 
     csv_content = """url,title,tags
@@ -303,23 +316,28 @@ https://example.com/1,Example One,"tech,news"
 https://example.com/2,Example Two,python
 """
 
-    response = client.post("/import", data={"content": csv_content, "format": "csv"})
+    response = client.post(
+        "/import", files={"file": ("bookmarks.csv", csv_content, "text/csv")}
+    )
     assert response.status_code in [200, 303, 307, 308]
 
 
 @pytest.mark.asyncio
 async def test_import_netscape_bookmarks(client, db, auth_headers):
-    """Test Netscape HTML bookmark import."""
+    """Test Netscape HTML bookmark import via file upload."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
 
     html_content = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
     <DL><p>
-        <DT><A HREF="https://example.com/1" TAGS="tech">Example One</A>
+        <DT><H3>Tech</H3>
+        <DL><p>
+            <DT><A HREF="https://example.com/1" TAGS="tech">Example One</A>
+        </DL><p>
     </DL><p>
 """
 
     response = client.post(
-        "/import", data={"content": html_content, "format": "netscape"}
+        "/import", files={"file": ("bookmarks.html", html_content, "text/html")}
     )
     assert response.status_code in [200, 303, 307, 308]
 
@@ -341,14 +359,14 @@ async def test_settings_page(client, db, auth_headers):
 
 @pytest.mark.asyncio
 async def test_create_pat(client, db, auth_headers):
-    """Test creating personal access token."""
+    """Test creating personal access token re-renders settings with the token."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
 
     response = client.post("/settings/tokens", data={"name": "My API Token"})
-    assert response.status_code in [200, 201]
-    data = response.json()
-    assert "token" in data
-    assert data["token"].startswith("kfm_live_")
+    assert response.status_code == 200
+    assert "kfm_live_" in response.text
+    assert "New Personal Access Token" in response.text
+    assert "My API Token" in response.text
 
 
 @pytest.mark.asyncio
@@ -482,7 +500,9 @@ async def test_search_results_show_favicons_and_tag_colors(client, db, auth_head
     from src.models.items import save_item
 
     user = auth_headers["admin_user"]
-    await save_item(db, None, user["id"], "https://example.com/article", ["design"])
+    await save_item(
+        db, MockEnv(), user["id"], "https://example.com/article", ["design"]
+    )
     client.cookies["kfm_session"] = auth_headers["admin_session"]
 
     response = client.post("/search", data={"query": "", "mode": "keyword", "tag": ""})

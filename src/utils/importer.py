@@ -10,7 +10,11 @@ from src.models.items import save_item
 
 
 def parse_netscape_bookmarks(html_content: str) -> list[dict[str, Any]]:
-    """Parse Netscape Bookmark HTML exported by Pocket, Omnivore, or browsers."""
+    """Parse Netscape Bookmark HTML exported by Pocket, Omnivore, or browsers.
+
+    Browser exports group links under <H3> folder headers; the enclosing
+    folder name is kept as a tag so Chrome categories survive the import.
+    """
     soup = BeautifulSoup(html_content, "html.parser")
     bookmarks = []
 
@@ -21,6 +25,11 @@ def parse_netscape_bookmarks(html_content: str) -> list[dict[str, Any]]:
         title = a.get_text().strip() or href
         tags_raw = a.get("tags") or ""
         tags = [t.strip().lower() for t in tags_raw.split(",") if t.strip()]
+        folder_header = a.find_previous("h3")
+        if folder_header:
+            folder = folder_header.get_text().strip().lower()
+            if folder and folder not in tags:
+                tags.append(folder)
         bookmarks.append({"url": href, "title": title, "tags": tags})
     return bookmarks
 

@@ -125,7 +125,7 @@ Keepfor.me provides a full Model Context Protocol server exposing 6 tools:
 ## Browser Capture
 
 ### 1. Drag-and-Drop Bookmarklet
-Go to **Settings** in the Keepfor.me UI and drag the **📚 Save to Keepfor.me** button to your browser's bookmarks bar. Click it on any page to open a quick-save dialog.
+Go to **Settings** in the Keepfor.me UI and drag the **Keepfor.me** button to your browser's bookmarks bar. Click it on any page to open a quick-save dialog.
 
 ### 2. Browser Extension (Manifest V3)
 1. Open Chrome/Brave/Edge and navigate to `chrome://extensions/`.

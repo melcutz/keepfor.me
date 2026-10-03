@@ -34,3 +34,28 @@ https://fastapi.tiangolo.com,FastAPI Framework,python
     assert len(bookmarks) == 2
     assert bookmarks[0]["url"] == "https://blog.cloudflare.com/workers"
     assert bookmarks[0]["tags"] == ["cloudflare", "serverless"]
+
+
+def test_parse_chrome_folders_become_tags():
+    """Chrome exports group links under H3 folders; folders become tags."""
+    html = """
+    <!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <TITLE>Bookmarks</TITLE>
+    <H1>Bookmarks</H1>
+    <DL><p>
+        <DT><H3 ADD_DATE="1700000000">News</H3>
+        <DL><p>
+            <DT><A HREF="https://example.com/a">Article A</A>
+            <DT><A HREF="https://example.com/b">Article B</A>
+        </DL><p>
+        <DT><H3 ADD_DATE="1700000001">Recipes</H3>
+        <DL><p>
+            <DT><A HREF="https://example.com/c">Cake</A>
+        </DL><p>
+    </DL><p>
+    """
+    bookmarks = parse_netscape_bookmarks(html)
+    assert len(bookmarks) == 3
+    assert bookmarks[0]["tags"] == ["news"]
+    assert bookmarks[1]["tags"] == ["news"]
+    assert bookmarks[2]["tags"] == ["recipes"]

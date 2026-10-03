@@ -6,10 +6,12 @@ from urllib.parse import urlencode
 
 from fastapi import (
     FastAPI,
+    File,
     Form,
     HTTPException,
     Request,
     Response,
+    UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -323,7 +325,7 @@ async def settings_page(request: Request, new_token: str | None = None):
     return HTMLResponse(content=html)
 
 
-@app.post("/settings/tokens")
+@app.post("/settings/tokens", response_class=HTMLResponse)
 async def create_token_route(request: Request, name: str = Form(...)):
     user = await require_user(request)
     db = get_db(request)
@@ -332,10 +334,17 @@ async def create_token_route(request: Request, name: str = Form(...)):
         validated = CreatePATRequest(name=name)
     except Exception as e:
         logger.warning(f"PAT creation validation failed: {e}")
-        return JSONResponse(content={"error": "Invalid token name"}, status_code=400)
+        return RedirectResponse(url="/settings", status_code=303)
 
     res = await create_pat(db, user["id"], validated.name)
-    return JSONResponse(content=res, status_code=201)
+    # Re-render settings with the new token visible (raw token is shown once).
+    pats = await list_pats(db, user["id"])
+    base_url = str(request.base_url).rstrip("/")
+    template = jinja_env.get_template("settings.html")
+    html = template.render(
+        current_user=user, pats=pats, new_token=res["token"], base_url=base_url
+    )
+    return HTMLResponse(content=html)
 
 
 @app.post("/settings/tokens/{pat_id}/delete")
@@ -347,20 +356,20 @@ async def delete_token_route(request: Request, pat_id: str):
 
 
 @app.post("/import")
-async def import_route(
-    request: Request, content: str = Form(...), format: str = Form("csv")
-):
+async def import_route(request: Request, file: UploadFile = File(...)):
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
 
-    # Validate format
-    if format not in ["csv", "netscape"]:
-        raise HTTPException(
-            status_code=400, detail="Invalid format. Must be 'csv' or 'netscape'"
-        )
+    # The settings form uploads the export file directly (multipart).
+    raw = await file.read()
+    if not raw or len(raw) > 10 * 1024 * 1024:
+        return RedirectResponse(url="/settings", status_code=303)
+    content = raw.decode("utf-8", errors="replace")
 
-    if format == "csv":
+    # CSV by file extension, Netscape HTML otherwise (Chrome/Pocket/Omnivore).
+    filename = (file.filename or "").lower()
+    if filename.endswith(".csv"):
         bookmarks = parse_csv_bookmarks(content)
     else:
         bookmarks = parse_netscape_bookmarks(content)

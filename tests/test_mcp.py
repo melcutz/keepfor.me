@@ -8,12 +8,22 @@ from src.auth.service import register_user
 from src.mcp.server import process_mcp_request
 
 
+class FakeQueue:
+    """In-test queue: records sends without delivery."""
+
+    def __init__(self):
+        self.sent: list[dict] = []
+
+    async def send(self, message: dict) -> None:
+        self.sent.append(message)
+
+
 class MockEnv:
     """Mock Cloudflare environment for testing."""
 
     def __init__(self):
         self.DB = None
-        self.QUEUE = None
+        self.QUEUE = FakeQueue()
         self.AI = None
         self.VECTORIZE = None
         self.BUCKET = None
