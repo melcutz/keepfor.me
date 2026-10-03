@@ -255,8 +255,11 @@ async def reader_page(request: Request, item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
 
     clean_html = await get_item_clean_html(db, env, user["id"], item_id)
+    tag_styles = tag_styles_for(item.get("tags") or [])
     template = jinja_env.get_template("reader.html")
-    html = template.render(current_user=user, item=item, clean_html=clean_html)
+    html = template.render(
+        current_user=user, item=item, clean_html=clean_html, tag_styles=tag_styles
+    )
     return HTMLResponse(content=html)
 
 
