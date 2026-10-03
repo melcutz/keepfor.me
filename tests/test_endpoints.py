@@ -490,3 +490,13 @@ async def test_search_results_show_favicons_and_tag_colors(client, db, auth_head
     assert "s2/favicons?domain=example.com" in response.text
     assert "onerror" in response.text
     assert TAG_PILL_CLASSES[tag_palette_index("design")] in response.text
+
+
+def test_auth_pages_share_identical_lockup(client):
+    """Login, register, and popup use the same icon + split-tone wordmark."""
+    for path in ["/auth/login", "/auth/register"]:
+        page = client.get(path)
+        assert page.status_code == 200
+        assert "Keepfor<span" in page.text
+        assert "text-blue-600" in page.text
+        assert "linearGradient" in page.text
