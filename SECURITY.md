@@ -38,11 +38,19 @@ Fixes land on `main` and reach a deployment on the next push (see
 These are real and current. None are hidden, and none are silently mitigated in
 production.
 
-- **No rate limiting on authentication.** `/auth/login` has no attempt
-  counter, lockout, or delay. Passwords are strong-hashed, but an attacker with
-  network access to your deployment can make unlimited guesses. Restrict access
-  at the network layer (Cloudflare Access, IP allowlist) if the deployment is
-  reachable from the public internet.
+- **Login attempts are rate limited.** `/auth/login` and `/auth/register` throttle
+  failed attempts, tracked in D1 so the limit is shared across all Worker
+  isolates (see `src/utils/rate_limit.py`). Two independent caps apply: **20
+  failures per IP** and **10 failures per account** per 15-minute window. The
+  account cap is what stops distributed credential stuffing, and it holds even
+  when the attacker rotates IPs. Only failures count, and a successful sign-in
+  clears the account counter, so ordinary typos never lock anyone out. Blocked
+  attempts return `429` with `Retry-After`, and the check runs *before* PBKDF2 so
+  a throttled client cannot burn CPU on password hashing.
+
+  Rate limiting raises the cost of guessing; it does not eliminate it. If the
+  deployment must not be brute-forced at all, put Cloudflare Access in front of
+  it.
 - **Cross-origin requests are refused by default.** The app sends **no CORS
   headers**, so the browser's same-origin policy applies: another site cannot
   read this API. An earlier version ran `CORSMiddleware` with

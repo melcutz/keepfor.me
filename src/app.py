@@ -58,6 +58,12 @@ from src.utils.importer import (
     parse_netscape_bookmarks,
 )
 from src.utils.logging import get_request_id, logger
+from src.utils.rate_limit import (
+    check_allowed,
+    clear_account,
+    rate_limited_html,
+    record_failure,
+)
 
 # Initialize Jinja2 templates
 templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
@@ -665,6 +671,15 @@ async def login_post(
     next: str = Form(""),
 ):
     db = get_db(request)
+    # Throttle BEFORE hashing: PBKDF2 is deliberately expensive, so a blocked
+    # client must not be allowed to make us do the work.
+    limit = await check_allowed(db, request.headers, email)
+    if not limit.allowed:
+        return HTMLResponse(
+            content=rate_limited_html(limit.retry_after),
+            status_code=429,
+            headers={"Retry-After": str(limit.retry_after)},
+        )
     # Validate input with model
     try:
         validated = LoginRequest(email=email, password=password)
@@ -678,6 +693,9 @@ async def login_post(
 
     try:
         user, session_id = await login_user(db, validated.email, validated.password)
+        # A successful sign-in clears the account counter so a legitimate user
+        # who mistyped a few times is never locked out.
+        await clear_account(db, validated.email)
         resp = RedirectResponse(url=_safe_next(next), status_code=303)
         resp.set_cookie(
             key="kfm_session",
@@ -689,6 +707,7 @@ async def login_post(
         )
         return resp
     except InvalidCredentialsError as err:
+        await record_failure(db, request.headers, email)
         template = jinja_env.get_template("login.html")
         return HTMLResponse(
             content=template.render(error=str(err), next=next), status_code=400
@@ -719,6 +738,16 @@ async def register_post(
     allow_signups = (
         getattr(env, "ALLOW_PUBLIC_SIGNUPS", "false") == "true" if env else False
     )
+
+    # Same throttle as login: registration also hashes, and when public
+    # signups are enabled it is an account-creation endpoint worth limiting.
+    limit = await check_allowed(db, request.headers, email)
+    if not limit.allowed:
+        return HTMLResponse(
+            content=rate_limited_html(limit.retry_after),
+            status_code=429,
+            headers={"Retry-After": str(limit.retry_after)},
+        )
 
     # Validate input with model
     try:
@@ -753,6 +782,8 @@ async def register_post(
             content=template.render(error=str(err), next=next), status_code=403
         )
     except Exception as err:
+        # Includes InvalidCredentialsError from the auto-login below, but the
+        # account now exists, so it is not a credential-guessing failure.
         template = jinja_env.get_template("register.html")
         return HTMLResponse(
             content=template.render(error=str(err), next=next), status_code=400

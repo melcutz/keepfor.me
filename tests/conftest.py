@@ -29,19 +29,29 @@ def sqlite_conn(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
 
-    # Apply schema
-    schema_path = os.path.join(
-        os.path.dirname(__file__), "..", "migrations", "0001_initial_schema.sql"
-    )
+    # Apply every migration in filename order (0001_..., 0002_...).
+    # Previously this hardcoded 0001 only, so later migrations (e.g. the
+    # auth rate-limit table) were invisible to the entire suite.
+    migrations_dir = os.path.join(os.path.dirname(__file__), "..", "migrations")
+    schema_files = sorted(f for f in os.listdir(migrations_dir) if f.endswith(".sql"))
+    assert schema_files, f"no migrations found in {migrations_dir}"
 
-    if os.path.exists(schema_path):
-        with open(schema_path, "r") as f:
+    for name in schema_files:
+        with open(os.path.join(migrations_dir, name), "r") as f:
             schema = f.read()
+            # Strip `--` comment lines before splitting. A semicolon inside a
+            # comment used to split mid-comment and leave unparseable SQL as
+            # code (see migrations/0002_rate_limits.sql).
+            schema = "\n".join(
+                line
+                for line in schema.splitlines()
+                if not line.strip().startswith("--")
+            )
             # Split by semicolon and execute each statement
             for statement in schema.split(";"):
                 if statement.strip():
                     conn.execute(statement)
-            conn.commit()
+    conn.commit()
 
     yield conn
     conn.close()

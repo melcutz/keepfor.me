@@ -116,8 +116,8 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 
 ## Testing quirks
 
-- `tests/conftest.py` hardcodes `migrations/0001_initial_schema.sql`. It will **not** pick up a new `0002_*.sql`, so schema changes made for D1 won't reach tests. Update the fixture or the initial schema when you change tables.
-- The fixture loads the schema by splitting the file on `;` — no `;` inside string literals or trigger bodies.
+- `tests/conftest.py` now loads **every** `migrations/*.sql` in filename order (it previously hardcoded `0001`, which silently hid `0002_rate_limits.sql` from the entire suite). The fixture strips `--` comment lines before splitting on `;`, so a semicolon inside a SQL comment no longer splits mid-comment and produces unparseable SQL.
+- Still true of the splitter: no `;` inside **string literals** or trigger bodies. Comment handling is safe; quoted text is not.
 - Vectorize, Workers AI, R2, and Queue branches are **never executed in tests** (there is no Cloudflare `env`); they are guarded by `hasattr(env, ...)` / `is not None` checks. `src/consumer/processor.py` and `src/models/items.py` are effectively untested — review those by hand.
 - Entrypoint signatures in `src/worker.py` must accept the runtime's full dispatch: `fetch(self, request, env=None, ctx=None)`, `queue(self, batch, env=None, ctx=None)`. A narrower `queue(self, batch)` crashed **every** prod delivery with `TypeError: ... takes 2 positional arguments but 4 were given` (2026-10-03): 998 ingested, ~808 acked-and-dropped, zero items processed, zero `failed` rows. The `workers` package (and the failure) exists only on the runtime — `tests/test_worker_entrypoint.py` pins the contract but skips everywhere except prod.
 - `search_fts` and `search_vectorize` wrap their bodies in bare `except Exception` (`src/search/engine.py:37` and `:102`). Search **degrades silently to empty results** instead of raising. When search returns nothing, read the logs rather than expecting a traceback.
@@ -161,3 +161,15 @@ There is **no `CORSMiddleware`** in `src/app.py`, and that is intentional. The a
 The previous `allow_origins=["*"]` + `allow_credentials=True` combination made Starlette **reflect any `Origin`** with credentials allowed (verified in prod: `Origin: https://attacker.test` came back in `Access-Control-Allow-Origin`). Session-cookie reads were blocked only by `SameSite=Lax`. **Do not reintroduce a CORS allowlist** — `tests/test_endpoints.py::test_no_cross_origin_cors_headers` asserts no `Access-Control-*` header is ever emitted.
 
 If a separate frontend origin is ever needed, proxy through the same origin instead. The browser extension does not depend on server CORS: MV3 grants its fetch via `host_permissions` in `browser-extension/manifest.json`, so **adding a host there is what keeps the extension working** — not a relaxed server.
+
+## Auth rate limiting
+
+`src/utils/rate_limit.py` throttles `/auth/login` and `/auth/register`. Read it before changing anything about sign-in.
+
+- **Counters live in D1, not memory.** Isolates are short-lived and numerous, so an in-memory counter is bypassed by spreading requests across them. Requires the `rate_limits` table from `migrations/0002_rate_limits.sql` — applied to remote D1 on 2026-10-03, but **`deploy.yml` does not apply migrations**, so a future schema file must be applied by hand (`npx wrangler d1 migrations apply keepfor-me-db --remote`).
+- **Only failures count**, and a successful login clears the *account* counter so ordinary typos never lock the owner out. The IP counter intentionally survives.
+- **Both keys are needed.** Per-IP (20) stops one host spraying many accounts; per-account (10) stops many IPs targeting one account, and it is the tighter cap so it binds first.
+- **The check runs before `login_user`,** i.e. before PBKDF2, so a throttled client costs no CPU. Keep it that way.
+- `client_ip()` trusts only `CF-Connecting-IP` (edge-set). It must never trust `X-Forwarded-For` — that is client-controllable and would mint a fresh limit per request.
+- The limiter **fails open** on error. Login needs D1 anyway, but hard-failing would lock the owner out of their own instance over a defect in this file.
+- Fixed 15-minute windows, not a sliding log: one indexed row per key per window. Boundary bursts are absorbed by the conservative limits.
