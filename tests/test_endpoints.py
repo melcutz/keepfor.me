@@ -465,3 +465,11 @@ def test_tag_palette_index_is_deterministic():
         assert 0 <= tag_palette_index(tag) <= 7
     seen = {tag_palette_index(f"tag-{i}") for i in range(500)}
     assert seen == set(range(8))
+
+
+def test_login_page_has_svg_favicon(client):
+    """Favicon is an inline SVG data URI (no static route needed)."""
+    response = client.get("/auth/login")
+    assert response.status_code == 200
+    assert 'rel="icon"' in response.text
+    assert "data:image/svg+xml" in response.text
