@@ -5,7 +5,7 @@ import os
 import re
 import time
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from fastapi import (
     BackgroundTasks,
@@ -609,10 +609,35 @@ async def import_route(
 
 
 def _safe_next(value: str | None) -> str:
-    """Return a safe post-login redirect: only same-origin paths, else '/'."""
-    if value and value.startswith("/") and not value.startswith("//"):
-        return value
-    return "/"
+    r"""Return a safe post-login redirect: only same-origin paths, else '/'.
+
+    Getting this wrong is a real open redirect: browsers normalise '\' to '/'
+    inside a `Location` header, so a naive `startswith('/')` check lets
+    `?next=/\evil.com` through and it lands on `https://evil.com/` -- after
+    the victim has just typed their password on the genuine site.
+
+    Verified in Chromium: `Location: /\evil.example` produced a request to
+    `http://evil.example/`. A literal tab before `//` is a second bypass.
+    Hence the explicit backslash and control-character rejections below, plus a
+    structural parse so the rule does not depend on prefix guessing alone.
+    """
+    if not value or not isinstance(value, str):
+        return "/"
+    # Backslashes: never legitimate in a path we generate, and browsers treat
+    # them as slashes, which can create a protocol-relative (cross-origin) URL.
+    if "\\" in value:
+        return "/"
+    # Control characters and whitespace are stripped by browsers before the URL
+    # is parsed, which can also smuggle a `//` past the checks below.
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F or ch == " " for ch in value):
+        return "/"
+    if not value.startswith("/") or value.startswith("//"):
+        return "/"
+    # Structural check: must have no scheme and no authority component.
+    parsed = urlparse(value)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return "/"
+    return value
 
 
 TAG_PILL_CLASSES = [

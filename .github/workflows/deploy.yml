@@ -5,6 +5,12 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# Least privilege: neither job needs to write to the repo. The deploy uses
+# CLOUDFLARE_API_TOKEN, not GITHUB_TOKEN. Without a workflow-level block
+# the token inherits the default (often write) scope.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

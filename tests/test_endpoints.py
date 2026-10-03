@@ -382,10 +382,25 @@ async def test_reader_missing_item_returns_html_404(client, db, auth_headers):
 
 
 def test_csp_allows_cloudflare_beacon(client):
-    """Web Analytics beacon must not trip console CSP errors."""
+    """Web Analytics beacon must not trip console CSP errors.
+
+    Parsed as directives and compared host-by-host rather than with a substring
+    check: `in csp` also matches "notstatic.cloudflareinsights.com.evil.test"
+    or a host hidden inside a longer token, so it proves nothing.
+    """
     response = client.get("/auth/login")
     csp = response.headers.get("content-security-policy", "")
-    assert "static.cloudflareinsights.com" in csp
+
+    script_src = ""
+    for directive in csp.split(";"):
+        name, _, value = directive.strip().partition(" ")
+        if name.strip().lower() == "script-src":
+            script_src = value
+            break
+    assert script_src, f"no script-src directive in: {csp!r}"
+
+    allowed = {source.strip().lower() for source in script_src.split()}
+    assert "https://static.cloudflareinsights.com" in allowed, allowed
 
 
 @pytest.mark.asyncio
@@ -429,6 +444,76 @@ async def test_auth_pages_redirect_when_signed_in(client, auth_headers):
         response = client.get(path, follow_redirects=False)
         assert response.status_code == 303, path
         assert response.headers["location"] == "/", path
+
+
+# Payloads that make a browser leave the origin once the value is used as a
+# Location header. Confirmed cross-origin in Chromium via Playwright:
+#   "/\evil.example" -> request to http://evil.example/
+#   "/\t/evil.example" -> request to http://evil.example/
+# Percent-encoded forms ("/%2f%2f", "/%09/") were tested too and stay
+# same-origin, so they are not blocked (they are legitimate-ish paths).
+OPEN_REDIRECT_PAYLOADS = [
+    "//evil.com",
+    "///evil.com",
+    "https://evil.com",
+    "http://evil.com",
+    "javascript:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "/\\evil.com",
+    "/\\/evil.com",
+    "/\\evil.com/path",
+    "\\\\evil.com",
+    "/\t/evil.com",
+    "/\n/evil.com",
+    "/\r\n/evil.com",
+    "/ /evil.com",
+    "/\x00/evil.com",
+    "/\x7f/evil.com",
+    "",
+    None,
+]
+
+
+@pytest.mark.parametrize("payload", OPEN_REDIRECT_PAYLOADS)
+def test_safe_next_rejects_open_redirect_payloads(payload):
+    """_safe_next must never return something that leaves the origin."""
+    from src.app import _safe_next
+
+    result = _safe_next(payload)
+    assert result == "/", f"{payload!r} was passed through as {result!r}"
+    assert "\\" not in result
+    assert not result.startswith("//")
+
+
+@pytest.mark.parametrize(
+    "value", ["/", "/items/abc", "/settings?tab=1", "/x#frag", "/a/b/c"]
+)
+def test_safe_next_keeps_real_relative_paths(value):
+    """Legitimate same-origin paths must still work, or login loses `next`."""
+    from src.app import _safe_next
+
+    assert _safe_next(value) == value
+
+
+@pytest.mark.asyncio
+async def test_login_does_not_redirect_offsite(client, db, auth_headers):
+    """End-to-end: a hostile `next` lands on / after a real sign-in."""
+    from src.auth.service import register_user
+
+    await register_user(
+        db, "redir@test.local", "password12345", allow_public_signups=True
+    )
+    response = client.post(
+        "/auth/login",
+        data={
+            "email": "redir@test.local",
+            "password": "password12345",
+            "next": "/\\evil.com",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/"
 
 
 # ==========================================

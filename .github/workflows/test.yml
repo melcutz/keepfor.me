@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+# Least privilege: these jobs only read the repo. Without an explicit
+# block the GITHUB_TOKEN inherits the default (often write) scope.
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest
