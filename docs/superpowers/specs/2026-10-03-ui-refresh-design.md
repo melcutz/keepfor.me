@@ -20,15 +20,17 @@ and a real logo.
 
 - **Palette:** page `slate-50` `#f8fafc`, cards white, hairlines `slate-200`
   `#e2e8f0`, ink `slate-900` `#0f172a`, secondary `slate-500` `#64748b`,
-  faint `slate-400`/`slate-300` for counts and hints. One accent:
-  `indigo-600` `#4f46e5` (title hover, tag pills, search focus ring,
-  bookmarklet button). Status colors (amber extracting, red failed) unchanged.
+  faint `slate-400`/`slate-300` for counts and hints. One accent family,
+  blue only: `blue-600` `#2563eb` (title hover, tag pills on `#eff6ff`,
+  search focus ring, bookmarklet button) flowing into the icon's
+  `sky-500` `#0ea5e9`. No violet/indigo anywhere — it clashes with the
+  blue icon. Status colors (amber extracting, red failed) unchanged.
 - **Type:** system sans everywhere. Page headlines 700–750 weight,
   `-0.02em` to `-0.025em` tracking. Item titles 650 weight, `-0.01em`,
-  shifting to indigo-600 on row hover. Metadata 12–12.5px slate-500.
+  shifting to blue-600 on row hover. Metadata 12–12.5px slate-500.
   Mono only for tiny technical text (match scores).
 - **Shape:** cards `rounded-xl`/`rounded-2xl`, pills `rounded-md` with
-  indigo tint (`#eef2ff` bg, `#4f46e5` text), buttons `rounded-lg`.
+  blue tint (`#eff6ff` bg, `#2563eb` text), buttons `rounded-lg`.
   Subtle `shadow-sm`, rows lift on hover. `kbd` chips for shortcuts.
 
 ## Brand mark
@@ -45,6 +47,12 @@ White bookmark glyph on a blue-600 → sky-500 gradient squircle. Legible at
 **Wordmark:** `Keepfor` in slate-900 + `.me` in blue-600 (`#2563eb`),
 weight 800, tracking `-0.03em`. Used in the header logo, login/register
 cards, and save-popup header.
+
+**Lockup rule: the icon + split-tone wordmark appear as one identical unit
+everywhere** — header, login, register, save-popup. No page may restyle,
+recolor, resize the pairing, or drop either half (login previously showed
+a plain-text site name; that inconsistency is explicitly out of scope to
+repeat).
 
 **Favicon wiring:** `<link rel="icon" type="image/svg+xml" href="/static/icon.svg">`
 in `base.html` and the standalone `save_popup.html`. Requires a static-file
@@ -63,7 +71,7 @@ CSP already permits same-origin.
   (`item.canonical_url.split('/')[2]`), which the row already assumes is
   present when it renders the site name.
 - Search input shows a visible `⌘K` hint chip; `:focus-within` gets the
-  indigo ring. Existing `Cmd+K` JS shortcut unchanged.
+  blue ring. Existing `Cmd+K` JS shortcut unchanged.
 - Page headline `Library` (tight display style) + muted count subline.
 - Privacy note: item favicons disclose saved domains to Google/DDG at
   render time. Acceptable for a self-hosted single-user app; documented
@@ -73,12 +81,12 @@ CSP already permits same-origin.
 
 Structure and controls unchanged (back link, Sans/Serif/Mono, A−/A+,
 light/sepia/dark, Original link, theme localStorage hooks). Tightened
-headline (750, `-0.022em`), muted 12.5px meta row, indigo-tint tag pills,
+headline (750, `-0.022em`), muted 12.5px meta row, blue-tint tag pills,
 article body at 1.75 line-height, controls bar becomes a proper card.
 
 ## Settings (`templates/settings.html`)
 
-Same three cards, forms, and endpoints. Bookmarklet button goes indigo
+Same three cards, forms, and endpoints. Bookmarklet button goes blue
 (primary action), token form/table spacing unified, MCP snippet keeps its
 dark code block, import/export actions align in one row. Bookmarklet
 popup-positioning JS (from the earlier fix) is unchanged.
