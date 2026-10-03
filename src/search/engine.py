@@ -153,7 +153,7 @@ async def hybrid_search(
     placeholders = ",".join("?" for _ in top_ids)
     sql = f"""
         SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
-               i.published_date, i.excerpt, i.status, i.is_fallback,
+               i.published_date, i.excerpt, i.status, i.fail_reason, i.is_fallback,
                i.word_count, i.created_at
         FROM items i
         WHERE i.id IN ({placeholders}) AND i.user_id = ?;
@@ -197,21 +197,22 @@ async def get_recent_items(
     """Retrieves recent items for user with pagination and optional tag filtering."""
     if tag:
         sql = """
-            SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
-                    i.published_date, i.excerpt, i.status, i.is_fallback,
-                    i.word_count, i.created_at
-            FROM items i
-            JOIN item_tags it ON i.id = it.item_id
-            JOIN tags t ON it.tag_id = t.id
-            WHERE i.user_id = ? AND LOWER(t.name) = LOWER(?)
-            ORDER BY i.created_at DESC
-            LIMIT ? OFFSET ?;
-        """
+        SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
+               i.published_date, i.excerpt, i.status, i.fail_reason, i.is_fallback,
+               i.word_count, i.created_at
+        FROM items i
+        JOIN item_tags it ON i.id = it.item_id
+        JOIN tags t ON it.tag_id = t.id
+        WHERE i.user_id = ? AND LOWER(t.name) = LOWER(?)
+        ORDER BY i.created_at DESC
+        LIMIT ? OFFSET ?;
+    """
         rows = await db.query_all(sql, (user_id, tag, limit, offset))
     else:
         sql = """
             SELECT id, url, canonical_url, title, byline, site_name,
-                   published_date, excerpt, status, is_fallback, word_count, created_at
+                   published_date, excerpt, status, fail_reason, is_fallback,
+                   word_count, created_at
             FROM items
             WHERE user_id = ?
             ORDER BY created_at DESC

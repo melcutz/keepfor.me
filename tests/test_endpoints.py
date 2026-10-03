@@ -145,6 +145,29 @@ async def test_logout(client, db, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_library_feed_shows_failure_reason(client, db, auth_headers):
+    """Failed items render their recorded reason, not 'unknown error'."""
+    import uuid
+
+    user = auth_headers["admin_user"]
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status, fail_reason) "
+        "VALUES (?, ?, ?, ?, 'failed', 'HTTP 403 returned by origin server');",
+        (
+            str(uuid.uuid4()),
+            user["id"],
+            "https://example.com/b",
+            "https://example.com/b",
+        ),
+    )
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "HTTP 403" in response.text
+    assert "unknown error" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_library_mobile_nav_and_tag_strip(client, db, auth_headers):
     """Portrait phones get a bottom tab bar and chip strip, no sidebar."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
