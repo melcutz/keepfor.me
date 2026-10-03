@@ -36,10 +36,11 @@ flowchart LR
 
 ---
 
-## Deployment (Single Cloudflare Command)
+## Deployment
 
 ### 1. Prerequisites
-- Node.js & npm (for Wrangler)
+- Node.js 20 or newer and npm
+- uv 0.12.3 or newer
 - Cloudflare account with Workers, D1, R2, and Vectorize enabled
 - Custom domain: `keepfor.me` (or standard `*.workers.dev` subdomain)
 
@@ -77,8 +78,10 @@ npx wrangler d1 migrations apply keepfor-me-db --local
 
 ### 4. Deploy
 
+PyWrangler bundles the Python dependencies declared in `pyproject.toml`.
+
 ```bash
-npx wrangler deploy
+uvx --from workers-py pywrangler deploy
 ```
 
 Once deployed, visit your domain (e.g., `https://keepfor.me` or `https://keepfor-me.<your-subdomain>.workers.dev`).
@@ -134,16 +137,17 @@ Go to **Settings** in the Keepfor.me UI and drag the **📚 Save to Keepfor.me**
 
 ## Local Development & Testing
 
-Run all unit and integration tests locally:
+Install the project and its test dependencies, then run the pytest suite:
 
 ```bash
-python3 -m unittest discover tests
+python3 -m pip install -e . pytest pytest-asyncio pytest-cov httpx
+python3 -m pytest tests/
 ```
 
-To run the local worker preview with Wrangler:
+To run the local Worker preview with its Python dependencies:
 
 ```bash
-npx wrangler dev
+uvx --from workers-py pywrangler dev
 ```
 
 ---

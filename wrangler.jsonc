@@ -1,53 +1,88 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "keepfor-me",
-  "main": "src/worker.py",
-  "compatibility_date": "2026-10-01",
-  "compatibility_flags": ["python_workers"],
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "keepfor-me-db",
-      "database_id": "local-keepfor-me-db"
-    }
-  ],
-  "r2_buckets": [
-    {
-      "binding": "BUCKET",
-      "bucket_name": "keepfor-me-bucket"
-    }
-  ],
-  "vectorize": [
-    {
-      "binding": "VECTORIZE",
-      "index_name": "keepfor-me-index"
-    }
-  ],
-  "ai": {
-    "binding": "AI"
-  },
-  "queues": {
-    "producers": [
-      {
-        "queue": "keepfor-me-queue",
-        "binding": "QUEUE"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "keepfor-me-queue",
-        "max_batch_size": 5,
-        "max_batch_timeout": 5,
-        "max_retries": 3
-      }
-    ]
-  },
-  "assets": {
-    "directory": "./static",
-    "binding": "ASSETS"
-  },
-  "vars": {
-    "ALLOW_PUBLIC_SIGNUPS": "false",
-    "SESSION_SECRET": "keepfor-me-secret-change-in-production-dev-key"
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "keepfor-me",
+	"main": "worker.py",
+	       "find_additional_modules": true,
+	       "base_dir": ".",
+	       "rules": [
+		       {
+			       "type": "Text",
+				       "globs": ["templates/**/*.html"],
+									   "fallthrough": true
+		       }
+	       ],
+		       "python_modules": {
+			       "exclude": [
+				       "**/*.pyc",
+				       "**/__pycache__",
+					       "babel/locale-data/*.dat",
+					       "babel/global.dat",
+					       "babel/messages/**",
+					       "tld/tests/**",
+					       "tld/res/effective_tld_names_public_only.dat.txt",
+					       "lxml/isoschematron/**",
+					       "lxml/objectify*.so",
+					       "lxml/sax*.so",
+					       "lxml/**/*.pxi",
+					       "lxml/**/*.pxd",
+					       "lxml/**/*.h",
+					       "lxml/**/*.pyx"
+			       ]
+		       },
+	"compatibility_date": "2026-10-01",
+	"compatibility_flags": [
+		"python_workers"
+	],
+	"d1_databases": [
+		{
+			"binding": "keepfor_me_db",
+			"database_name": "keepfor-me-db",
+			"remote": true
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "BUCKET",
+			"bucket_name": "keepfor-me-bucket"
+		},
+		{
+			"bucket_name": "keepfor-me-bucket",
+			"binding": "keepfor_me_bucket",
+			"remote": true
+		}
+	],
+	"vectorize": [
+		{
+			"binding": "VECTORIZE",
+			"index_name": "keepfor-me-index",
+			"remote": true
+		}
+	],
+	"ai": {
+		"binding": "AI"
+	},
+	"queues": {
+		"producers": [
+			{
+				"queue": "keepfor-me-queue",
+				"binding": "QUEUE"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "keepfor-me-queue",
+				"max_batch_size": 5,
+				"max_batch_timeout": 5,
+				"max_retries": 3
+			}
+		]
+	},
+	"assets": {
+		"directory": "./static",
+		"binding": "ASSETS"
+	},
+	"vars": {
+		"ALLOW_PUBLIC_SIGNUPS": "false",
+		"SESSION_SECRET": "keepfor-me-secret-change-in-production-dev-key"
+	}
 }
