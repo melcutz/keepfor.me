@@ -1,0 +1,62 @@
+<div id="item-card-{{ item.id }}" class="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md transition group relative">
+  <div class="flex items-start justify-between">
+    <div class="flex-1 pr-4">
+      <div class="flex items-center space-x-2 text-xs text-slate-500 mb-1.5">
+        <span class="font-medium text-slate-700">{{ item.site_name or item.canonical_url.split('/')[2] }}</span>
+        <span>•</span>
+        {% if item.word_count %}
+        <span>{{ (item.word_count // 200) + 1 }} min read</span>
+        <span>•</span>
+        {% endif %}
+        <span>{{ item.created_at[:10] }}</span>
+
+        {% if item.status == 'queued' or item.status == 'fetching' %}
+        <span class="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium">Extracting...</span>
+        {% elif item.status == 'failed' %}
+        <span class="px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-full font-medium" title="{{ item.fail_reason }}">Failed</span>
+        {% elif item.is_fallback %}
+        <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium">Link Only</span>
+        {% endif %}
+
+        {% if item.rrf_score %}
+        <span class="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px] font-mono">score: {{ item.rrf_score }}</span>
+        {% endif %}
+      </div>
+
+      <h3 class="text-base font-semibold text-slate-900 leading-snug group-hover:text-blue-600 transition">
+        <a href="/items/{{ item.id }}">{{ item.title or item.url }}</a>
+      </h3>
+
+      {% if item.snippet or item.excerpt %}
+      <p class="text-xs text-slate-600 mt-2 line-clamp-2 leading-relaxed">
+        {{ (item.snippet or item.excerpt) | safe }}
+      </p>
+      {% endif %}
+
+      {% if item.tags %}
+      <div class="flex flex-wrap gap-1.5 mt-3">
+        {% for tag in item.tags %}
+        <a href="/?tag={{ tag }}" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs rounded-md transition">
+          #{{ tag }}
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Actions -->
+    <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
+      <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" 
+         class="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100" title="Visit original link">
+        ↗
+      </a>
+      <button hx-delete="/api/items/{{ item.id }}" 
+              hx-confirm="Delete this item from your library?"
+              hx-target="#item-card-{{ item.id }}" 
+              hx-swap="outerHTML"
+              class="p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition" title="Delete item">
+        🗑
+      </button>
+    </div>
+  </div>
+</div>

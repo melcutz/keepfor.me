@@ -1,0 +1,53 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "keepfor-me",
+  "main": "src/worker.py",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["python_workers"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "keepfor-me-db",
+      "database_id": "local-keepfor-me-db"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "keepfor-me-bucket"
+    }
+  ],
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "keepfor-me-index"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
+  "queues": {
+    "producers": [
+      {
+        "queue": "keepfor-me-queue",
+        "binding": "QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "keepfor-me-queue",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 3
+      }
+    ]
+  },
+  "assets": {
+    "directory": "./static",
+    "binding": "ASSETS"
+  },
+  "vars": {
+    "ALLOW_PUBLIC_SIGNUPS": "false",
+    "SESSION_SECRET": "keepfor-me-secret-change-in-production-dev-key"
+  }
+}

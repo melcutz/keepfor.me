@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}Settings & API — Keepfor.me{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 sm:px-8 py-8 space-y-8">
+  <div>
+    <h2 class="text-xl font-bold text-slate-900 tracking-tight">Settings & Integrations</h2>
+    <p class="text-xs text-slate-500 mt-1">Configure browser capture, AI agent access tokens, and backup imports/exports.</p>
+  </div>
+
+  <!-- Section 1: Browser Capture Bookmarklet -->
+  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+    <h3 class="text-base font-semibold text-slate-900 mb-2">Browser Capture Bookmarklet</h3>
+    <p class="text-xs text-slate-600 mb-4 leading-relaxed">
+      Drag this button to your browser bookmarks bar. Click it on any page to instantly save the URL to your library without needing an extension.
+    </p>
+
+    <div class="flex items-center space-x-4">
+      <a href="javascript:(function(){var u=encodeURIComponent(window.location.href);var t=encodeURIComponent(document.title);window.open('{{ base_url }}/save-popup?url='+u+'&title='+t,'keepforme_popup','width=520,height=420');})();"
+         onclick="alert('Drag this button to your browser bookmarks bar!'); return false;"
+         class="inline-flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow-sm cursor-grab active:cursor-grabbing transition">
+        <span>📚 Save to Keepfor.me</span>
+      </a>
+      <span class="text-xs text-slate-400">← Drag to your bookmarks bar</span>
+    </div>
+  </section>
+
+  <!-- Section 2: Personal Access Tokens (PATs) & MCP -->
+  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+    <h3 class="text-base font-semibold text-slate-900 mb-2">Personal Access Tokens & MCP</h3>
+    <p class="text-xs text-slate-600 mb-4 leading-relaxed">
+      Generate tokens to authenticate AI agents (like Claude Desktop, Cursor, or remote agents) via the Model Context Protocol.
+    </p>
+
+    {% if new_token %}
+    <div class="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
+      <p class="text-xs font-semibold text-emerald-800 mb-1">New Personal Access Token Generated:</p>
+      <div class="flex items-center space-x-2">
+        <input type="text" readonly value="{{ new_token }}" id="new-token-val"
+               class="flex-1 px-3 py-1.5 bg-white border border-emerald-300 rounded font-mono text-xs text-slate-800">
+        <button onclick="navigator.clipboard.writeText(document.getElementById('new-token-val').value); alert('Copied!');"
+                class="px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-medium hover:bg-emerald-700">Copy</button>
+      </div>
+      <p class="text-[11px] text-emerald-700 mt-2">Make sure to copy this token now. You will not be able to view it again!</p>
+    </div>
+    {% endif %}
+
+    <!-- Generate Token Form -->
+    <form action="/settings/tokens" method="POST" class="flex items-center space-x-3 mb-6">
+      <input type="text" name="name" required placeholder="Token Name (e.g. Claude Desktop, Work Laptop)"
+             class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-slate-900">
+      <button type="submit" class="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-800 shrink-0">
+        Generate Token
+      </button>
+    </form>
+
+    <!-- Active Tokens Table -->
+    <div class="border border-slate-200 rounded-lg overflow-hidden">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase">
+          <tr>
+            <th class="px-4 py-2.5">Name</th>
+            <th class="px-4 py-2.5">Created</th>
+            <th class="px-4 py-2.5">Last Used</th>
+            <th class="px-4 py-2.5 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for pat in pats %}
+          <tr>
+            <td class="px-4 py-3 font-medium text-slate-800">{{ pat.name }}</td>
+            <td class="px-4 py-3 text-slate-500">{{ pat.created_at[:10] }}</td>
+            <td class="px-4 py-3 text-slate-500">{{ pat.last_used_at or 'Never' }}</td>
+            <td class="px-4 py-3 text-right">
+              <form action="/settings/tokens/{{ pat.id }}/delete" method="POST" onsubmit="return confirm('Revoke this token?');">
+                <button type="submit" class="text-red-600 hover:text-red-800 font-medium">Revoke</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4" class="px-4 py-4 text-center text-slate-400">No access tokens created yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Claude Desktop Configuration Snippet -->
+    <div class="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+      <h4 class="text-xs font-bold text-slate-800 mb-1">Claude Desktop Configuration (claude_desktop_config.json)</h4>
+      <p class="text-[11px] text-slate-500 mb-2">Add this to enable Claude to search, read, and save to your Keepfor.me library:</p>
+      <pre class="bg-slate-900 text-slate-200 p-3 rounded text-[11px] font-mono overflow-x-auto"><code>{
+  "mcpServers": {
+    "keepfor-me": {
+      "command": "uvx",
+      "args": [
+        "keepfor-me-mcp",
+        "--url", "{{ base_url }}",
+        "--token", "YOUR_PAT_TOKEN_HERE"
+      ]
+    }
+  }
+}</code></pre>
+    </div>
+  </section>
+
+  <!-- Section 3: Import & Export -->
+  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+    <h3 class="text-base font-semibold text-slate-900 mb-2">Import & Export</h3>
+    <p class="text-xs text-slate-600 mb-4 leading-relaxed">
+      Migrate your existing reading lists from Pocket, Instapaper, Omnivore, or standard browser HTML exports.
+    </p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      
+      <!-- Import Card -->
+      <div class="p-4 border border-slate-200 rounded-lg">
+        <h4 class="text-xs font-bold text-slate-800 mb-1">Import Library</h4>
+        <p class="text-[11px] text-slate-500 mb-3">Upload Netscape HTML Bookmarks (.html) or CSV (.csv)</p>
+        <form action="/import" method="POST" enctype="multipart/form-data" class="space-y-3">
+          <input type="file" name="file" accept=".html,.htm,.csv" required
+                 class="block w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200">
+          <button type="submit" class="w-full py-1.5 bg-slate-900 text-white rounded text-xs font-medium hover:bg-slate-800">
+            Upload & Ingest
+          </button>
+        </form>
+      </div>
+
+      <!-- Export Card -->
+      <div class="p-4 border border-slate-200 rounded-lg flex flex-col justify-between">
+        <div>
+          <h4 class="text-xs font-bold text-slate-800 mb-1">Export Library</h4>
+          <p class="text-[11px] text-slate-500 mb-4">Download a full backup of all your saved items and metadata.</p>
+        </div>
+        <div class="flex space-x-2">
+          <a href="/api/export?format=html" class="flex-1 text-center py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 rounded text-xs font-medium">
+            HTML Bookmarks
+          </a>
+          <a href="/api/export?format=json" class="flex-1 text-center py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 rounded text-xs font-medium">
+            JSON Archive
+          </a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+</div>
+{% endblock %}

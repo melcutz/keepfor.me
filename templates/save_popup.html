@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Save to Keepfor.me</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="p-6 bg-slate-50 text-slate-900 font-sans">
+  <div class="max-w-md mx-auto bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+    <div class="flex items-center space-x-2 mb-4">
+      <span class="p-1 bg-slate-900 text-white rounded">📚</span>
+      <h2 class="text-base font-bold text-slate-900">Save to Keepfor.me</h2>
+    </div>
+
+    {% if success %}
+    <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-center">
+      <p class="font-semibold text-sm">Saved & Queued!</p>
+      <p class="text-xs text-emerald-600 mt-1">This window will close shortly...</p>
+    </div>
+    <script>
+      setTimeout(() => window.close(), 1200);
+    </script>
+    {% else %}
+    <form action="/save-popup" method="POST" class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">URL</label>
+        <input type="url" name="url" value="{{ url }}" required readonly
+               class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Title</label>
+        <input type="text" name="title" value="{{ title }}"
+               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-slate-900">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
+        <input type="text" name="tags" placeholder="tech, news, reading" autofocus
+               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-slate-900">
+      </div>
+      <div class="flex justify-end space-x-2 pt-2">
+        <button type="button" onclick="window.close()" 
+                class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50">Cancel</button>
+        <button type="submit" 
+                class="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-800">Save to Library</button>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</body>
+</html>

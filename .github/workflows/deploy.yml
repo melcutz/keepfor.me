@@ -1,0 +1,76 @@
+name: Deploy
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Cloudflare Workers
+    permissions:
+      contents: read
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Node dependencies
+        run: npm install -g wrangler
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      
+      - name: Verify wrangler config
+        run: wrangler publish --dry-run
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      
+      - name: Deploy to Cloudflare
+        run: wrangler publish
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      
+      - name: Post-deploy smoke test
+        run: |
+          sleep 30  # Wait for deployment to propagate
+          
+          # Test landing page loads
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://keepfor.me/ || echo "000")
+          if [ "$STATUS" != "200" ] && [ "$STATUS" != "303" ]; then
+            echo "❌ Landing page failed with status $STATUS"
+            exit 1
+          fi
+          
+          echo "✅ Smoke test passed - site is responding"
+        continue-on-error: true
+
+  slack-notify:
+    runs-on: ubuntu-latest
+    name: Notify Slack (Optional)
+    needs: deploy
+    if: always()
+    steps:
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "✅ Deployment successful!"
+      
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Deployment failed!"

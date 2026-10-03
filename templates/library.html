@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Library — Keepfor.me{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto px-4 sm:px-8 py-8">
+  <div class="flex flex-col md:flex-row gap-8">
+    
+    <!-- Sidebar: Tags & Filters -->
+    <aside class="w-full md:w-56 shrink-0 space-y-6">
+      <div>
+        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Filter by Tag</h4>
+        <div class="space-y-1">
+          <a href="/" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium {% if not active_tag %}bg-slate-200 text-slate-900{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
+            <span>All Items</span>
+            <span class="text-slate-400">{{ total_count or items|length }}</span>
+          </a>
+          {% for t in tags %}
+          <a href="/?tag={{ t.name }}" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium {% if active_tag == t.name %}bg-slate-200 text-slate-900{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
+            <span>#{{ t.name }}</span>
+            <span class="text-slate-400">{{ t.count }}</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="p-3 bg-slate-100/70 border border-slate-200 rounded-lg text-xs text-slate-600">
+        <p class="font-semibold text-slate-800 mb-1">Keyboard Shortcuts</p>
+        <p><kbd class="px-1 bg-white border border-slate-300 rounded">S</kbd> Quick save link</p>
+        <p class="mt-1"><kbd class="px-1 bg-white border border-slate-300 rounded">Cmd+K</kbd> Focus search</p>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 space-y-6">
+      
+      <!-- Search & Mode Bar -->
+      <div class="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex flex-col sm:flex-row items-center gap-3">
+        <div class="relative flex-1 w-full">
+          <span class="absolute inset-y-0 left-3 flex items-center text-slate-400 pointer-events-none">🔍</span>
+          <input type="search" id="search-input" name="query" placeholder="Search by keyword or meaning... (Cmd+K)" 
+                 value="{{ query or '' }}"
+                 hx-post="/search"
+                 hx-trigger="keyup changed delay:300ms, search"
+                 hx-target="#items-list"
+                 hx-include="#search-mode, #active-tag-input"
+                 class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+        </div>
+
+        <div class="flex items-center space-x-2 shrink-0">
+          <input type="hidden" id="active-tag-input" name="tag" value="{{ active_tag or '' }}">
+          <select id="search-mode" name="mode" 
+                  hx-post="/search"
+                  hx-trigger="change"
+                  hx-target="#items-list"
+                  hx-include="#search-input, #active-tag-input"
+                  class="px-2.5 py-2 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-900">
+            <option value="hybrid" selected>Hybrid (FTS5 + Vector)</option>
+            <option value="keyword">Keyword (FTS5)</option>
+            <option value="semantic">Semantic (Vectorize)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Items Feed -->
+      <div id="items-list" class="space-y-4">
+        {% if items %}
+          {% for item in items %}
+            {% include "partials/item_card.html" %}
+          {% endfor %}
+        {% else %}
+          <div class="text-center py-16 bg-white border border-slate-200 rounded-xl">
+            <span class="text-4xl">📖</span>
+            <h3 class="text-base font-semibold text-slate-800 mt-3">Your library is empty</h3>
+            <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              Save your first article using the <span class="font-medium text-slate-700">Save Link</span> button or import your bookmarks.
+            </p>
+            <button onclick="document.getElementById('save-modal').classList.remove('hidden')" 
+                    class="mt-4 px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-800 transition">
+              + Save Link Now
+            </button>
+          </div>
+        {% endif %}
+      </div>
+
+    </div>
+
+  </div>
+</div>
+{% endblock %}
