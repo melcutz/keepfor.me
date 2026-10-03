@@ -6,8 +6,8 @@
 <div class="max-w-6xl mx-auto px-4 sm:px-8 py-8">
   <div class="flex flex-col md:flex-row gap-8">
     
-    <!-- Sidebar: Tags & Filters -->
-    <aside class="w-full md:w-56 shrink-0 space-y-6">
+    <!-- Sidebar: Tags & Filters (desktop only; mobile uses the chip strip) -->
+    <aside class="hidden md:block w-full md:w-56 shrink-0 space-y-6">
       <div>
         <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Filter by Tag</h4>
         <div class="space-y-1">
@@ -35,10 +35,23 @@
     </aside>
 
     <!-- Main Content Area -->
-    <div class="flex-1 space-y-6">
+    <div class="flex-1 min-w-0 space-y-6">
       <div class="mb-5">
         <h1 class="text-[28px] font-bold tracking-[-0.025em] text-slate-900">Library</h1>
         <p class="text-xs text-slate-500 mt-1">{{ total_count or items|length }} saves · search by keyword or meaning</p>
+      </div>
+
+      <!-- Mobile tag strip: horizontal chips instead of the sidebar -->
+      <div id="mobile-tags" class="md:hidden -mx-4 px-4 overflow-x-auto">
+        <div class="flex gap-1.5 w-max py-1">
+          <a href="/" class="shrink-0 px-2.5 py-1 rounded-full text-xs font-medium {% if not active_tag %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · {{ total_count or items|length }}</a>
+          {% for t in tags %}
+          {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
+          <a href="/?tag={{ t.name }}" class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium {% if active_tag == t.name %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">
+            <span class="w-1.5 h-1.5 rounded-full {{ ts[1] }} shrink-0"></span>#{{ t.name }} · {{ t.count }}
+          </a>
+          {% endfor %}
+        </div>
       </div>
 
       <!-- Search & Mode Bar -->

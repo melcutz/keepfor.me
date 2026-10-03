@@ -145,6 +145,28 @@ async def test_logout(client, db, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_library_mobile_nav_and_tag_strip(client, db, auth_headers):
+    """Portrait phones get a bottom tab bar and chip strip, no sidebar."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/")
+    assert response.status_code == 200
+    assert 'id="mobile-nav"' in response.text
+    assert 'id="mobile-tags"' in response.text
+    # Sidebar hidden below md breakpoint.
+    assert 'class="hidden md:block w-full md:w-56' in response.text
+
+
+@pytest.mark.asyncio
+async def test_settings_mobile_nav_highlights_settings(client, db, auth_headers):
+    """Settings page marks its bottom tab active."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/settings")
+    assert response.status_code == 200
+    assert 'id="mobile-nav"' in response.text
+    assert response.text.count("text-blue-600") >= 1
+
+
+@pytest.mark.asyncio
 async def test_library_total_count_ignores_feed_cap(client, db, auth_headers):
     """All Items badge shows the true library size, not the 30-item feed cap."""
     import uuid
@@ -753,3 +775,4 @@ async def test_save_popup_shares_brand_lockup(client, db, auth_headers):
     assert "kfm-popup" in page.text
     assert "Keepfor<span" in page.text
     assert 'href="/favicon.ico"' in page.text
+    assert 'name="viewport"' in page.text

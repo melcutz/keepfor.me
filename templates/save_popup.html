@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Save to Keepfor.me</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.ico">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -16,10 +17,15 @@
     {% if success %}
     <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-center">
       <p class="font-semibold text-sm">Saved & Queued!</p>
-      <p class="text-xs text-emerald-600 mt-1">This window will close shortly...</p>
+      <p class="text-xs text-emerald-600 mt-1">Taking you back to your library…</p>
     </div>
     <script>
-      setTimeout(() => window.close(), 1200);
+      // Bookmarklet popups (window.open) can close themselves; share-target
+      // and PWA pages cannot, so fall back to the library if still open.
+      setTimeout(() => {
+        window.close();
+        setTimeout(() => { location.href = '/'; }, 400);
+      }, 1200);
     </script>
     {% else %}
     <form action="/save-popup" method="POST" class="space-y-4">

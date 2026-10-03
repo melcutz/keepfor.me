@@ -211,7 +211,7 @@ async def pwa_manifest():
     return JSONResponse(
         content={
             "name": "Keepfor.me",
-            "short_name": "Keepfor",
+            "short_name": "Keepfor.me",
             "description": "Read-it-later personal library.",
             "id": "/",
             "start_url": "/",
@@ -312,6 +312,7 @@ async def library_page(request: Request, tag: str | None = None, q: str | None =
         query=q or "",
         tag_styles=tag_styles,
         total_count=total_count,
+        active_nav="library",
     )
     return HTMLResponse(content=html)
 
@@ -445,7 +446,11 @@ async def settings_page(request: Request, new_token: str | None = None):
 
     template = jinja_env.get_template("settings.html")
     html = template.render(
-        current_user=user, pats=pats, new_token=new_token, base_url=base_url
+        current_user=user,
+        pats=pats,
+        new_token=new_token,
+        base_url=base_url,
+        active_nav="settings",
     )
     return HTMLResponse(content=html)
 
@@ -467,7 +472,11 @@ async def create_token_route(request: Request, name: str = Form(...)):
     base_url = str(request.base_url).rstrip("/")
     template = jinja_env.get_template("settings.html")
     html = template.render(
-        current_user=user, pats=pats, new_token=res["token"], base_url=base_url
+        current_user=user,
+        pats=pats,
+        new_token=res["token"],
+        base_url=base_url,
+        active_nav="settings",
     )
     return HTMLResponse(content=html)
 
