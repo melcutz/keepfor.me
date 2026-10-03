@@ -18,6 +18,9 @@
     {% endif %}
 
     <form action="/auth/login" method="POST" class="space-y-4">
+      {% if next %}
+      <input type="hidden" name="next" value="{{ next }}">
+      {% endif %}
       <div>
         <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Email</label>
         <input type="email" name="email" required autofocus
@@ -34,7 +37,7 @@
     </form>
 
     <div class="mt-6 text-center text-xs text-slate-500">
-      Need to set up your instance? <a href="/auth/register" class="text-slate-900 font-semibold hover:underline">Register</a>
+      Need to set up your instance? <a href="/auth/register{% if next %}?next={{ next }}{% endif %}" class="text-slate-900 font-semibold hover:underline">Register</a>
     </div>
   </div>
 </div>

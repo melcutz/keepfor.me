@@ -1,6 +1,7 @@
 import os
 import time
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import (
     FastAPI,
@@ -271,8 +272,9 @@ async def save_form(request: Request, url: str = Form(...), tags: str = Form("")
 async def save_popup_get(request: Request, url: str = "", title: str = ""):
     user = await get_current_user(request)
     if not user:
+        dest = "/save-popup?" + urlencode({"url": url, "title": title})
         return RedirectResponse(
-            url=f"/auth/login?next=/save-popup?url={url}&title={title}", status_code=303
+            url="/auth/login?" + urlencode({"next": dest}), status_code=303
         )
     template = jinja_env.get_template("save_popup.html")
     html = template.render(url=url, title=title, success=False)
@@ -361,15 +363,27 @@ async def import_route(
 # ==========================================
 
 
+def _safe_next(value: str | None) -> str:
+    """Return a safe post-login redirect: only same-origin paths, else '/'."""
+    if value and value.startswith("/") and not value.startswith("//"):
+        return value
+    return "/"
+
+
 @app.get("/auth/login", response_class=HTMLResponse)
-async def login_get(request: Request, error: str | None = None):
+async def login_get(
+    request: Request, error: str | None = None, next: str | None = None
+):
     template = jinja_env.get_template("login.html")
-    return HTMLResponse(content=template.render(error=error))
+    return HTMLResponse(content=template.render(error=error, next=next or ""))
 
 
 @app.post("/auth/login")
 async def login_post(
-    request: Request, email: str = Form(...), password: str = Form(...)
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    next: str = Form(""),
 ):
     db = get_db(request)
     # Validate input with model
@@ -379,35 +393,43 @@ async def login_post(
         logger.warning(f"Login validation failed: {e}")
         template = jinja_env.get_template("login.html")
         return HTMLResponse(
-            content=template.render(error="Invalid input"), status_code=400
+            content=template.render(error="Invalid input", next=next),
+            status_code=400,
         )
 
     try:
         user, session_id = await login_user(db, validated.email, validated.password)
-        resp = RedirectResponse(url="/", status_code=303)
+        resp = RedirectResponse(url=_safe_next(next), status_code=303)
         resp.set_cookie(
             key="kfm_session",
             value=session_id,
             max_age=30 * 86400,
             httponly=True,
-            samesite="strict",
+            samesite="lax",
             secure=True,
         )
         return resp
     except InvalidCredentialsError as err:
         template = jinja_env.get_template("login.html")
-        return HTMLResponse(content=template.render(error=str(err)), status_code=400)
+        return HTMLResponse(
+            content=template.render(error=str(err), next=next), status_code=400
+        )
 
 
 @app.get("/auth/register", response_class=HTMLResponse)
-async def register_get(request: Request, error: str | None = None):
+async def register_get(
+    request: Request, error: str | None = None, next: str | None = None
+):
     template = jinja_env.get_template("register.html")
-    return HTMLResponse(content=template.render(error=error))
+    return HTMLResponse(content=template.render(error=error, next=next or ""))
 
 
 @app.post("/auth/register")
 async def register_post(
-    request: Request, email: str = Form(...), password: str = Form(...)
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    next: str = Form(""),
 ):
     db = get_db(request)
     env = get_env_from_request(request)
@@ -422,7 +444,8 @@ async def register_post(
         logger.warning(f"Register validation failed: {e}")
         template = jinja_env.get_template("register.html")
         return HTMLResponse(
-            content=template.render(error="Invalid input"), status_code=400
+            content=template.render(error="Invalid input", next=next),
+            status_code=400,
         )
 
     try:
@@ -431,22 +454,26 @@ async def register_post(
         )
         # Automatically log in after registration
         _, session_id = await login_user(db, validated.email, validated.password)
-        resp = RedirectResponse(url="/", status_code=303)
+        resp = RedirectResponse(url=_safe_next(next), status_code=303)
         resp.set_cookie(
             key="kfm_session",
             value=session_id,
             max_age=30 * 86400,
             httponly=True,
-            samesite="strict",
+            samesite="lax",
             secure=True,
         )
         return resp
     except RegistrationClosedError as err:
         template = jinja_env.get_template("register.html")
-        return HTMLResponse(content=template.render(error=str(err)), status_code=403)
+        return HTMLResponse(
+            content=template.render(error=str(err), next=next), status_code=403
+        )
     except Exception as err:
         template = jinja_env.get_template("register.html")
-        return HTMLResponse(content=template.render(error=str(err)), status_code=400)
+        return HTMLResponse(
+            content=template.render(error=str(err), next=next), status_code=400
+        )
 
 
 @app.get("/auth/logout")

@@ -395,3 +395,60 @@ async def test_page_not_found(client):
     """Test 404 handling for non-existent pages."""
     response = client.get("/nonexistent-page")
     assert response.status_code == 404
+
+
+# ==========================================
+# Bookmarklet / Save-Popup Login Flow Tests
+# ==========================================
+
+
+def test_safe_next_allows_same_origin_paths():
+    """Post-login redirect keeps same-origin destinations."""
+    from src.app import _safe_next
+
+    assert (
+        _safe_next("/save-popup?url=https://example.com/a")
+        == "/save-popup?url=https://example.com/a"
+    )
+    assert _safe_next("/") == "/"
+
+
+def test_safe_next_rejects_open_redirects():
+    """Post-login redirect falls back to '/' for external destinations."""
+    from src.app import _safe_next
+
+    assert _safe_next("https://evil.com") == "/"
+    assert _safe_next("//evil.com") == "/"
+    assert _safe_next("") == "/"
+    assert _safe_next(None) == "/"
+
+
+def test_save_popup_redirect_preserves_destination(client):
+    """Unauthenticated popup bounces to login with an encoded return address."""
+    response = client.get(
+        "/save-popup?url=https://example.com/a&title=Hi", follow_redirects=False
+    )
+    assert response.status_code in [303, 307, 308]
+    location = response.headers["location"]
+    assert location.startswith("/auth/login?next=")
+
+    login_page = client.get(location)
+    assert login_page.status_code == 200
+    assert 'name="next"' in login_page.text
+
+
+@pytest.mark.asyncio
+async def test_login_redirects_to_next_with_lax_cookie(client, db, setup_users):
+    """Login honors 'next' and sets a Lax session cookie (popup-friendly)."""
+    response = client.post(
+        "/auth/login",
+        data={
+            "email": "admin@test.local",
+            "password": "password123",
+            "next": "/save-popup?url=https://example.com/a",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code in [303, 307, 308]
+    assert response.headers["location"] == "/save-popup?url=https://example.com/a"
+    assert "samesite=lax" in response.headers.get("set-cookie", "").lower()
