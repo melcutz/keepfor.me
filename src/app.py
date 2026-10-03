@@ -1,6 +1,8 @@
+import base64
 import datetime
 import hashlib
 import os
+import re
 import time
 from typing import Any
 from urllib.parse import urlencode
@@ -204,6 +206,77 @@ async def favicon():
     )
 
 
+@app.get("/manifest.webmanifest")
+async def pwa_manifest():
+    return JSONResponse(
+        content={
+            "name": "Keepfor.me",
+            "short_name": "Keepfor",
+            "description": "Read-it-later personal library.",
+            "id": "/",
+            "start_url": "/",
+            "scope": "/",
+            "display": "standalone",
+            "background_color": "#f8fafc",
+            "theme_color": "#0f172a",
+            "icons": [
+                {
+                    "src": "/icon-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                },
+                {
+                    "src": "/icon-512.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                },
+                {
+                    "src": "/icon-maskable.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "maskable",
+                },
+            ],
+            "share_target": {
+                "action": "/share",
+                "method": "GET",
+                "enctype": "application/x-www-form-urlencoded",
+                "params": {"title": "title", "text": "text", "url": "url"},
+            },
+        },
+        media_type="application/manifest+json",
+    )
+
+
+def _pwa_icon_response(b64: str):
+    return Response(
+        content=base64.b64decode(b64),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/icon-192.png")
+async def pwa_icon_192():
+    from src import pwa_icons
+
+    return _pwa_icon_response(pwa_icons.ICON_192_B64)
+
+
+@app.get("/icon-512.png")
+async def pwa_icon_512():
+    from src import pwa_icons
+
+    return _pwa_icon_response(pwa_icons.ICON_512_B64)
+
+
+@app.get("/icon-maskable.png")
+async def pwa_icon_maskable():
+    from src import pwa_icons
+
+    return _pwa_icon_response(pwa_icons.ICON_MASKABLE_B64)
+
+
 # ==========================================
 # Web UI Pages
 # ==========================================
@@ -334,6 +407,29 @@ async def save_popup_post(
     await save_item(db, env, user["id"], url, tag_list)
     template = jinja_env.get_template("save_popup.html")
     html = template.render(url=url, title=title, success=True)
+    return HTMLResponse(content=html)
+
+
+@app.get("/share", response_class=HTMLResponse)
+async def share_target(
+    request: Request, url: str = "", title: str = "", text: str = ""
+):
+    """Web Share Target (PWA): pre-filled save sheet for shared links."""
+    dest = "/share?" + urlencode({"url": url, "title": title, "text": text})
+    user = await get_current_user(request)
+    if not user:
+        return RedirectResponse(
+            url="/auth/login?" + urlencode({"next": dest}), status_code=303
+        )
+    # Android often puts the link in text instead of url.
+    target = url.strip()
+    if not target:
+        match = re.search(r"https?://\S+", text)
+        target = match.group(0).rstrip(").,!?") if match else ""
+    if not target:
+        return RedirectResponse(url="/", status_code=303)
+    template = jinja_env.get_template("save_popup.html")
+    html = template.render(url=target, title=title, success=False)
     return HTMLResponse(content=html)
 
 

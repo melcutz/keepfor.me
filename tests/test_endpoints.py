@@ -467,6 +467,94 @@ async def test_admin_requeue_needs_auth(client):
 
 
 # ==========================================
+# PWA & Share Target Tests
+# ==========================================
+
+
+def test_manifest_served_with_share_target(client):
+    """PWA manifest declares icons and the share target."""
+    response = client.get("/manifest.webmanifest")
+    assert response.status_code == 200
+    assert "application/manifest+json" in response.headers["content-type"]
+    data = response.json()
+    assert data["name"] == "Keepfor.me"
+    assert data["display"] == "standalone"
+    assert {i["sizes"] for i in data["icons"]} >= {"192x192", "512x512"}
+    assert data["share_target"]["action"] == "/share"
+
+
+def test_pwa_icons_serve_correct_sizes(client):
+    """Icon routes return PNGs matching their manifest sizes."""
+    import struct
+
+    for path, size in [
+        ("/icon-192.png", 192),
+        ("/icon-512.png", 512),
+        ("/icon-maskable.png", 512),
+    ]:
+        response = client.get(path)
+        assert response.status_code == 200
+        assert "image/png" in response.headers["content-type"]
+        width, height = struct.unpack(">II", response.content[16:24])
+        assert (width, height) == (size, size), path
+
+
+def test_base_includes_pwa_head_links(client):
+    """Pages link the manifest, theme color, and touch icon."""
+    response = client.get("/auth/login")
+    assert response.status_code == 200
+    assert 'href="/manifest.webmanifest"' in response.text
+    assert 'name="theme-color"' in response.text
+    assert 'rel="apple-touch-icon"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_share_requires_login(client):
+    """Anonymous share links bounce to login preserving the payload."""
+    response = client.get(
+        "/share",
+        params={"url": "https://example.com/a", "title": "Hi"},
+        follow_redirects=False,
+    )
+    assert response.status_code in [303, 307, 308]
+    assert "/auth/login" in response.headers["location"]
+    assert "next=" in response.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_share_prefills_save_sheet(client, db, auth_headers):
+    """Logged-in share renders the save sheet with URL and title."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get(
+        "/share", params={"url": "https://example.com/a", "title": "Hi Article"}
+    )
+    assert response.status_code == 200
+    assert "https://example.com/a" in response.text
+    assert "Hi Article" in response.text
+    assert "Save to Library" in response.text
+
+
+@pytest.mark.asyncio
+async def test_share_extracts_url_from_text(client, db, auth_headers):
+    """Android-style shares (link inside text) still resolve the URL."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get(
+        "/share", params={"text": "look at this https://example.com/b wow"}
+    )
+    assert response.status_code == 200
+    assert "https://example.com/b" in response.text
+
+
+@pytest.mark.asyncio
+async def test_share_without_link_redirects_home(client, db, auth_headers):
+    """A share with no URL anywhere just goes back to the library."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/share", params={"title": "no link"}, follow_redirects=False)
+    assert response.status_code in [303, 307, 308]
+    assert response.headers["location"] == "/"
+
+
+# ==========================================
 # Settings/PAT Tests
 # ==========================================
 

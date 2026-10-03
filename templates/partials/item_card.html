@@ -61,8 +61,8 @@
       {% endif %}
     </div>
 
-    <!-- Actions -->
-    <div class="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
+    <!-- Actions (always visible on touch: no hover there) -->
+    <div class="flex items-center space-x-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
       <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" 
          class="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100" title="Visit original link">
         ↗
