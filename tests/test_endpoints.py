@@ -610,11 +610,21 @@ def test_tag_palette_index_is_deterministic():
 
 
 def test_login_page_has_svg_favicon(client):
-    """Favicon is an inline SVG data URI (no static route needed)."""
+    """Pages reference /favicon.ico (a file browsers persist onto bookmarks)."""
     response = client.get("/auth/login")
     assert response.status_code == 200
     assert 'rel="icon"' in response.text
-    assert "data:image/svg+xml" in response.text
+    assert 'href="/favicon.ico"' in response.text
+
+
+def test_favicon_route_serves_brand_svg(client):
+    """The favicon route serves the portal-mark SVG with caching."""
+    response = client.get("/favicon.ico")
+    assert response.status_code == 200
+    assert "image/svg+xml" in response.headers["content-type"]
+    assert "max-age=86400" in response.headers["cache-control"]
+    assert "<svg" in response.text
+    assert "linearGradient" in response.text
 
 
 @pytest.mark.asyncio
@@ -654,4 +664,4 @@ async def test_save_popup_shares_brand_lockup(client, db, auth_headers):
     assert page.status_code == 200
     assert "kfm-popup" in page.text
     assert "Keepfor<span" in page.text
-    assert "data:image/svg+xml" in page.text
+    assert 'href="/favicon.ico"' in page.text

@@ -2,6 +2,7 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "keepfor-me",
 	"main": "worker.py",
+	"workers_dev": true,
 	       "find_additional_modules": true,
 			  "base_dir": ".",
 	"rules": [
@@ -9,6 +10,12 @@
 			"type": "Text",
 			"globs": ["**/*.html", "**/*.sql"],
 			"fallthrough": false
+		}
+	],
+	"routes": [
+		{
+			"pattern": "app.keepfor.me/*",
+			"zone_name": "keepfor.me"
 		}
 	],
 		       "python_modules": {

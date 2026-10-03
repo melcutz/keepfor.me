@@ -183,6 +183,27 @@ async def require_user(request: Request) -> dict[str, Any]:
     return user
 
 
+# Brand mark served as a file so browsers persist it onto bookmarks
+# (inline data: favicons are not). Dynamic route: zero bundle impact.
+FAVICON_SVG = (
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'>"
+    "<defs><linearGradient id='kfm' x1='0' y1='0' x2='1' y2='1'>"
+    "<stop offset='0' stop-color='#2563eb'/>"
+    "<stop offset='1' stop-color='#0ea5e9'/></linearGradient></defs>"
+    "<rect x='2' y='2' width='40' height='40' rx='11' fill='url(#kfm)'/>"
+    "<path d='M17 11h10v16l-5-3.8-5 3.8z' fill='#fff'/></svg>"
+).encode("utf-8")
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(
+        content=FAVICON_SVG,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 # ==========================================
 # Web UI Pages
 # ==========================================
