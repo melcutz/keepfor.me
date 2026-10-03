@@ -1,3 +1,4 @@
+import datetime
 import hashlib
 import os
 import time
@@ -5,6 +6,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import (
+    BackgroundTasks,
     FastAPI,
     File,
     Form,
@@ -201,6 +203,11 @@ async def library_page(request: Request, tag: str | None = None, q: str | None =
     items = await hybrid_search(db, env, user["id"], query=q or "", tag=tag, limit=30)
     tags = await list_user_tags(db, user["id"])
     tag_styles = tag_styles_for([t["name"] for t in tags])
+    # True library size: the feed is capped at 30, so len(items) lies.
+    total_row = await db.query_first(
+        "SELECT COUNT(*) as count FROM items WHERE user_id = ?;", (user["id"],)
+    )
+    total_count = total_row["count"] if total_row else 0
 
     template = jinja_env.get_template("library.html")
     html = template.render(
@@ -210,6 +217,7 @@ async def library_page(request: Request, tag: str | None = None, q: str | None =
         active_tag=tag,
         query=q or "",
         tag_styles=tag_styles,
+        total_count=total_count,
     )
     return HTMLResponse(content=html)
 
@@ -355,8 +363,65 @@ async def delete_token_route(request: Request, pat_id: str):
     return RedirectResponse(url="/settings", status_code=303)
 
 
+# Max bookmarks per queue message for bulk imports (keeps messages small).
+IMPORT_QUEUE_CHUNK = 25
+
+
+# Max stuck items requeued per call (keeps the request fast).
+REQUEUE_LIMIT = 500
+# Only rows older than this are considered orphaned; freshly saved items
+# may still have live queue messages in flight.
+REQUEUE_STUCK_MINUTES = 10
+
+
+@app.post("/admin/requeue", response_class=HTMLResponse)
+async def requeue_stuck_items(request: Request):
+    """Re-sends queue messages for items orphaned in 'queued'.
+
+    Needed when queue messages were dropped without processing (e.g. the
+    2026-10-03 consumer TypeError): backlog returns to 0 while rows stay
+    queued forever. Skips fresh rows so live messages are not duplicated.
+    """
+    user = await require_user(request)
+    db = get_db(request)
+    env = get_env_from_request(request)
+    queue = getattr(env, "QUEUE", None) if env is not None else None
+    if queue is None:
+        return HTMLResponse(
+            content="<p>No QUEUE binding available.</p>"
+            "<p><a href='/settings'>Back to Settings</a></p>",
+            status_code=503,
+        )
+    cutoff = (
+        datetime.datetime.utcnow() - datetime.timedelta(minutes=REQUEUE_STUCK_MINUTES)
+    ).strftime("%Y-%m-%d %H:%M:%S")
+    rows = await db.query_all(
+        "SELECT id, canonical_url FROM items WHERE user_id = ? AND status = 'queued' "
+        "AND created_at < ? ORDER BY created_at ASC LIMIT ?;",
+        (user["id"], cutoff, REQUEUE_LIMIT),
+    )
+    sent = 0
+    for r in rows:
+        try:
+            await queue.send({"item_id": r["id"], "url": r["canonical_url"]})
+            sent += 1
+        except Exception as exc:
+            logger.warning(f"Requeue send failed: item={r['id']}: {exc}")
+            break
+    html = (
+        "<div style='font-family:sans-serif;max-width:40rem;margin:4rem auto;'>"
+        f"<h2>Re-queued {sent} item(s) for extraction.</h2>"
+        "<p>Watch them flip from Extracting to content over the next minutes.</p>"
+        "<p><a href='/'>Back to Library</a> · "
+        "<a href='/settings'>Back to Settings</a></p></div>"
+    )
+    return HTMLResponse(content=html)
+
+
 @app.post("/import")
-async def import_route(request: Request, file: UploadFile = File(...)):
+async def import_route(
+    request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)
+):
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
@@ -374,7 +439,22 @@ async def import_route(request: Request, file: UploadFile = File(...)):
     else:
         bookmarks = parse_netscape_bookmarks(content)
 
-    await import_bookmarks(db, env, user["id"], bookmarks)
+    # Never bulk-insert inside the request: 972 bookmarks x per-item D1
+    # writes (+inline fetches without a queue) outlasts both the browser's
+    # patience and the Worker's request limit. Fan out through the queue in
+    # small messages; without a queue binding fall back to a background
+    # task so the redirect returns immediately either way.
+    queue = getattr(env, "QUEUE", None) if env is not None else None
+    if queue is not None:
+        for i in range(0, len(bookmarks), IMPORT_QUEUE_CHUNK):
+            await queue.send(
+                {
+                    "user_id": user["id"],
+                    "import_batch": bookmarks[i : i + IMPORT_QUEUE_CHUNK],
+                }
+            )
+    elif bookmarks:
+        background_tasks.add_task(import_bookmarks, db, env, user["id"], bookmarks)
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -598,7 +678,9 @@ async def api_delete_item(request: Request, item_id: str):
     success = await delete_item(db, env, user["id"], item_id)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
-    return JSONResponse(content={"deleted": True, "id": item_id})
+    # Empty HTML: the library card deletes via htmx outerHTML swap, which
+    # renders a JSON body as visible text if we return one.
+    return HTMLResponse(content="")
 
 
 @app.post("/api/search")

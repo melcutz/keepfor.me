@@ -107,6 +107,38 @@ async def test_delete_item(user_with_env):
 
 
 @pytest.mark.asyncio
+async def test_process_import_batch_fans_out(user_with_env, sqlite_conn):
+    """Queue consumer saves each import-batch bookmark and re-enqueues it."""
+    from types import SimpleNamespace
+
+    from src.consumer.processor import process_queue_batch
+
+    user, env, db = user_with_env
+    env.sqlite_conn = sqlite_conn
+    batch = SimpleNamespace(
+        messages=[
+            {
+                "user_id": user["id"],
+                "import_batch": [
+                    {"url": "https://example.com/a", "tags": ["news"]},
+                    {"url": "https://example.com/b", "tags": []},
+                ],
+            }
+        ]
+    )
+    await process_queue_batch(batch, env)
+
+    rows = await db.query_all(
+        "SELECT status FROM items WHERE user_id = ?;", (user["id"],)
+    )
+    assert len(rows) == 2
+    assert all(r["status"] == "queued" for r in rows)
+    assert len(env.QUEUE.sent) == 2
+    sent_urls = {m["url"] for m in env.QUEUE.sent}
+    assert sent_urls == {"https://example.com/a", "https://example.com/b"}
+
+
+@pytest.mark.asyncio
 async def test_save_enqueues_extraction_job(user_with_env):
     """Saving with a queue binding enqueues instead of extracting inline."""
     user, env, db = user_with_env

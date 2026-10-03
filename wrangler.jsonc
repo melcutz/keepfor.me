@@ -85,5 +85,11 @@
 	"vars": {
 		"ALLOW_PUBLIC_SIGNUPS": "false",
 		"SESSION_SECRET": "keepfor-me-secret-change-in-production-dev-key"
+	},
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		}
 	}
 }

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any
 
 from src.consumer.extractor import extract_article
@@ -211,17 +212,68 @@ async def process_single_item(item_id: str, url: str, env: Any) -> None:
 async def process_queue_batch(batch: Any, env: Any) -> None:
     """Processes Cloudflare Queue batch with retry handling."""
     messages = getattr(batch, "messages", [])
+    # Support len() on real batches; be defensive about unexpected shapes.
+    try:
+        batch_size = len(messages)
+    except TypeError:
+        batch_size = "?"
+    logger.info(f"Processing queue batch: size={batch_size}")
     for msg in messages:
         try:
             body = getattr(msg, "body", msg)
             if hasattr(body, "to_py"):
                 body = body.to_py()
-            item_id = body.get("item_id")
-            url = body.get("url")
+            if isinstance(body, str):
+                try:
+                    body = json.loads(body)
+                except ValueError:
+                    body = {}
+            if isinstance(body, dict) and body.get("import_batch"):
+                await _process_import_batch(
+                    env, body.get("user_id"), body.get("import_batch") or []
+                )
+                if hasattr(msg, "ack"):
+                    msg.ack()
+                continue
+            item_id = body.get("item_id") if isinstance(body, dict) else None
+            url = body.get("url") if isinstance(body, dict) else None
             if item_id and url:
                 await process_single_item(item_id, url, env)
+            else:
+                # Never silently swallow: an acked skip is a lost message.
+                logger.warning(f"Skipping queue message with no item_id/url: {body!r}")
             if hasattr(msg, "ack"):
                 msg.ack()
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"Queue message failed, retrying: {exc}")
             if hasattr(msg, "retry"):
                 msg.retry()
+
+
+async def _process_import_batch(
+    env: Any, user_id: str | None, bookmarks: list[dict]
+) -> None:
+    """Saves one bulk-import chunk; each save re-enqueues for extraction."""
+    if not user_id or not bookmarks:
+        return
+    # Lazy import: src.models.items lazily imports this module in save_item.
+    from src.models.items import save_item
+
+    d1 = (
+        getattr(env, "DB", None)
+        or getattr(env, "keepfor_me_db", None)
+        or getattr(env, "D1", None)
+    )
+    if d1 is None and getattr(env, "sqlite_conn", None) is None:
+        logger.warning("Import batch dropped: no database binding available")
+        return
+    db = Database(d1_binding=d1, sqlite_conn=getattr(env, "sqlite_conn", None))
+    for b in bookmarks:
+        try:
+            url = b.get("url") if isinstance(b, dict) else None
+            if not url:
+                continue
+            tags = b.get("tags", []) if isinstance(b, dict) else []
+            await save_item(db, env, user_id, url, tags)
+        except Exception:
+            continue

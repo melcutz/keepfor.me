@@ -145,6 +145,30 @@ async def test_logout(client, db, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_library_total_count_ignores_feed_cap(client, db, auth_headers):
+    """All Items badge shows the true library size, not the 30-item feed cap."""
+    import uuid
+
+    user = auth_headers["admin_user"]
+    for i in range(35):
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, status) "
+            "VALUES (?, ?, ?, ?, 'ok');",
+            (
+                str(uuid.uuid4()),
+                user["id"],
+                f"https://example.com/{i}",
+                f"https://example.com/{i}",
+            ),
+        )
+
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "35 saves" in response.text
+
+
+@pytest.mark.asyncio
 async def test_library_page_authenticated(client, db, auth_headers):
     """Test library page loads for authenticated user."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
@@ -284,7 +308,7 @@ async def test_api_list_items(client, db, auth_headers):
 
 @pytest.mark.asyncio
 async def test_api_delete_item(client, db, auth_headers):
-    """Test API delete item endpoint."""
+    """Delete returns empty HTML so the htmx card swap removes the card."""
     env = MockEnv()
     user = auth_headers["admin_user"]
 
@@ -295,6 +319,7 @@ async def test_api_delete_item(client, db, auth_headers):
     response = client.delete(f"/api/items/{item['id']}")
 
     assert response.status_code in [200, 204]
+    assert "deleted" not in response.text
 
     # Verify deleted
     check_response = client.get(f"/api/items/{item['id']}")
@@ -307,25 +332,33 @@ async def test_api_delete_item(client, db, auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_import_csv_bookmarks(client, db, auth_headers):
-    """Test CSV bookmark import via file upload."""
+async def test_import_csv_bookmarks(client, db, auth_headers, monkeypatch):
+    """CSV upload fans out into chunked queue messages and redirects fast."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
+    env = MockEnv()
+    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
 
-    csv_content = """url,title,tags
-https://example.com/1,Example One,"tech,news"
-https://example.com/2,Example Two,python
-"""
+    rows = "\n".join(f"https://example.com/{i},Example {i},tech" for i in range(27))
+    csv_content = f"url,title,tags\n{rows}\n"
 
     response = client.post(
         "/import", files={"file": ("bookmarks.csv", csv_content, "text/csv")}
     )
     assert response.status_code in [200, 303, 307, 308]
+    # 27 bookmarks chunked 25 + 2; nothing imported synchronously.
+    assert len(env.QUEUE.sent) == 2
+    assert len(env.QUEUE.sent[0]["import_batch"]) == 25
+    assert len(env.QUEUE.sent[1]["import_batch"]) == 2
+    items = await db.query_all("SELECT id FROM items;")
+    assert items == []
 
 
 @pytest.mark.asyncio
-async def test_import_netscape_bookmarks(client, db, auth_headers):
-    """Test Netscape HTML bookmark import via file upload."""
+async def test_import_netscape_bookmarks(client, db, auth_headers, monkeypatch):
+    """Netscape HTML upload fans out into a single queue message."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
+    env = MockEnv()
+    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
 
     html_content = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
     <DL><p>
@@ -340,6 +373,97 @@ async def test_import_netscape_bookmarks(client, db, auth_headers):
         "/import", files={"file": ("bookmarks.html", html_content, "text/html")}
     )
     assert response.status_code in [200, 303, 307, 308]
+    assert len(env.QUEUE.sent) == 1
+    batch = env.QUEUE.sent[0]["import_batch"]
+    assert len(batch) == 1
+    assert batch[0]["tags"] == ["tech"]
+
+
+@pytest.mark.asyncio
+async def test_import_without_queue_runs_in_background(
+    client, db, auth_headers, monkeypatch
+):
+    """No queue binding: upload redirects immediately, import runs behind."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    env = MockEnv()
+    env.QUEUE = None
+    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
+
+    async def fake_fetch(url: str) -> str:
+        return (
+            "<html><head><title>Bg Article</title></head>"
+            "<body><p>background text</p></body></html>"
+        )
+
+    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+
+    response = client.post(
+        "/import",
+        files={
+            "file": (
+                "b.csv",
+                "url,title,tags\nhttps://example.com/bg,BG,t\n",
+                "text/csv",
+            )
+        },
+    )
+    assert response.status_code in [200, 303, 307, 308]
+    row = await db.query_first("SELECT status, title FROM items;")
+    assert row is not None
+    assert row["status"] == "ok"
+    assert row["title"] == "Bg Article"
+
+
+@pytest.mark.asyncio
+async def test_admin_requeue_resends_stuck_items(client, db, auth_headers, monkeypatch):
+    """Only rows older than the stuck cutoff are requeued, capped per call."""
+    import uuid
+
+    user = auth_headers["admin_user"]
+    env = MockEnv()
+    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
+
+    async def add_item(url, created_at, status="queued"):
+        item_id = str(uuid.uuid4())
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?);",
+            (item_id, user["id"], url, url, status, created_at),
+        )
+        return item_id
+
+    old1 = await add_item("https://example.com/old1", "2020-01-01 00:00:00")
+    old2 = await add_item("https://example.com/old2", "2020-01-01 00:00:00")
+    fresh = await add_item("https://example.com/fresh", "2999-01-01 00:00:00")
+    await add_item("https://example.com/done", "2020-01-01 00:00:00", status="ok")
+
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.post("/admin/requeue")
+    assert response.status_code == 200
+    assert "Re-queued 2 item(s)" in response.text
+
+    sent_ids = {m["item_id"] for m in env.QUEUE.sent}
+    assert sent_ids == {old1, old2}
+    assert fresh not in sent_ids
+
+
+@pytest.mark.asyncio
+async def test_admin_requeue_needs_queue(client, db, auth_headers, monkeypatch):
+    """Without a QUEUE binding the requeue reports 503 instead of hanging."""
+    env = MockEnv()
+    env.QUEUE = None
+    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
+
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.post("/admin/requeue")
+    assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_admin_requeue_needs_auth(client):
+    """Requeue requires authentication."""
+    response = client.post("/admin/requeue")
+    assert response.status_code == 401
 
 
 # ==========================================

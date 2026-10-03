@@ -126,6 +126,12 @@
             Upload & Ingest
           </button>
         </form>
+        <form action="/admin/requeue" method="POST" class="mt-2">
+          <button type="submit" class="w-full py-1.5 border border-slate-200 text-slate-600 rounded text-xs font-medium hover:bg-slate-50">
+            Re-queue stuck items
+          </button>
+        </form>
+        <p class="text-[11px] text-slate-400 mt-1">Re-sends extraction jobs for items stuck in "Extracting".</p>
       </div>
 
       <!-- Export Card -->

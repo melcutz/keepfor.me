@@ -51,7 +51,9 @@ async def save_item(
     queue = getattr(env, "QUEUE", None) if env is not None else None
     if queue is not None:
         await queue.send({"item_id": item_id, "url": clean_url})
+        logger.info(f"Enqueued extraction: item={item_id}, url={clean_url}")
     else:
+        logger.warning(f"No QUEUE binding; extracting inline: item={item_id}")
         try:
             from src.consumer.processor import extract_and_store
 

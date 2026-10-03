@@ -111,6 +111,7 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 - `tests/conftest.py` hardcodes `migrations/0001_initial_schema.sql`. It will **not** pick up a new `0002_*.sql`, so schema changes made for D1 won't reach tests. Update the fixture or the initial schema when you change tables.
 - The fixture loads the schema by splitting the file on `;` — no `;` inside string literals or trigger bodies.
 - Vectorize, Workers AI, R2, and Queue branches are **never executed in tests** (there is no Cloudflare `env`); they are guarded by `hasattr(env, ...)` / `is not None` checks. `src/consumer/processor.py` and `src/models/items.py` are effectively untested — review those by hand.
+- Entrypoint signatures in `src/worker.py` must accept the runtime's full dispatch: `fetch(self, request, env=None, ctx=None)`, `queue(self, batch, env=None, ctx=None)`. A narrower `queue(self, batch)` crashed **every** prod delivery with `TypeError: ... takes 2 positional arguments but 4 were given` (2026-10-03): 998 ingested, ~808 acked-and-dropped, zero items processed, zero `failed` rows. The `workers` package (and the failure) exists only on the runtime — `tests/test_worker_entrypoint.py` pins the contract but skips everywhere except prod.
 - `search_fts` and `search_vectorize` wrap their bodies in bare `except Exception` (`src/search/engine.py:32` and `:89`). Search **degrades silently to empty results** instead of raising. When search returns nothing, read the logs rather than expecting a traceback.
 
 ## Repo hygiene traps
