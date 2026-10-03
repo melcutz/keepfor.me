@@ -452,3 +452,16 @@ async def test_login_redirects_to_next_with_lax_cookie(client, db, setup_users):
     assert response.status_code in [303, 307, 308]
     assert response.headers["location"] == "/save-popup?url=https://example.com/a"
     assert "samesite=lax" in response.headers.get("set-cookie", "").lower()
+
+
+def test_tag_palette_index_is_deterministic():
+    """Palette slot is stable per tag and covers all eight slots."""
+    from src.app import TAG_DOT_CLASSES, TAG_PILL_CLASSES, tag_palette_index
+
+    assert len(TAG_PILL_CLASSES) == 8
+    assert len(TAG_DOT_CLASSES) == 8
+    assert tag_palette_index("design") == tag_palette_index("design")
+    for tag in ["design", "laravel", "cooking", "research"]:
+        assert 0 <= tag_palette_index(tag) <= 7
+    seen = {tag_palette_index(f"tag-{i}") for i in range(500)}
+    assert seen == set(range(8))

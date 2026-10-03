@@ -1,3 +1,4 @@
+import hashlib
 import os
 import time
 from typing import Any
@@ -368,6 +369,43 @@ def _safe_next(value: str | None) -> str:
     if value and value.startswith("/") and not value.startswith("//"):
         return value
     return "/"
+
+
+TAG_PILL_CLASSES = [
+    "bg-blue-50 text-blue-700",
+    "bg-emerald-50 text-emerald-700",
+    "bg-amber-50 text-amber-700",
+    "bg-rose-50 text-rose-700",
+    "bg-violet-50 text-violet-700",
+    "bg-cyan-50 text-cyan-700",
+    "bg-orange-50 text-orange-700",
+    "bg-slate-100 text-slate-600",
+]
+
+TAG_DOT_CLASSES = [
+    "bg-blue-600",
+    "bg-emerald-600",
+    "bg-amber-500",
+    "bg-rose-500",
+    "bg-violet-500",
+    "bg-cyan-500",
+    "bg-orange-500",
+    "bg-slate-400",
+]
+
+
+def tag_palette_index(tag: str) -> int:
+    """Deterministic 0-7 palette slot for a tag name (md5, stable across processes)."""
+    return hashlib.md5(tag.encode("utf-8")).digest()[0] % 8
+
+
+def tag_styles_for(tags: list[str]) -> dict[str, tuple[str, str]]:
+    """Map each tag name to (pill classes, dot class)."""
+    styles = {}
+    for t in dict.fromkeys(tags):
+        i = tag_palette_index(t)
+        styles[t] = (TAG_PILL_CLASSES[i], TAG_DOT_CLASSES[i])
+    return styles
 
 
 @app.get("/auth/login", response_class=HTMLResponse)
