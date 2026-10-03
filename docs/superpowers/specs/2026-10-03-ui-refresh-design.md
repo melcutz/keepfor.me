@@ -68,10 +68,11 @@ recolor, resize the pairing, or drop either half (login previously showed
 a plain-text site name; that inconsistency is explicitly out of scope to
 repeat).
 
-**Favicon wiring:** `<link rel="icon" type="image/svg+xml" href="/static/icon.svg">`
-in `base.html` and the standalone `save_popup.html`. Requires a static-file
-route for `/static` (new, see implementation plan) — `img-src`/`style-src`
-CSP already permits same-origin.
+**Favicon wiring:** inline SVG data URI (no static route, no bundling change —
+works identically in the Worker, local dev, and TestClient):
+`<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,...">`
+(full URI in Task 2) in `base.html` and the standalone `save_popup.html`.
+`static/icon.svg` is not created (YAGNI — nothing references a file URL).
 
 ## Library (`templates/library.html`, `partials/item_card.html`)
 
