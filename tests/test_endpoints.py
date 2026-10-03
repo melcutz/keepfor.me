@@ -500,3 +500,14 @@ def test_auth_pages_share_identical_lockup(client):
         assert "Keepfor<span" in page.text
         assert "text-blue-600" in page.text
         assert "linearGradient" in page.text
+
+
+@pytest.mark.asyncio
+async def test_save_popup_shares_brand_lockup(client, db, auth_headers):
+    """Save popup uses the same icon + split-tone wordmark and favicon."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    page = client.get("/save-popup?url=https://example.com/a&title=Hi")
+    assert page.status_code == 200
+    assert "kfm-popup" in page.text
+    assert "Keepfor<span" in page.text
+    assert "data:image/svg+xml" in page.text

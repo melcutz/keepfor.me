@@ -259,7 +259,7 @@ async def test_search_results_show_favicons_and_tag_colors(
     client.cookies["kfm_session"] = auth_headers["admin_session"]
 
     response = client.post(
-        "/search", data={"query": "example", "mode": "keyword", "tag": ""}
+        "/search", data={"query": "", "mode": "keyword", "tag": ""}
     )
     assert response.status_code == 200
     assert "s2/favicons?domain=example.com" in response.text
@@ -270,7 +270,7 @@ async def test_search_results_show_favicons_and_tag_colors(
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python3 -m pytest tests/test_endpoints.py::test_search_results_show_favicons_and_tag_colors -q`
-Expected: FAIL (`s2/favicons` not in current card markup). If it fails earlier (empty search results), debug `hybrid_search` keyword mode with `env=None` in `src/search/engine.py` — FTS must return the saved item.
+Expected: FAIL (`s2/favicons` not in current card markup). If it fails earlier (empty search results), debug `hybrid_search` keyword mode with `env=None` in `src/search/engine.py` — FTS must return the saved item. Empty query exercises the recent-items path so no FTS rows (and no engine changes) are needed.
 
 - [ ] **Step 3: Wire `tag_styles` into both handlers in `src/app.py`**
 
