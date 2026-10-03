@@ -17,7 +17,6 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -130,15 +129,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
-# CORS middleware for API access from browser extensions
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # TODO: Configure specific origins for production
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS", "PUT"],
-    allow_headers=["*"],
-    expose_headers=["Content-Type"],
-)
+# NO CORS middleware on purpose. The app is same-origin only, so the browser's
+# own same-origin policy is exactly the policy we want and needs no help.
+#
+# This used to run CORSMiddleware with allow_origins=["*"] *and*
+# allow_credentials=True, which made Starlette echo back whatever Origin the
+# caller sent, with credentials allowed — the classic reflected-origin CORS
+# hole. Session-cookie reads were blocked only by SameSite=Lax, i.e. one config
+# change away from any site reading the whole library.
+#
+# The browser extension is unaffected: Manifest V3 grants cross-origin fetch via
+# host_permissions in browser-extension/manifest.json, not via server CORS.
 
 
 def get_env_from_request(request: Request) -> Any:

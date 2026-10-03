@@ -43,15 +43,20 @@ production.
   network access to your deployment can make unlimited guesses. Restrict access
   at the network layer (Cloudflare Access, IP allowlist) if the deployment is
   reachable from the public internet.
-- **CORS reflects any origin.** The API middleware is configured with
-  `allow_origins=["*"]` *and* `allow_credentials=True`
-  (`src/app.py:136`), which causes the server to echo back whatever `Origin`
-  the caller sends, with credentials allowed. Session-cookie reads are
-  currently blocked only because the cookies are `SameSite=Lax` — verified
-  2026-10-03: a cross-origin `fetch` from an attacker-controlled page reaches
-  the API but receives `{"detail":"Authentication required"}`. Treat
-  `SameSite=Lax` as the only thing standing between this and data
-  exfiltration; do not relax it, and prefer tightening the CORS allowlist.
+- **Cross-origin requests are refused by default.** The app sends **no CORS
+  headers**, so the browser's same-origin policy applies: another site cannot
+  read this API. An earlier version ran `CORSMiddleware` with
+  `allow_origins=["*"]` together with `allow_credentials=True`, which made the
+  server echo any `Origin` back with credentials allowed (verified against
+  production). Session-cookie reads were blocked only because cookies are
+  `SameSite=Lax`; that was a single config change away from a full library
+  exfiltration. `tests/test_endpoints.py::test_no_cross_origin_cors_headers`
+  pins the safe behavior.
+
+  If you self-host behind a separate frontend origin, it must proxy through the
+  same origin rather than calling the API directly. The browser extension does
+  not need CORS: Manifest V3 grants its cross-origin fetch through
+  `host_permissions` in `browser-extension/manifest.json`.
 - **Third-party requests disclose saved URLs.** Two features contact external
   services with data derived from your library:
   - Item favicons are fetched from `google.com` / `icons.duckduckgo.com`,
@@ -88,6 +93,9 @@ A few things worth checking on your own instance:
 
 - `ALLOW_PUBLIC_SIGNUPS` is `"false"` in `wrangler.jsonc`.
 - The deployment is reachable only over HTTPS and the zone has HSTS enabled.
+- A response to `curl -sI -H 'Origin: https://example.com' <your-domain>/api/items`
+  contains **no** `Access-Control-Allow-Origin` header. If one appears, a CORS
+  allowlist has been reintroduced.
 - Your PATs are treated as secrets — they grant full read/write/delete access to
   the entire library.
 - Review **Settings → Personal Access Tokens** and revoke anything you don't

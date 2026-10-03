@@ -12,6 +12,11 @@
     "activeTab",
     "storage"
   ],
+  "host_permissions": [
+    "https://app.keepfor.me/*",
+    "https://keepfor.me/*",
+    "https://*.workers.dev/*"
+  ],
   "action": {
     "default_popup": "popup.html",
     "default_title": "Save to Keepfor.me"

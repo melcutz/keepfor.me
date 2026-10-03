@@ -389,6 +389,39 @@ def test_csp_allows_cloudflare_beacon(client):
 
 
 @pytest.mark.asyncio
+async def test_no_cross_origin_cors_headers(client, auth_headers):
+    """Same-origin only: never echo the caller's Origin, never allow wildcard.
+
+    The app shipped CORSMiddleware with allow_origins=['*'] *and*
+    allow_credentials=True, which reflected any Origin back with credentials
+    allowed. Session-cookie reads were blocked only by SameSite=Lax.
+    """
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    for origin in ("https://attacker.test", "https://app.keepfor.me", "null"):
+        response = client.get("/api/items", headers={"Origin": origin})
+        assert response.status_code == 200
+        echoed = response.headers.get("access-control-allow-origin")
+        assert echoed is None, f"Origin {origin} was reflected: {echoed}"
+        assert response.headers.get("access-control-allow-credentials") is None
+
+
+def test_extension_declares_host_permissions():
+    """The extension needs host_permissions now that the server sends no CORS.
+
+    MV3 grants cross-origin fetch from the manifest, not from server headers.
+    """
+    import json
+    import os
+
+    ext = os.path.join(os.path.dirname(__file__), "..", "browser-extension")
+    with open(os.path.join(ext, "manifest.json")) as f:
+        manifest = json.load(f)
+    hosts = manifest.get("host_permissions") or []
+    assert any("keepfor.me" in h for h in hosts), hosts
+    assert any("workers.dev" in h for h in hosts), hosts
+
+
+@pytest.mark.asyncio
 async def test_auth_pages_redirect_when_signed_in(client, auth_headers):
     """Signed-in users hitting login/register go to the library, not a form."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]

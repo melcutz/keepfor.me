@@ -154,3 +154,10 @@ Several endpoints are submitted by HTML forms or swapped by htmx. Returning `JSO
 - `GET /items/{id}` on a missing item → styled HTML 404, not `{"detail":"Item not found"}`.
 
 Keep the hidden `source` field on `save_popup.html`: share-target/PWA pages **cannot** `window.close()`, so they render a static done panel and let the user swipe back, while the bookmarklet popup still auto-closes.
+## Same-origin only: no CORS middleware, on purpose
+
+There is **no `CORSMiddleware`** in `src/app.py`, and that is intentional. The app is same-origin, so the browser's own policy is the correct policy and needs no help.
+
+The previous `allow_origins=["*"]` + `allow_credentials=True` combination made Starlette **reflect any `Origin`** with credentials allowed (verified in prod: `Origin: https://attacker.test` came back in `Access-Control-Allow-Origin`). Session-cookie reads were blocked only by `SameSite=Lax`. **Do not reintroduce a CORS allowlist** — `tests/test_endpoints.py::test_no_cross_origin_cors_headers` asserts no `Access-Control-*` header is ever emitted.
+
+If a separate frontend origin is ever needed, proxy through the same origin instead. The browser extension does not depend on server CORS: MV3 grants its fetch via `host_permissions` in `browser-extension/manifest.json`, so **adding a host there is what keeps the extension working** — not a relaxed server.
