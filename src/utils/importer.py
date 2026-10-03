@@ -3,8 +3,6 @@ import io
 import time
 from typing import Any
 
-from bs4 import BeautifulSoup
-
 from src.models.db import Database
 from src.models.items import save_item
 
@@ -15,6 +13,10 @@ def parse_netscape_bookmarks(html_content: str) -> list[dict[str, Any]]:
     Browser exports group links under <H3> folder headers; the enclosing
     folder name is kept as a tag so Chrome categories survive the import.
     """
+    # Imported here, not at module scope: this module is imported by the FastAPI
+    # app, and bs4 pulls lxml into every request's cold start (~0.1s measured).
+    from bs4 import BeautifulSoup
+
     soup = BeautifulSoup(html_content, "html.parser")
     bookmarks = []
 

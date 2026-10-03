@@ -3,30 +3,51 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-try:
-    import trafilatura
-except ImportError:
-    trafilatura = None
+# NOTE: trafilatura and bs4 are imported lazily (see _load_parsers) rather
+# than at module scope. This module is reachable from the Worker entrypoint
+# via the consumer chain, so eager imports made *every* request -- including
+# static pages like /auth/login -- pay to load the article-parsing stack
+# (~0.1-0.2s, measured) and grew the cold-start import graph.
+_soup_cls: Any = None
+_trafilatura: Any = None
+_parsers_loaded = False
 
-import warnings
 
-from bs4 import BeautifulSoup
+def _load_parsers() -> tuple[Any, Any]:
+    """Import and cache BeautifulSoup + trafilatura on first extraction."""
+    global _soup_cls, _trafilatura, _parsers_loaded
+    if not _parsers_loaded:
+        import warnings
 
-# Cloudflare Workers have no system timezone database, so tzlocal (via
-# trafilatura's date parsing) warns once per article and defaults to UTC --
-# which is what we want. Silence it so error logs stay meaningful.
-warnings.filterwarnings(
-    "ignore",
-    message="Can not find any timezone configuration.*",
-    category=UserWarning,
-)
+        from bs4 import BeautifulSoup
+
+        # Cloudflare Workers have no system timezone database, so tzlocal (via
+        # trafilatura's date parsing) warns once per article and defaults to
+        # UTC -- which is what we want. Silence it so error logs stay
+        # meaningful.
+        warnings.filterwarnings(
+            "ignore",
+            message="Can not find any timezone configuration.*",
+            category=UserWarning,
+        )
+
+        _soup_cls = BeautifulSoup
+        try:
+            import trafilatura as _tf
+
+            _trafilatura = _tf
+        except ImportError:
+            _trafilatura = None
+        _parsers_loaded = True
+    return _soup_cls, _trafilatura
 
 
 def sanitize_clean_html(html_str: str) -> str:
     """Ensures extracted HTML contains only safe tags and attributes."""
     if not html_str:
         return ""
-    soup = BeautifulSoup(html_str, "html.parser")
+    soup_cls, _ = _load_parsers()
+    soup = soup_cls(html_str, "html.parser")
     allowed_tags = {
         "p",
         "h1",
@@ -90,6 +111,7 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
     plain_text = None
 
     # 1. Attempt Trafilatura extraction if available
+    soup_cls, trafilatura = _load_parsers()
     if trafilatura is not None:
         metadata = trafilatura.extract_metadata(html, default_url=url)
         clean_html_raw = trafilatura.extract(
@@ -114,7 +136,7 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
 
     # 2. Fallback using BeautifulSoup if body text is missing or very short
     if not plain_text or len(plain_text.strip()) < 50:
-        soup = BeautifulSoup(html, "html.parser")
+        soup = soup_cls(html, "html.parser")
         is_fallback = True
 
         if not title:
