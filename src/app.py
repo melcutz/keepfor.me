@@ -393,13 +393,17 @@ async def save_popup_get(request: Request, url: str = "", title: str = ""):
             url="/auth/login?" + urlencode({"next": dest}), status_code=303
         )
     template = jinja_env.get_template("save_popup.html")
-    html = template.render(url=url, title=title, success=False)
+    html = template.render(url=url, title=title, success=False, source="")
     return HTMLResponse(content=html)
 
 
 @app.post("/save-popup", response_class=HTMLResponse)
 async def save_popup_post(
-    request: Request, url: str = Form(...), title: str = Form(""), tags: str = Form("")
+    request: Request,
+    url: str = Form(...),
+    title: str = Form(""),
+    tags: str = Form(""),
+    source: str = Form(""),
 ):
     user = await require_user(request)
     db = get_db(request)
@@ -407,7 +411,7 @@ async def save_popup_post(
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     await save_item(db, env, user["id"], url, tag_list)
     template = jinja_env.get_template("save_popup.html")
-    html = template.render(url=url, title=title, success=True)
+    html = template.render(url=url, title=title, success=True, source=source)
     return HTMLResponse(content=html)
 
 
@@ -430,7 +434,7 @@ async def share_target(
     if not target:
         return RedirectResponse(url="/", status_code=303)
     template = jinja_env.get_template("save_popup.html")
-    html = template.render(url=target, title=title, success=False)
+    html = template.render(url=target, title=title, success=False, source="share")
     return HTMLResponse(content=html)
 
 

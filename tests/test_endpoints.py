@@ -576,6 +576,30 @@ async def test_share_without_link_redirects_home(client, db, auth_headers):
     assert response.headers["location"] == "/"
 
 
+@pytest.mark.asyncio
+async def test_share_submit_stays_put_for_system_back(client, db, auth_headers):
+    """Share-flow success is static (no auto-redirect into the library)."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.post(
+        "/save-popup",
+        data={"url": "https://example.com/shared", "tags": "", "source": "share"},
+    )
+    assert response.status_code == 200
+    assert "Saved to your library!" in response.text
+    assert "location.href" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_popup_submit_keeps_close_behavior(client, db, auth_headers):
+    """Bookmarklet-popup success still closes/redirects automatically."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.post(
+        "/save-popup", data={"url": "https://example.com/popup", "tags": ""}
+    )
+    assert response.status_code == 200
+    assert "location.href" in response.text
+
+
 # ==========================================
 # Settings/PAT Tests
 # ==========================================

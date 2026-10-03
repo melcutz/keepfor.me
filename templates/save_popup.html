@@ -15,6 +15,13 @@
     </div>
 
     {% if success %}
+    {% if source == 'share' %}
+    <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-center">
+      <p class="font-semibold text-sm">Saved to your library!</p>
+      <p class="text-xs text-emerald-600 mt-1">You can head back to what you were doing.</p>
+      <a href="/" class="inline-block mt-3 text-xs font-semibold text-blue-600 hover:underline">Open library →</a>
+    </div>
+    {% else %}
     <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-center">
       <p class="font-semibold text-sm">Saved & Queued!</p>
       <p class="text-xs text-emerald-600 mt-1">Taking you back to your library…</p>
@@ -27,8 +34,10 @@
         setTimeout(() => { location.href = '/'; }, 400);
       }, 1200);
     </script>
+    {% endif %}
     {% else %}
     <form action="/save-popup" method="POST" class="space-y-4">
+      <input type="hidden" name="source" value="{{ source|default('') }}">
       <div>
         <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">URL</label>
         <input type="url" name="url" value="{{ url }}" required readonly
