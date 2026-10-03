@@ -31,8 +31,22 @@ jobs:
       - name: Install Node dependencies
         run: npm install -g wrangler
       
-      - name: Verify wrangler config
-        run: uvx --from workers-py pywrangler deploy --dry-run
+      - name: Verify wrangler config and bundle size
+        run: |
+          set -o pipefail
+          uvx --from workers-py pywrangler deploy --dry-run 2>&1 | tee /tmp/dryrun.txt
+          KIB=$(grep -E 'Total \([0-9]+ modules\)' /tmp/dryrun.txt | tail -1 | grep -oE '[0-9]+\.[0-9]+' | tail -1)
+          MODS=$(grep -oE 'Total \([0-9]+ modules\)' /tmp/dryrun.txt | grep -oE '[0-9]+' | head -1)
+          if [ -z "$KIB" ]; then
+            echo "::error::Could not parse the module table from the dry run"
+            exit 1
+          fi
+          echo "bundle: ${KIB} KiB across ${MODS} modules"
+          LIMIT=58000
+          awk -v k="$KIB" -v l="$LIMIT" 'BEGIN{ if (k+0 > l+0) { print "::error::Worker bundle " k " KiB exceeds the " l " KiB budget"; exit 1 } }'
+          if grep -q '\.venv-workers' /tmp/dryrun.txt; then
+            echo "::warning::The build venv .venv-workers is still being bundled. Cloudflare rejects the Worker above 64 MiB. See the 'Bundle size' section of AGENTS.md."
+          fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

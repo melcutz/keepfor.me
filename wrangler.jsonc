@@ -4,13 +4,13 @@
 	"main": "worker.py",
 	       "find_additional_modules": true,
 			  "base_dir": ".",
-	       "rules": [
-		       {
-			       "type": "Text",
-					      "globs": ["**/*.html"],
-									   "fallthrough": true
-		       }
-	       ],
+	"rules": [
+		{
+			"type": "Text",
+			"globs": ["**/*.html", "**/*.sql"],
+			"fallthrough": false
+		}
+	],
 		       "python_modules": {
 			       "exclude": [
 				       "**/*.pyc",
