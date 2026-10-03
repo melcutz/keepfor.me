@@ -1,8 +1,13 @@
+import asyncio
 from typing import Any
 
 from src.models.db import Database
 
 RRF_K = 60  # Standard RRF constant
+# Bound on the embedding call and the vector query. Search must stay
+# responsive even when Workers AI or Vectorize is slow; both fall back to
+# keyword-only results on timeout.
+VECTOR_SEARCH_TIMEOUT = 5.0
 
 
 async def search_fts(
@@ -54,7 +59,12 @@ async def search_vectorize(
         return []
 
     try:
-        ai_res = await env.AI.run("@cf/baai/bge-base-en-v1.5", {"text": [query]})
+        # Bound the embedding + vector query so a slow AI binding cannot hang
+        # search; on timeout we degrade to FTS-only results instead of erroring.
+        ai_res = await asyncio.wait_for(
+            env.AI.run("@cf/baai/bge-base-en-v1.5", {"text": [query]}),
+            timeout=VECTOR_SEARCH_TIMEOUT,
+        )
         raw_data = getattr(ai_res, "data", ai_res)
         if hasattr(raw_data, "to_py"):
             raw_data = raw_data.to_py()
@@ -66,8 +76,11 @@ async def search_vectorize(
         query_vector = embeddings[0]
 
         # Vectorize query
-        vec_res = await env.VECTORIZE.query(
-            query_vector, {"topK": limit, "filter": {"user_id": user_id}}
+        vec_res = await asyncio.wait_for(
+            env.VECTORIZE.query(
+                query_vector, {"topK": limit, "filter": {"user_id": user_id}}
+            ),
+            timeout=VECTOR_SEARCH_TIMEOUT,
         )
         matches = getattr(vec_res, "matches", [])
         if hasattr(matches, "to_py"):
@@ -108,10 +121,18 @@ async def hybrid_search(
     fts_results: list[dict[str, Any]] = []
     vec_results: list[dict[str, Any]] = []
 
-    if mode in ("hybrid", "keyword"):
+    # FTS (a D1 round-trip) and the vector path (an AI embedding call) are
+    # independent, so run them concurrently: hybrid search was paying for
+    # them back to back (~0.39s of the ~0.6s was the embedding).
+    want_fts = mode in ("hybrid", "keyword")
+    want_vec = mode in ("hybrid", "semantic") and env is not None
+    if want_fts and want_vec:
+        fts_task = asyncio.create_task(search_fts(db, user_id, query, limit=50))
+        vec_task = asyncio.create_task(search_vectorize(env, user_id, query, limit=50))
+        fts_results, vec_results = await asyncio.gather(fts_task, vec_task)
+    elif want_fts:
         fts_results = await search_fts(db, user_id, query, limit=50)
-
-    if mode in ("hybrid", "semantic") and env is not None:
+    elif want_vec:
         vec_results = await search_vectorize(env, user_id, query, limit=50)
 
     # Reciprocal Rank Fusion
