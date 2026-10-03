@@ -3,7 +3,7 @@ import time
 from typing import Any
 from fastapi import FastAPI, Request, Response, Form, UploadFile, File, HTTPException, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import Environment, FileSystemLoader
 
@@ -201,6 +201,12 @@ async def save_form(request: Request, url: str = Form(...), tags: str = Form("")
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
+    
+    # Validate URL is not empty
+    if not url or not url.strip():
+        logger.warning(f"Save validation failed: empty URL")
+        raise HTTPException(status_code=400, detail="URL cannot be empty")
+    
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     await save_item(db, env, user["id"], url, tag_list)
     return RedirectResponse(url="/", status_code=303)
@@ -253,10 +259,10 @@ async def create_token_route(request: Request, name: str = Form(...)):
         validated = CreatePATRequest(name=name)
     except Exception as e:
         logger.warning(f"PAT creation validation failed: {e}")
-        return RedirectResponse(url="/settings?error=Invalid token name", status_code=303)
+        return JSONResponse(content={"error": "Invalid token name"}, status_code=400)
     
     res = await create_pat(db, user["id"], validated.name)
-    return RedirectResponse(url=f"/settings?new_token={res['token']}", status_code=303)
+    return JSONResponse(content=res, status_code=201)
 
 @app.post("/settings/tokens/{pat_id}/delete")
 async def delete_token_route(request: Request, pat_id: str):
@@ -266,17 +272,19 @@ async def delete_token_route(request: Request, pat_id: str):
     return RedirectResponse(url="/settings", status_code=303)
 
 @app.post("/import")
-async def import_route(request: Request, file: UploadFile = File(...)):
+async def import_route(request: Request, content: str = Form(...), format: str = Form("csv")):
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
-    content = await file.read()
-    text = content.decode("utf-8", errors="replace")
-
-    if file.filename and file.filename.endswith(".csv"):
-        bookmarks = parse_csv_bookmarks(text)
+    
+    # Validate format
+    if format not in ["csv", "netscape"]:
+        raise HTTPException(status_code=400, detail="Invalid format. Must be 'csv' or 'netscape'")
+    
+    if format == "csv":
+        bookmarks = parse_csv_bookmarks(content)
     else:
-        bookmarks = parse_netscape_bookmarks(text)
+        bookmarks = parse_netscape_bookmarks(content)
 
     await import_bookmarks(db, env, user["id"], bookmarks)
     return RedirectResponse(url="/", status_code=303)

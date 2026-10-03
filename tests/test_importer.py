@@ -31,7 +31,4 @@ https://fastapi.tiangolo.com,FastAPI Framework,python
     bookmarks = parse_csv_bookmarks(csv_content)
     assert len(bookmarks) == 2
     assert bookmarks[0]["url"] == "https://blog.cloudflare.com/workers"
-        self.assertEqual(bookmarks[0]["tags"], ["cloudflare", "serverless"])
-
-if __name__ == "__main__":
-    unittest.main()
+    assert bookmarks[0]["tags"] == ["cloudflare", "serverless"]

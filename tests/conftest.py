@@ -22,7 +22,8 @@ def db_path() -> str:
 @pytest.fixture
 def sqlite_conn(db_path: str) -> sqlite3.Connection:
     """Create and initialize SQLite connection with schema."""
-    conn = sqlite3.connect(db_path)
+    # Use check_same_thread=False to allow async code to use the connection
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     
     # Apply schema

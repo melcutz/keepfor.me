@@ -77,4 +77,3 @@ async def test_save_and_get_tool(mcp_user):
     get_data = json.loads(res_get["result"]["content"][0]["text"])
     assert get_data["id"] == item_id
     assert "python" in get_data["tags"]
-    unittest.main()
