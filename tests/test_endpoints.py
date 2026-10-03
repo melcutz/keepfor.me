@@ -452,3 +452,62 @@ async def test_login_redirects_to_next_with_lax_cookie(client, db, setup_users):
     assert response.status_code in [303, 307, 308]
     assert response.headers["location"] == "/save-popup?url=https://example.com/a"
     assert "samesite=lax" in response.headers.get("set-cookie", "").lower()
+
+
+def test_tag_palette_index_is_deterministic():
+    """Palette slot is stable per tag and covers all eight slots."""
+    from src.app import TAG_DOT_CLASSES, TAG_PILL_CLASSES, tag_palette_index
+
+    assert len(TAG_PILL_CLASSES) == 8
+    assert len(TAG_DOT_CLASSES) == 8
+    assert tag_palette_index("design") == tag_palette_index("design")
+    for tag in ["design", "laravel", "cooking", "research"]:
+        assert 0 <= tag_palette_index(tag) <= 7
+    seen = {tag_palette_index(f"tag-{i}") for i in range(500)}
+    assert seen == set(range(8))
+
+
+def test_login_page_has_svg_favicon(client):
+    """Favicon is an inline SVG data URI (no static route needed)."""
+    response = client.get("/auth/login")
+    assert response.status_code == 200
+    assert 'rel="icon"' in response.text
+    assert "data:image/svg+xml" in response.text
+
+
+@pytest.mark.asyncio
+async def test_search_results_show_favicons_and_tag_colors(client, db, auth_headers):
+    """Item cards render favicon with fallback and palette-colored tags."""
+    from src.app import TAG_PILL_CLASSES, tag_palette_index
+    from src.models.items import save_item
+
+    user = auth_headers["admin_user"]
+    await save_item(db, None, user["id"], "https://example.com/article", ["design"])
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    response = client.post("/search", data={"query": "", "mode": "keyword", "tag": ""})
+    assert response.status_code == 200
+    assert "s2/favicons?domain=example.com" in response.text
+    assert "onerror" in response.text
+    assert TAG_PILL_CLASSES[tag_palette_index("design")] in response.text
+
+
+def test_auth_pages_share_identical_lockup(client):
+    """Login, register, and popup use the same icon + split-tone wordmark."""
+    for path in ["/auth/login", "/auth/register"]:
+        page = client.get(path)
+        assert page.status_code == 200
+        assert "Keepfor<span" in page.text
+        assert "text-blue-600" in page.text
+        assert "linearGradient" in page.text
+
+
+@pytest.mark.asyncio
+async def test_save_popup_shares_brand_lockup(client, db, auth_headers):
+    """Save popup uses the same icon + split-tone wordmark and favicon."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    page = client.get("/save-popup?url=https://example.com/a&title=Hi")
+    assert page.status_code == 200
+    assert "kfm-popup" in page.text
+    assert "Keepfor<span" in page.text
+    assert "data:image/svg+xml" in page.text

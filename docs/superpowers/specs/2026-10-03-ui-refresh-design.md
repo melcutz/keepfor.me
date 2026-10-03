@@ -33,7 +33,7 @@ and a real logo.
   cyan `#ecfeff`/`#0e7490`, orange `#fff7ed`/`#c2410c`, slate `#f1f5f9`/
   `#475569`. A violet *tag* is fine — data, not chrome. Assignment is
   `md5(tag).digest()[0] % 8`, computed in `src/app.py`
-  (`tag_palette_class()`) and passed as `tag_colors: dict[str, str]` into
+  (`tag_palette_index()` + `tag_styles_for()`) and passed as `tag_styles: dict[str, tuple[str, str]]` into
   every template that renders item tags (`library_page`, `search_htmx`,
   `reader_page`). Python's `hash()` is process-randomized, so md5 — never
   Jinja-side tricks. Sidebar board dots use the same mapping, so a tag's
@@ -56,7 +56,7 @@ and a real logo.
 ```
 
 White bookmark glyph on a blue-600 → sky-500 gradient squircle. Legible at
-16px, no emoji anywhere in the UI afterwards.
+16px. No emoji in brand marks (logo tiles); UI pictograms and the bookmarklet label are unchanged.
 
 **Wordmark:** `Keepfor` in slate-900 + `.me` in blue-600 (`#2563eb`),
 weight 800, tracking `-0.03em`. Used in the header logo, login/register
@@ -66,16 +66,17 @@ cards, and save-popup header.
 everywhere** — header, login, register, save-popup. No page may restyle,
 recolor, resize the pairing, or drop either half (login previously showed
 a plain-text site name; that inconsistency is explicitly out of scope to
-repeat).
+repeat). Sizes vary by context (22px header/popup, 26px auth cards) with per-page gradient IDs; the pairing never varies.
 
-**Favicon wiring:** `<link rel="icon" type="image/svg+xml" href="/static/icon.svg">`
-in `base.html` and the standalone `save_popup.html`. Requires a static-file
-route for `/static` (new, see implementation plan) — `img-src`/`style-src`
-CSP already permits same-origin.
+**Favicon wiring:** inline SVG data URI (no static route, no bundling change —
+works identically in the Worker, local dev, and TestClient):
+`<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,...">`
+(full URI in Task 2) in `base.html` and the standalone `save_popup.html`.
+`static/icon.svg` is not created (YAGNI — nothing references a file URL).
 
 ## Library (`templates/library.html`, `partials/item_card.html`)
 
-- Sidebar rows become board rows: colored dot (from `tag_colors`) +
+- Sidebar rows become board rows: colored dot (from `tag_styles`) +
   label + count badge (slate-100 pill, darker when active), active board
   filled slate-200. All data already passed to the template
   (`tags[].count`, `total_count`); only the color mapping is new.
@@ -85,7 +86,7 @@ CSP already permits same-origin.
   behind both in the item's first tag color. `<domain>` is the host of
   `item.canonical_url` (`item.canonical_url.split('/')[2]`), which the row
   already assumes is present when it renders the site name.
-- Item tag pills use the categorical palette via `tag_colors` (reader too).
+- Item tag pills use the categorical palette via `tag_styles` (reader too).
 - Search input shows a visible `⌘K` hint chip; `:focus-within` gets the
   blue ring. Existing `Cmd+K` JS shortcut unchanged.
 - Page headline `Library` (tight display style) + muted count subline.
@@ -98,7 +99,7 @@ CSP already permits same-origin.
 Structure and controls unchanged (back link, Sans/Serif/Mono, A−/A+,
 light/sepia/dark, Original link, theme localStorage hooks). Tightened
 headline (750, `-0.022em`), muted 12.5px meta row, palette-colored tag
-pills (same `tag_colors` mapping), article body at 1.75 line-height, controls bar becomes a proper card.
+pills (same `tag_styles` mapping), article body at 1.75 line-height, controls bar becomes a proper card.
 
 ## Settings (`templates/settings.html`)
 
@@ -119,7 +120,7 @@ Centered card with the new icon + split-tone wordmark, same fields and
   and `ruff format --check src/ tests/`.
 - New test: library HTML contains a `s2/favicons?domain=` URL and the
   `onerror` DuckDuckGo fallback.
-- New test: `tag_palette_class()` is deterministic (same tag, same class
+- New test: `tag_palette_index()` + `tag_styles_for()` is deterministic (same tag, same class
   across calls) and its range covers all eight palette classes.
 - Manual visual pass over library / reader / settings / login before merge,
   compared against the approved mockups in `.superpowers/brainstorm/`.

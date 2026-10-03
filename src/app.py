@@ -1,3 +1,4 @@
+import hashlib
 import os
 import time
 from typing import Any
@@ -197,10 +198,16 @@ async def library_page(request: Request, tag: str | None = None, q: str | None =
     env = get_env_from_request(request)
     items = await hybrid_search(db, env, user["id"], query=q or "", tag=tag, limit=30)
     tags = await list_user_tags(db, user["id"])
+    tag_styles = tag_styles_for([t["name"] for t in tags])
 
     template = jinja_env.get_template("library.html")
     html = template.render(
-        current_user=user, items=items, tags=tags, active_tag=tag, query=q or ""
+        current_user=user,
+        items=items,
+        tags=tags,
+        active_tag=tag,
+        query=q or "",
+        tag_styles=tag_styles,
     )
     return HTMLResponse(content=html)
 
@@ -222,6 +229,7 @@ async def search_htmx(
     items = await hybrid_search(
         db, env, user["id"], query=query, mode=mode, tag=clean_tag, limit=30
     )
+    tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
 
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
@@ -230,7 +238,7 @@ async def search_htmx(
             "No matching articles found.</div>"
         )
 
-    cards = [template.render(item=it) for it in items]
+    cards = [template.render(item=it, tag_styles=tag_styles) for it in items]
     return HTMLResponse(content="".join(cards))
 
 
@@ -247,8 +255,11 @@ async def reader_page(request: Request, item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
 
     clean_html = await get_item_clean_html(db, env, user["id"], item_id)
+    tag_styles = tag_styles_for(item.get("tags") or [])
     template = jinja_env.get_template("reader.html")
-    html = template.render(current_user=user, item=item, clean_html=clean_html)
+    html = template.render(
+        current_user=user, item=item, clean_html=clean_html, tag_styles=tag_styles
+    )
     return HTMLResponse(content=html)
 
 
@@ -368,6 +379,43 @@ def _safe_next(value: str | None) -> str:
     if value and value.startswith("/") and not value.startswith("//"):
         return value
     return "/"
+
+
+TAG_PILL_CLASSES = [
+    "bg-blue-50 text-blue-700",
+    "bg-emerald-50 text-emerald-700",
+    "bg-amber-50 text-amber-700",
+    "bg-rose-50 text-rose-700",
+    "bg-violet-50 text-violet-700",
+    "bg-cyan-50 text-cyan-700",
+    "bg-orange-50 text-orange-700",
+    "bg-slate-100 text-slate-600",
+]
+
+TAG_DOT_CLASSES = [
+    "bg-blue-600",
+    "bg-emerald-600",
+    "bg-amber-500",
+    "bg-rose-500",
+    "bg-violet-500",
+    "bg-cyan-500",
+    "bg-orange-500",
+    "bg-slate-400",
+]
+
+
+def tag_palette_index(tag: str) -> int:
+    """Deterministic 0-7 palette slot for a tag name (md5, stable across processes)."""
+    return hashlib.md5(tag.encode("utf-8")).digest()[0] % 8
+
+
+def tag_styles_for(tags: list[str]) -> dict[str, tuple[str, str]]:
+    """Map each tag name to (pill classes, dot class)."""
+    styles = {}
+    for t in dict.fromkeys(tags):
+        i = tag_palette_index(t)
+        styles[t] = (TAG_PILL_CLASSES[i], TAG_DOT_CLASSES[i])
+    return styles
 
 
 @app.get("/auth/login", response_class=HTMLResponse)
