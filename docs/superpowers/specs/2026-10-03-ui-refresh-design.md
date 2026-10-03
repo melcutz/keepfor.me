@@ -12,7 +12,9 @@ and a real logo.
 ## Non-goals
 
 - No new features (no boards, teams, AI panels, view toggles).
-- No backend changes, no migrations, no new routes.
+- No migrations, no new routes, no schema changes. Exactly one tiny pure
+  backend helper is allowed: deterministic tag→palette-class mapping
+  (no I/O, fully unit-testable).
 - No webfont downloads (bundle + CSP stay untouched).
 - Reader sepia/dark themes keep working as-is.
 
@@ -20,17 +22,29 @@ and a real logo.
 
 - **Palette:** page `slate-50` `#f8fafc`, cards white, hairlines `slate-200`
   `#e2e8f0`, ink `slate-900` `#0f172a`, secondary `slate-500` `#64748b`,
-  faint `slate-400`/`slate-300` for counts and hints. One accent family,
-  blue only: `blue-600` `#2563eb` (title hover, tag pills on `#eff6ff`,
-  search focus ring, bookmarklet button) flowing into the icon's
-  `sky-500` `#0ea5e9`. No violet/indigo anywhere — it clashes with the
-  blue icon. Status colors (amber extracting, red failed) unchanged.
+  faint `slate-400`/`slate-300` for counts and hints. One chrome accent
+  family, blue only: `blue-600` `#2563eb` (title hover, search focus ring,
+  bookmarklet button, links) flowing into the icon's `sky-500` `#0ea5e9`.
+  No violet/indigo in chrome — it clashes with the blue icon. Status
+  colors (amber extracting, red failed) unchanged.
+- **Tag palette (categorical, soft tints — the color in the app):** eight
+  fixed pairs: blue `#eff6ff`/`#1d4ed8`, green `#ecfdf5`/`#047857`, amber
+  `#fffbeb`/`#b45309`, rose `#fff1f2`/`#be123c`, violet `#f5f3ff`/`#6d28d9`,
+  cyan `#ecfeff`/`#0e7490`, orange `#fff7ed`/`#c2410c`, slate `#f1f5f9`/
+  `#475569`. A violet *tag* is fine — data, not chrome. Assignment is
+  `md5(tag).digest()[0] % 8`, computed in `src/app.py`
+  (`tag_palette_class()`) and passed as `tag_colors: dict[str, str]` into
+  every template that renders item tags (`library_page`, `search_htmx`,
+  `reader_page`). Python's `hash()` is process-randomized, so md5 — never
+  Jinja-side tricks. Sidebar board dots use the same mapping, so a tag's
+  dot always matches its pills. Favicon fallback letter-tiles use the
+  item's first tag color instead of slate.
 - **Type:** system sans everywhere. Page headlines 700–750 weight,
   `-0.02em` to `-0.025em` tracking. Item titles 650 weight, `-0.01em`,
   shifting to blue-600 on row hover. Metadata 12–12.5px slate-500.
   Mono only for tiny technical text (match scores).
-- **Shape:** cards `rounded-xl`/`rounded-2xl`, pills `rounded-md` with
-  blue tint (`#eff6ff` bg, `#2563eb` text), buttons `rounded-lg`.
+- **Shape:** cards `rounded-xl`/`rounded-2xl`, pills `rounded-md` in the
+  tag palette, buttons `rounded-lg`.
   Subtle `shadow-sm`, rows lift on hover. `kbd` chips for shortcuts.
 
 ## Brand mark
@@ -61,15 +75,17 @@ CSP already permits same-origin.
 
 ## Library (`templates/library.html`, `partials/item_card.html`)
 
-- Sidebar rows become board rows: label + count badge (slate-100 pill,
-  darker when active), active board filled slate-200. All data already
-  passed to the template (`tags[].count`, `total_count`).
+- Sidebar rows become board rows: colored dot (from `tag_colors`) +
+  label + count badge (slate-100 pill, darker when active), active board
+  filled slate-200. All data already passed to the template
+  (`tags[].count`, `total_count`); only the color mapping is new.
 - Item rows gain a 20px rounded favicon: primary
   `https://www.google.com/s2/favicons?domain=<domain>&sz=64`, `onerror`
-  fallback to `https://icons.duckduckgo.com/ip3/<domain>.ico`, CSS slate
-  tile behind both. `<domain>` is the host of `item.canonical_url`
-  (`item.canonical_url.split('/')[2]`), which the row already assumes is
-  present when it renders the site name.
+  fallback to `https://icons.duckduckgo.com/ip3/<domain>.ico`, letter-tile
+  behind both in the item's first tag color. `<domain>` is the host of
+  `item.canonical_url` (`item.canonical_url.split('/')[2]`), which the row
+  already assumes is present when it renders the site name.
+- Item tag pills use the categorical palette via `tag_colors` (reader too).
 - Search input shows a visible `⌘K` hint chip; `:focus-within` gets the
   blue ring. Existing `Cmd+K` JS shortcut unchanged.
 - Page headline `Library` (tight display style) + muted count subline.
@@ -81,8 +97,8 @@ CSP already permits same-origin.
 
 Structure and controls unchanged (back link, Sans/Serif/Mono, A−/A+,
 light/sepia/dark, Original link, theme localStorage hooks). Tightened
-headline (750, `-0.022em`), muted 12.5px meta row, blue-tint tag pills,
-article body at 1.75 line-height, controls bar becomes a proper card.
+headline (750, `-0.022em`), muted 12.5px meta row, palette-colored tag
+pills (same `tag_colors` mapping), article body at 1.75 line-height, controls bar becomes a proper card.
 
 ## Settings (`templates/settings.html`)
 
@@ -103,5 +119,7 @@ Centered card with the new icon + split-tone wordmark, same fields and
   and `ruff format --check src/ tests/`.
 - New test: library HTML contains a `s2/favicons?domain=` URL and the
   `onerror` DuckDuckGo fallback.
+- New test: `tag_palette_class()` is deterministic (same tag, same class
+  across calls) and its range covers all eight palette classes.
 - Manual visual pass over library / reader / settings / login before merge,
   compared against the approved mockups in `.superpowers/brainstorm/`.
