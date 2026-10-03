@@ -473,3 +473,20 @@ def test_login_page_has_svg_favicon(client):
     assert response.status_code == 200
     assert 'rel="icon"' in response.text
     assert "data:image/svg+xml" in response.text
+
+
+@pytest.mark.asyncio
+async def test_search_results_show_favicons_and_tag_colors(client, db, auth_headers):
+    """Item cards render favicon with fallback and palette-colored tags."""
+    from src.app import TAG_PILL_CLASSES, tag_palette_index
+    from src.models.items import save_item
+
+    user = auth_headers["admin_user"]
+    await save_item(db, None, user["id"], "https://example.com/article", ["design"])
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    response = client.post("/search", data={"query": "", "mode": "keyword", "tag": ""})
+    assert response.status_code == 200
+    assert "s2/favicons?domain=example.com" in response.text
+    assert "onerror" in response.text
+    assert TAG_PILL_CLASSES[tag_palette_index("design")] in response.text

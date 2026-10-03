@@ -198,10 +198,16 @@ async def library_page(request: Request, tag: str | None = None, q: str | None =
     env = get_env_from_request(request)
     items = await hybrid_search(db, env, user["id"], query=q or "", tag=tag, limit=30)
     tags = await list_user_tags(db, user["id"])
+    tag_styles = tag_styles_for([t["name"] for t in tags])
 
     template = jinja_env.get_template("library.html")
     html = template.render(
-        current_user=user, items=items, tags=tags, active_tag=tag, query=q or ""
+        current_user=user,
+        items=items,
+        tags=tags,
+        active_tag=tag,
+        query=q or "",
+        tag_styles=tag_styles,
     )
     return HTMLResponse(content=html)
 
@@ -223,6 +229,7 @@ async def search_htmx(
     items = await hybrid_search(
         db, env, user["id"], query=query, mode=mode, tag=clean_tag, limit=30
     )
+    tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
 
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
@@ -231,7 +238,7 @@ async def search_htmx(
             "No matching articles found.</div>"
         )
 
-    cards = [template.render(item=it) for it in items]
+    cards = [template.render(item=it, tag_styles=tag_styles) for it in items]
     return HTMLResponse(content="".join(cards))
 
 
