@@ -1,9 +1,11 @@
 <div id="item-card-{{ item.id }}" class="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md transition group relative">
   <div class="flex items-start justify-between">
-  {% set domain = (item.canonical_url or item.url).split('/')[2] %}
+  {% set raw = item.canonical_url or item.url or '' %}
+  {% set parts = raw.split('/') %}
+  {% set domain = parts[2] if parts|length > 2 else raw %}
   {% set fallback = tag_styles.get(item.tags[0] if item.tags else '', ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
   <span class="relative w-5 h-5 shrink-0 mt-1">
-    <span class="absolute inset-0 rounded-md text-[11px] font-extrabold flex items-center justify-center {{ fallback[0] }}">{{ (item.site_name or domain)[0] }}</span>
+    <span class="absolute inset-0 rounded-md text-[11px] font-extrabold flex items-center justify-center {{ fallback[0] }}">{{ ((item.site_name or domain) ~ '')[0] if (item.site_name or domain) else '?' }}</span>
     <img src="https://www.google.com/s2/favicons?domain={{ domain }}&sz=64" alt="" loading="lazy" onerror="if(!this.dataset.fbk){this.dataset.fbk=1;this.src='https://icons.duckduckgo.com/ip3/{{ domain }}.ico';}else{this.remove();}" class="absolute inset-0 w-5 h-5 rounded-md bg-white">
   </span>
     <div class="flex-1 pr-4">
