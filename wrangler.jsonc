@@ -3,11 +3,11 @@
 	"name": "keepfor-me",
 	"main": "worker.py",
 	       "find_additional_modules": true,
-	       "base_dir": ".",
+			  "base_dir": ".",
 	       "rules": [
 		       {
 			       "type": "Text",
-				       "globs": ["templates/**/*.html"],
+					      "globs": ["**/*.html"],
 									   "fallthrough": true
 		       }
 	       ],
