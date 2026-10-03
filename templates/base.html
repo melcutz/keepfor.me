@@ -50,13 +50,13 @@
 
     <div class="flex items-center space-x-3">
       <button onclick="document.getElementById('save-modal').classList.remove('hidden')" 
-              class="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition shadow-sm">
+              class="inline-flex items-center space-x-1.5 px-3 py-2 md:py-1.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition shadow-sm">
         <span>+ Save Link</span>
         <kbd class="hidden sm:inline-block px-1.5 py-0.5 text-xs bg-slate-700 text-slate-300 rounded">S</kbd>
       </button>
 
       <span class="text-xs text-slate-400 hidden sm:inline">{{ current_user.email }}</span>
-      <a href="/auth/logout" class="text-xs text-slate-500 hover:text-red-600 transition font-medium">Log out</a>
+      <a href="/auth/logout" class="-my-2 py-2 md:my-0 md:py-0 text-xs text-slate-500 hover:text-red-600 transition font-medium">Log out</a>
     </div>
   </header>
   {% endif %}

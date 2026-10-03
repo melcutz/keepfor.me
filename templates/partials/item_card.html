@@ -62,17 +62,18 @@
     </div>
 
     <!-- Actions (always visible on touch: no hover there) -->
-    <div class="flex items-center space-x-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
+    <div class="flex items-center shrink-0 -mr-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
       <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" 
-         class="p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100" title="Visit original link">
-        ↗
+         class="p-3 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Visit original link">
+        <span aria-hidden="true">↗</span><span class="sr-only">Visit original link</span>
       </a>
       <button hx-delete="/api/items/{{ item.id }}" 
               hx-confirm="Delete this item from your library?"
               hx-target="#item-card-{{ item.id }}" 
               hx-swap="outerHTML"
-              class="p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition" title="Delete item">
+              class="p-3 md:p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition flex items-center" title="Delete item">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        <span class="sr-only">Delete item</span>
       </button>
     </div>
   </div>

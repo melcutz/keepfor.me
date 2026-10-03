@@ -44,10 +44,10 @@
       <!-- Mobile tag strip: horizontal chips instead of the sidebar -->
       <div id="mobile-tags" class="md:hidden -mx-4 px-4 overflow-x-auto">
         <div class="flex gap-1.5 w-max py-1">
-          <a href="/" class="shrink-0 px-2.5 py-1 rounded-full text-xs font-medium {% if not active_tag %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · {{ total_count or items|length }}</a>
+          <a href="/" class="shrink-0 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if not active_tag %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · {{ total_count or items|length }}</a>
           {% for t in tags %}
           {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-          <a href="/?tag={{ t.name }}" class="shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium {% if active_tag == t.name %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">
+          <a href="/?tag={{ t.name }}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if active_tag == t.name %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">
             <span class="w-1.5 h-1.5 rounded-full {{ ts[1] }} shrink-0"></span>#{{ t.name }} · {{ t.count }}
           </a>
           {% endfor %}
