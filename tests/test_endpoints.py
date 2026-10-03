@@ -388,6 +388,16 @@ def test_csp_allows_cloudflare_beacon(client):
     assert "static.cloudflareinsights.com" in csp
 
 
+@pytest.mark.asyncio
+async def test_auth_pages_redirect_when_signed_in(client, auth_headers):
+    """Signed-in users hitting login/register go to the library, not a form."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    for path in ("/auth/login", "/auth/register"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 303, path
+        assert response.headers["location"] == "/", path
+
+
 # ==========================================
 # Import/Export Tests
 # ==========================================

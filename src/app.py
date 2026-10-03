@@ -649,6 +649,9 @@ def tag_styles_for(tags: list[str]) -> dict[str, tuple[str, str]]:
 async def login_get(
     request: Request, error: str | None = None, next: str | None = None
 ):
+    # Signed-in visitors should never see the login form.
+    if await get_current_user(request):
+        return RedirectResponse(url=_safe_next(next), status_code=303)
     template = jinja_env.get_template("login.html")
     return HTMLResponse(content=template.render(error=error, next=next or ""))
 
@@ -695,6 +698,10 @@ async def login_post(
 async def register_get(
     request: Request, error: str | None = None, next: str | None = None
 ):
+    # Registration is closed after the first user anyway; don't show the
+    # form to someone already signed in.
+    if await get_current_user(request):
+        return RedirectResponse(url=_safe_next(next), status_code=303)
     template = jinja_env.get_template("register.html")
     return HTMLResponse(content=template.render(error=error, next=next or ""))
 
