@@ -99,13 +99,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "geolocation=(), microphone=(), camera=()"
         )
         # Content Security Policy
+        # Note: base.html loads Tailwind via https://cdn.tailwindcss.com
+        # and htmx via https://unpkg.com, plus inline <style>/<script>
+        # blocks and onclick handlers. 'unsafe-inline' is required for
+        # the Tailwind Play CDN (it injects generated styles at runtime).
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self'; "
-            "style-src 'self'; "
+            "script-src 'self' 'unsafe-inline' "
+            "https://cdn.tailwindcss.com https://unpkg.com; "
+            "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
             "img-src 'self' https: data:; "
-            "font-src 'self'; "
-            "connect-src 'self'; "
+            "font-src 'self' https: data:; "
+            "connect-src 'self' https:; "
             "object-src 'none'; "
             "base-uri 'self'; "
             "form-action 'self'; "
@@ -136,7 +141,11 @@ def get_db(request: Request) -> Database:
     env = get_env_from_request(request)
     d1 = None
     if env:
-        d1 = getattr(env, "DB", None) or getattr(env, "keepfor_me_db", None) or getattr(env, "D1", None)
+        d1 = (
+            getattr(env, "DB", None)
+            or getattr(env, "keepfor_me_db", None)
+            or getattr(env, "D1", None)
+        )
     return Database(d1_binding=d1)
 
 
