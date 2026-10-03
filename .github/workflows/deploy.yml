@@ -66,17 +66,38 @@ jobs:
       
       - name: Post-deploy smoke test
         run: |
-          sleep 30  # Wait for deployment to propagate
-          
-          # Test landing page loads
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://keepfor.me/ || echo "000")
-          if [ "$STATUS" != "200" ] && [ "$STATUS" != "303" ]; then
-            echo "❌ Landing page failed with status $STATUS"
+          # Probe the routed custom domain. The bare apex (keepfor.me) has no
+          # DNS record and always returns 000, so testing it proved nothing.
+          BASE="https://app.keepfor.me"
+
+          # GET / runs a D1 query (users COUNT) before redirecting to login, so
+          # this catches a broken D1 binding, not just an unreachable edge.
+          # Retry because a fresh version needs a moment to propagate.
+          OK=""
+          for i in $(seq 1 12); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 "$BASE/" || echo "000")
+            if [ "$CODE" = "200" ] || [ "$CODE" = "303" ]; then
+              OK="$CODE"
+              break
+            fi
+            echo "attempt $i: / returned $CODE, retrying..."
+            sleep 10
+          done
+
+          if [ -z "$OK" ]; then
+            echo "::error::$BASE/ never returned 200 or 303 (last: $CODE)"
             exit 1
           fi
-          
-          echo "✅ Smoke test passed - site is responding"
-        continue-on-error: true
+          echo "landing page: $OK"
+
+          # The PWA manifest must be served for install/share to work.
+          MANIFEST=$(curl -s -o /dev/null -w "%{http_code}" --max-time 20 \
+            "$BASE/manifest.webmanifest" || echo "000")
+          if [ "$MANIFEST" != "200" ]; then
+            echo "::error::manifest.webmanifest returned $MANIFEST"
+            exit 1
+          fi
+          echo "✅ Smoke test passed - app, D1, and PWA manifest responding"
 
   slack-notify:
     runs-on: ubuntu-latest
