@@ -1,11 +1,25 @@
+import html as html_module
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 try:
     import trafilatura
 except ImportError:
     trafilatura = None
 
+import warnings
+
 from bs4 import BeautifulSoup
+
+# Cloudflare Workers have no system timezone database, so tzlocal (via
+# trafilatura's date parsing) warns once per article and defaults to UTC --
+# which is what we want. Silence it so error logs stay meaningful.
+warnings.filterwarnings(
+    "ignore",
+    message="Can not find any timezone configuration.*",
+    category=UserWarning,
+)
 
 
 def sanitize_clean_html(html_str: str) -> str:
@@ -151,5 +165,58 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
         "content_text": plain_text,
         "clean_html": clean_html,
         "is_fallback": 1 if is_fallback else 0,
+        "word_count": word_count,
+    }
+
+
+def article_from_reader_markdown(url: str, reader_text: str) -> dict[str, Any]:
+    """Build an article dict from reader-proxy markdown (e.g. Jina Reader).
+
+    Used when the origin 403s direct fetches: the proxy already returns
+    clean text, so trafilatura is bypassed. Content is genuine article
+    text, hence is_fallback=0.
+    """
+    title = url
+    body = (reader_text or "").strip()
+    if "Markdown Content:" in body:
+        head, _, md = body.partition("Markdown Content:")
+        match = re.search(r"^Title:\s*(.+)$", head, re.MULTILINE)
+        if match and match.group(1).strip():
+            title = match.group(1).strip()
+        body = md.strip() or body
+
+    site_name = urlparse(url).netloc or None
+    collapsed = re.sub(r"\s+", " ", body)
+    excerpt = collapsed[:300] if collapsed else None
+
+    # Minimal markdown -> HTML: escaped paragraphs plus [text](url) links.
+    # sanitize_clean_html then strips anything outside the safe allowlist.
+    def _to_html(text: str) -> str:
+        parts = []
+        for para in re.split(r"\n\s*\n", text):
+            para = para.strip()
+            if not para:
+                continue
+            para = html_module.escape(para)
+            para = re.sub(
+                r"\[([^\]]+)\]\((https?://[^)]+)\)",
+                r"<a href='\2' target='_blank'>\1</a>",
+                para,
+            )
+            parts.append(f"<p>{para}</p>")
+        return "".join(parts)
+
+    clean_html = sanitize_clean_html(_to_html(body))
+    word_count = len(body.split())
+
+    return {
+        "title": title,
+        "byline": None,
+        "site_name": site_name,
+        "published_date": None,
+        "excerpt": excerpt,
+        "content_text": body,
+        "clean_html": clean_html,
+        "is_fallback": 0,
         "word_count": word_count,
     }

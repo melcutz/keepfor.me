@@ -2,58 +2,87 @@ import asyncio
 import json
 from typing import Any
 
-from src.consumer.extractor import extract_article
+from src.consumer.extractor import article_from_reader_markdown, extract_article
 from src.models.db import Database
 from src.utils.chunker import recursive_character_split
 from src.utils.logging import logger
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
+# Full browser header set: naive bot checks reject requests that look like
+# scripts (missing Accept-Language / Sec-Fetch-*), which was a chunk of
+# our 403s. No Accept-Encoding: avoids gzip/br decode handling.
+BROWSER_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
+    "image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+}
+JINA_READER_BASE = "https://r.jina.ai/"
 MAX_HTML_BYTES = 5 * 1024 * 1024  # 5MB
 FETCH_TIMEOUT = 20
 
 
-async def fetch_page_html(url: str) -> str:
+class OriginHttpError(RuntimeError):
+    """Origin returned an HTTP error status (carries the status code)."""
+
+    def __init__(self, status_code: int, url: str):
+        self.status_code = status_code
+        super().__init__(f"HTTP {status_code} returned by origin server ({url})")
+
+
+async def fetch_page_html(url: str, headers: dict | None = None) -> str:
     """Fetch URL HTML via pyfetch or urllib with a 20s timeout and 5MB cap."""
     try:
         import pyodide.http
 
         response = await pyodide.http.pyfetch(
             url,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml",
-            },
+            headers=headers or BROWSER_HEADERS,
             timeout=FETCH_TIMEOUT,
         )
         if response.status >= 400:
-            raise RuntimeError(f"HTTP {response.status} returned by origin server")
+            raise OriginHttpError(response.status, url)
         # Read text with length check
         text = await response.text()
         return text[:MAX_HTML_BYTES]
     except ImportError:
         # Local development / standard Python runtime fallback
+        import urllib.error
         import urllib.request
 
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml",
-            },
-        )
+        req = urllib.request.Request(url, headers=headers or BROWSER_HEADERS)
         loop = asyncio.get_running_loop()
 
         def _sync_fetch():
-            with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
-                if resp.status >= 400:
-                    raise RuntimeError(f"HTTP {resp.status} returned by origin server")
-                raw = resp.read(MAX_HTML_BYTES)
-                return raw.decode("utf-8", errors="replace")
+            try:
+                with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
+                    if resp.status >= 400:
+                        raise OriginHttpError(resp.status, url)
+                    raw = resp.read(MAX_HTML_BYTES)
+                    return raw.decode("utf-8", errors="replace")
+            except urllib.error.HTTPError as exc:
+                # urlopen raises (instead of returning) for 4xx/5xx.
+                raise OriginHttpError(exc.code, url) from None
 
         return await loop.run_in_executor(None, _sync_fetch)
+
+
+async def fetch_jina_reader(url: str) -> str:
+    """Fetch reader-proxy markdown for a URL blocked to direct fetching."""
+    return await fetch_page_html(
+        JINA_READER_BASE + url, headers={**BROWSER_HEADERS, "Accept": "text/markdown"}
+    )
 
 
 async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> None:
@@ -74,21 +103,33 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
 
     try:
         logger.info(f"Starting extraction: item={item_id}, url={url}")
-        # 1. Fetch raw HTML
-        html = await fetch_page_html(url)
+        # 1. Fetch raw HTML, falling back to a reader proxy when the
+        # origin forbids datacenter fetches (403). Other statuses and a
+        # failed proxy keep the original error as the recorded reason.
+        raw_html: str | None = None
+        try:
+            raw_html = await fetch_page_html(url)
+            extracted = extract_article(raw_html, url)
+        except OriginHttpError as direct_err:
+            if direct_err.status_code != 403:
+                raise
+            logger.info(f"Direct fetch forbidden, trying reader proxy: item={item_id}")
+            try:
+                proxy_md = await fetch_jina_reader(url)
+            except Exception:
+                raise direct_err from None
+            extracted = article_from_reader_markdown(url, proxy_md)
+            raw_html = None
 
-        # 2. Store raw HTML in R2
-        if hasattr(env, "BUCKET") and env.BUCKET is not None:
+        # 2. Store raw snapshot in R2 (skipped for proxied markdown)
+        if raw_html is not None and hasattr(env, "BUCKET") and env.BUCKET is not None:
             await env.BUCKET.put(
                 f"items/{item_id}/raw.html",
-                html,
+                raw_html,
                 {"httpMetadata": {"contentType": "text/html; charset=utf-8"}},
             )
 
-        # 3. Extract content with Trafilatura
-        extracted = extract_article(html, url)
-
-        # 4. Store clean reader HTML in R2
+        # 3. Store clean reader HTML in R2
         if hasattr(env, "BUCKET") and env.BUCKET is not None:
             await env.BUCKET.put(
                 f"items/{item_id}/clean.html",
@@ -96,7 +137,7 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
                 {"httpMetadata": {"contentType": "text/html; charset=utf-8"}},
             )
 
-        # 5. Update items in D1
+        # 4. Update items in D1
         await db.execute(
             """
             UPDATE items
@@ -118,7 +159,7 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
             ),
         )
 
-        # 6. Update FTS5 virtual table
+        # 5. Update FTS5 virtual table
         await db.execute("DELETE FROM items_fts WHERE item_id = ?;", (item_id,))
         await db.execute(
             "INSERT INTO items_fts (item_id, user_id, title, content_text) "
@@ -126,7 +167,7 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
             (item_id, user_id, extracted["title"], extracted["content_text"]),
         )
 
-        # 7. Semantic chunking & Vectorize indexing
+        # 6. Semantic chunking & Vectorize indexing
         chunks = recursive_character_split(
             extracted["content_text"], target_tokens=400, overlap_tokens=50
         )

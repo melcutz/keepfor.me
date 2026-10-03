@@ -195,3 +195,137 @@ async def test_save_without_queue_marks_failed_on_fetch_error(
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched["status"] == "failed"
     assert "connection refused" in (fetched["fail_reason"] or "")
+
+
+JINA_SAMPLE = """Title: Proxied Article
+URL Source: https://blocked.example.com/article
+Markdown Content:
+# Hello
+
+Some body text with a [link](https://example.com/x).
+"""
+
+
+@pytest.mark.asyncio
+async def test_forbidden_falls_back_to_reader_proxy(user_with_env, monkeypatch):
+    """A 403 direct fetch recovers via the reader proxy instead of failing."""
+    from src.consumer.processor import OriginHttpError
+
+    user, env, db = user_with_env
+    env.QUEUE = None
+    calls = []
+
+    async def fake_fetch(url: str, headers=None) -> str:
+        calls.append(url)
+        raise OriginHttpError(403, url)
+
+    async def fake_jina(url: str) -> str:
+        calls.append("jina:" + url)
+        return JINA_SAMPLE
+
+    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    item, _ = await save_item(db, env, user["id"], "https://blocked.example.com/a", [])
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "ok"
+    assert fetched["title"] == "Proxied Article"
+    assert fetched["site_name"] == "blocked.example.com"
+    assert "Some body text" in (fetched["content_text"] or "")
+    assert calls == [
+        "https://blocked.example.com/a",
+        "jina:https://blocked.example.com/a",
+    ]
+    assert fetched["is_fallback"] == 0
+
+
+@pytest.mark.asyncio
+async def test_non_forbidden_skips_reader_proxy(user_with_env, monkeypatch):
+    """A 404 direct fetch fails without ever calling the reader proxy."""
+    from src.consumer.processor import OriginHttpError
+
+    user, env, db = user_with_env
+    env.QUEUE = None
+    jina_calls = []
+
+    async def fake_fetch(url: str, headers=None) -> str:
+        raise OriginHttpError(404, url)
+
+    async def fake_jina(url: str) -> str:
+        jina_calls.append(url)
+        return JINA_SAMPLE
+
+    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    item, _ = await save_item(db, env, user["id"], "https://example.com/missing", [])
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "failed"
+    assert "404" in (fetched["fail_reason"] or "")
+    assert jina_calls == []
+
+
+@pytest.mark.asyncio
+async def test_failed_proxy_keeps_original_403(user_with_env, monkeypatch):
+    """If the proxy also fails, the recorded reason stays the original 403."""
+    from src.consumer.processor import OriginHttpError
+
+    user, env, db = user_with_env
+    env.QUEUE = None
+
+    async def fake_fetch(url: str, headers=None) -> str:
+        raise OriginHttpError(403, url)
+
+    async def fake_jina(url: str) -> str:
+        raise OriginHttpError(402, "https://r.jina.ai/" + url)
+
+    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    item, _ = await save_item(db, env, user["id"], "https://blocked.example.com/b", [])
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "failed"
+    assert "403" in (fetched["fail_reason"] or "")
+    assert "402" not in (fetched["fail_reason"] or "")
+
+
+def test_reader_markdown_parsing():
+    """Jina-style markdown becomes a titled article with safe HTML."""
+    from src.consumer.extractor import article_from_reader_markdown
+
+    art = article_from_reader_markdown("https://blocked.example.com/a", JINA_SAMPLE)
+    assert art["title"] == "Proxied Article"
+    assert art["site_name"] == "blocked.example.com"
+    assert "Some body text" in art["content_text"]
+    assert '<a href="https://example.com/x"' in art["clean_html"]
+    assert "<script" not in art["clean_html"]
+    assert art["word_count"] > 0
+    assert art["excerpt"]
+
+
+def test_reader_markdown_without_header_block():
+    """Plain markdown without Jina headers still yields a usable article."""
+    from src.consumer.extractor import article_from_reader_markdown
+
+    art = article_from_reader_markdown(
+        "https://example.com/plain", "Just some text.\n\nSecond paragraph."
+    )
+    assert art["title"] == "https://example.com/plain"
+    assert art["content_text"].startswith("Just some text.")
+    assert art["clean_html"].count("<p>") == 2
+
+
+@pytest.mark.asyncio
+async def test_urllib_http_error_maps_to_origin_error(monkeypatch):
+    """Local urllib 403s surface as OriginHttpError (proxy-eligible)."""
+    import urllib.error
+    import urllib.request
+
+    from src.consumer.processor import OriginHttpError, fetch_page_html
+
+    def boom(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+    try:
+        await fetch_page_html("https://example.com/blocked")
+        raise AssertionError("expected OriginHttpError")
+    except OriginHttpError as exc:
+        assert exc.status_code == 403
