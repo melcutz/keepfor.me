@@ -270,3 +270,61 @@ async def test_settings_shows_cleanup_section(client, db, auth_headers):
     response = client.get("/settings")
     assert response.status_code == 200
     assert "cleanup-failed" in response.text
+
+
+@pytest.mark.asyncio
+async def test_settings_cleanup_options_show_per_group_counts(client, db, auth_headers):
+    """Each cleanup dropdown option shows its own count, not just the total."""
+    user = auth_headers["admin_user"]
+    await _seed_statuses(db, user["id"])
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/settings")
+    assert response.status_code == 200
+    # 1 blocked (403), 1 connection (timeout), 2 total.
+    assert "blocked" in response.text
+    assert response.text.count("· 1") >= 2
+    assert "· 2" in response.text
+
+
+@pytest.mark.asyncio
+async def test_fail_group_counts_are_exclusive(db, auth_headers):
+    """A 403 failure counts as blocked only, not also as client-error."""
+    from src.app import get_fail_group_counts
+
+    user = auth_headers["admin_user"]
+    await _seed_statuses(db, user["id"])
+    counts = await get_fail_group_counts(db, user["id"])
+    assert counts == {
+        "all": 2,
+        "blocked": 1,
+        "notfound": 0,
+        "client": 0,
+        "server": 0,
+        "connection": 1,
+        "other": 0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_cleanup_failed_other_removes_only_unmatched(client, db, auth_headers):
+    """Cleanup with pattern=other deletes failures matching no known group."""
+    import uuid as uuid_mod
+
+    user = auth_headers["admin_user"]
+    await _seed_statuses(db, user["id"])
+    odd_id = str(uuid_mod.uuid4())
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status, fail_reason)"
+        " VALUES (?, ?, ?, ?, 'failed', 'parser ate my homework');",
+        (odd_id, user["id"], "https://example.com/odd", "https://example.com/odd"),
+    )
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.post("/settings/cleanup-failed", data={"pattern": "other"})
+    assert response.status_code == 200
+    remaining = await db.query_all(
+        "SELECT canonical_url FROM items WHERE user_id = ?;", (user["id"],)
+    )
+    urls = [r["canonical_url"] for r in remaining]
+    assert "https://example.com/odd" not in urls
+    assert "https://example.com/blocked" in urls
+    assert "https://example.com/slow" in urls

@@ -485,6 +485,7 @@ async def settings_page(request: Request, new_token: str | None = None):
     pats = await list_pats(db, user["id"])
     base_url = str(request.base_url).rstrip("/")
     failed_count = (await get_status_counts(db, user["id"])).get("failed", 0)
+    fail_counts = await get_fail_group_counts(db, user["id"])
 
     template = jinja_env.get_template("settings.html")
     html = template.render(
@@ -493,6 +494,7 @@ async def settings_page(request: Request, new_token: str | None = None):
         new_token=new_token,
         base_url=base_url,
         failed_count=failed_count,
+        fail_counts=fail_counts,
         deleted_count=None,
         active_nav="settings",
     )
@@ -515,6 +517,7 @@ async def create_token_route(request: Request, name: str = Form(...)):
     pats = await list_pats(db, user["id"])
     base_url = str(request.base_url).rstrip("/")
     failed_count = (await get_status_counts(db, user["id"])).get("failed", 0)
+    fail_counts = await get_fail_group_counts(db, user["id"])
     template = jinja_env.get_template("settings.html")
     html = template.render(
         current_user=user,
@@ -522,6 +525,7 @@ async def create_token_route(request: Request, name: str = Form(...)):
         new_token=res["token"],
         base_url=base_url,
         failed_count=failed_count,
+        fail_counts=fail_counts,
         deleted_count=None,
         active_nav="settings",
     )
@@ -557,6 +561,39 @@ FAIL_CLEANUP_PATTERNS: dict[str, list[str]] = {
     ],
 }
 
+# Priority order for exclusive failure-group classification: a 403 matches
+# both "blocked" and "client", so the first matching group wins and the
+# per-group counts in the cleanup picker always sum to the total.
+FAIL_GROUP_ORDER = ["blocked", "notfound", "client", "server", "connection"]
+# Every value the cleanup picker may submit: all + classified groups + other.
+FAIL_CLEANUP_CHOICES = ["all", *FAIL_GROUP_ORDER, "other"]
+
+
+def _fail_reason_matches(reason: str | None, likes: list[str]) -> bool:
+    """Python mirror of the SQL LOWER(fail_reason) LIKE LOWER(?) matching."""
+    text = (reason or "").lower()
+    return any(p.strip("%").lower() in text for p in likes)
+
+
+async def get_fail_group_counts(db: Database, user_id: str) -> dict[str, int]:
+    """Exclusive per-group failed counts for the cleanup picker (one query)."""
+    rows = await db.query_all(
+        "SELECT fail_reason FROM items WHERE user_id = ? AND status = 'failed';",
+        (user_id,),
+    )
+    counts = {"all": len(rows), "other": 0}
+    for key in FAIL_GROUP_ORDER:
+        counts[key] = 0
+    for r in rows:
+        for key in FAIL_GROUP_ORDER:
+            if _fail_reason_matches(r["fail_reason"], FAIL_CLEANUP_PATTERNS[key]):
+                counts[key] += 1
+                break
+        else:
+            counts["other"] += 1
+    return counts
+
+
 # Max failed items deleted per cleanup request (keeps R2/Vectorize fan-out fast).
 CLEANUP_LIMIT = 500
 
@@ -565,22 +602,32 @@ CLEANUP_LIMIT = 500
 async def cleanup_failed_route(request: Request, pattern: str = Form("all")):
     """Deletes failed items matching a whitelisted failure group."""
     user = await require_user(request)
-    if pattern not in FAIL_CLEANUP_PATTERNS:
+    if pattern not in FAIL_CLEANUP_CHOICES:
         raise HTTPException(status_code=400, detail="Unknown failure group")
     db = get_db(request)
     env = get_env_from_request(request)
 
-    likes = FAIL_CLEANUP_PATTERNS[pattern]
-    if likes:
+    likes = FAIL_CLEANUP_PATTERNS.get(pattern, [])
+    if pattern == "all":
+        like_clause = ""
+        params: tuple = (user["id"], CLEANUP_LIMIT)
+    elif pattern == "other":
+        # Failures matching none of the known groups (NULL counts as other:
+        # NOT (NULL LIKE ...) is NULL, which would otherwise exclude the row).
+        all_likes = [p for key in FAIL_GROUP_ORDER for p in FAIL_CLEANUP_PATTERNS[key]]
+        like_clause = (
+            " AND (fail_reason IS NULL OR NOT ("
+            + " OR ".join("LOWER(fail_reason) LIKE LOWER(?)" for _ in all_likes)
+            + "))"
+        )
+        params = (user["id"], *all_likes, CLEANUP_LIMIT)
+    elif likes:
         like_clause = (
             " AND ("
             + " OR ".join("LOWER(fail_reason) LIKE LOWER(?)" for _ in likes)
             + ")"
         )
-        params: tuple = (user["id"], *likes, CLEANUP_LIMIT)
-    else:
-        like_clause = ""
-        params = (user["id"], CLEANUP_LIMIT)
+        params = (user["id"], *likes, CLEANUP_LIMIT)
     rows = await db.query_all(
         "SELECT id FROM items WHERE user_id = ? AND status = 'failed'"
         f"{like_clause} ORDER BY created_at ASC LIMIT ?;",
@@ -598,6 +645,7 @@ async def cleanup_failed_route(request: Request, pattern: str = Form("all")):
     pats = await list_pats(db, user["id"])
     base_url = str(request.base_url).rstrip("/")
     failed_count = (await get_status_counts(db, user["id"])).get("failed", 0)
+    fail_counts = await get_fail_group_counts(db, user["id"])
     template = jinja_env.get_template("settings.html")
     html = template.render(
         current_user=user,
@@ -605,6 +653,7 @@ async def cleanup_failed_route(request: Request, pattern: str = Form("all")):
         new_token=None,
         base_url=base_url,
         failed_count=failed_count,
+        fail_counts=fail_counts,
         deleted_count=deleted,
         active_nav="settings",
     )

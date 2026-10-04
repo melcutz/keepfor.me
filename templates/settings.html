@@ -175,14 +175,16 @@
     <form action="/settings/cleanup-failed" method="POST"
           onsubmit="return confirm('Permanently delete these failed items? This cannot be undone.');"
           class="flex flex-col sm:flex-row gap-3">
+      {% set fc = fail_counts or {'all': 0, 'blocked': 0, 'notfound': 0, 'client': 0, 'server': 0, 'connection': 0, 'other': 0} %}
       <select name="pattern" required
               class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-slate-900">
-        <option value="all">All failed ({{ failed_count or 0 }})</option>
-        <option value="blocked">Blocked by site (403 / 401)</option>
-        <option value="notfound">Page not found (404)</option>
-        <option value="client">Other client errors (4xx)</option>
-        <option value="server">Server errors (5xx)</option>
-        <option value="connection">Timeouts & connection errors</option>
+        <option value="all">All failed · {{ fc.all }}</option>
+        <option value="blocked">Blocked by site (403 / 401) · {{ fc.blocked }}</option>
+        <option value="notfound">Page not found (404) · {{ fc.notfound }}</option>
+        <option value="client">Other client errors (4xx) · {{ fc.client }}</option>
+        <option value="server">Server errors (5xx) · {{ fc.server }}</option>
+        <option value="connection">Timeouts & connection errors · {{ fc.connection }}</option>
+        <option value="other">Other failures · {{ fc.other }}</option>
       </select>
       <button type="submit" {% if not failed_count %}disabled{% endif %}
               class="px-4 py-2 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed">
