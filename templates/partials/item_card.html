@@ -58,7 +58,7 @@
       <div class="flex flex-wrap gap-1.5 mt-3">
         {% for tag in item.tags %}
         {% set ts = tag_styles.get(tag, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-        <span class="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 {{ ts[0] }} text-xs font-medium rounded-full">
+        <span draggable="true" data-pill="{{ tag }}" data-item-id="{{ item.id }}" class="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 {{ ts[0] }} text-xs font-medium rounded-full">
           <a href="/?tag={{ tag }}" class="hover:opacity-80">#{{ tag }}</a>
           <button hx-post="/items/{{ item.id }}/tags" hx-vals='{"remove": "{{ tag }}"}'
                   hx-target="#item-card-{{ item.id }}" hx-swap="outerHTML"

@@ -18,7 +18,7 @@
           </a>
           {% for t in tags %}
           {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-          <a href="/?tag={{ t.name }}" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium {% if active_tag == t.name %}bg-slate-200 text-slate-900{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
+          <a href="/?tag={{ t.name }}" draggable="true" data-tag-source="{{ t.name }}" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium {% if active_tag == t.name %}bg-slate-200 text-slate-900{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
             <span class="w-2 h-2 rounded-full {{ ts[1] }} shrink-0"></span>
             <span>#{{ t.name }}</span>
             <span class="ml-auto text-slate-400 bg-slate-100 rounded-md px-1.5">{{ t.count }}</span>
@@ -50,7 +50,7 @@
           <a href="/" class="shrink-0 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if not active_tag %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · {{ total_count or items|length }}</a>
           {% for t in tags %}
           {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-          <a href="/?tag={{ t.name }}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if active_tag == t.name %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">
+          <a href="/?tag={{ t.name }}" data-tag-source="{{ t.name }}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if active_tag == t.name %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">
             <span class="w-1.5 h-1.5 rounded-full {{ ts[1] }} shrink-0"></span>#{{ t.name }} · {{ t.count }}
           </a>
           {% endfor %}
@@ -131,9 +131,70 @@
       <div id="pager-wrap" class="pt-1">
         {% include "partials/pager.html" %}
       </div>
+<div id="tag-trash" class="hidden fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-full bg-red-600 text-white text-sm font-semibold shadow-xl">
+  Drop here to remove tag
+</div>
 
     </div>
 
   </div>
 </div>
+<script>
+(function () {
+  var dragged = null; // {tag, itemId} for pill drags, {tag} for sidebar drags
+  function cards() { return document.querySelectorAll('#items-list [data-item-id]'); }
+  function showTrash(show, label) {
+    var t = document.getElementById('tag-trash');
+    if (!t) return;
+    t.classList.toggle('hidden', !show);
+    if (label) t.textContent = label;
+  }
+  document.querySelectorAll('[data-tag-source]').forEach(function (el) {
+    el.addEventListener('dragstart', function (e) {
+      dragged = { tag: el.getAttribute('data-tag-source'), itemId: null };
+      e.dataTransfer.effectAllowed = 'copy';
+      try { e.dataTransfer.setData('text/plain', dragged.tag); } catch (_) {}
+    });
+    el.addEventListener('dragend', function () { dragged = null; clearHints(); showTrash(false); });
+  });
+  function clearHints() { cards().forEach(function (c) { c.classList.remove('ring-2', 'ring-blue-500'); }); }
+  document.addEventListener('dragover', function (e) {
+    var card = e.target.closest && e.target.closest('#items-list [data-item-id]');
+    if (dragged && !dragged.itemId && card) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      card.classList.add('ring-2', 'ring-blue-500');
+    }
+    var trash = e.target.closest && e.target.closest('#tag-trash');
+    if (dragged && dragged.itemId && trash) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+  });
+  document.addEventListener('dragleave', function (e) {
+    var card = e.target.closest && e.target.closest('#items-list [data-item-id]');
+    if (card) card.classList.remove('ring-2', 'ring-blue-500');
+  });
+  document.addEventListener('drop', function (e) {
+    var card = e.target.closest && e.target.closest('#items-list [data-item-id]');
+    if (dragged && !dragged.itemId && card) {
+      e.preventDefault();
+      htmx.ajax('POST', '/items/' + card.getAttribute('data-item-id') + '/tags',
+        { target: '#' + card.id, swap: 'outerHTML', values: { add: dragged.tag } });
+    }
+    var trash = e.target.closest && e.target.closest('#tag-trash');
+    if (dragged && dragged.itemId && trash) {
+      e.preventDefault();
+      htmx.ajax('POST', '/items/' + dragged.itemId + '/tags',
+        { target: '#item-card-' + dragged.itemId, swap: 'outerHTML', values: { remove: dragged.tag } });
+    }
+    dragged = null; clearHints(); showTrash(false);
+  });
+  // Pills are draggable removal sources (desktop): trash appears while dragging.
+  document.addEventListener('dragstart', function (e) {
+    var pill = e.target.closest && e.target.closest('#items-list [data-pill]');
+    if (pill) {
+      dragged = { tag: pill.getAttribute('data-pill'), itemId: pill.getAttribute('data-item-id') };
+      showTrash(true, 'Drop here to remove #' + dragged.tag);
+    }
+  });
+})();
+</script>
 {% endblock %}
