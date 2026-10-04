@@ -37,6 +37,7 @@ from src.mcp.server import process_mcp_request
 from src.models.db import Database
 from src.models.items import (
     accept_suggestion,
+    add_tags_to_item,
     create_tag,
     delete_item,
     delete_tag,
@@ -45,6 +46,7 @@ from src.models.items import (
     get_item_clean_html,
     list_pending_suggestions,
     list_user_tags,
+    remove_tags_from_item,
     rename_tag,
     save_item,
 )
@@ -551,6 +553,32 @@ async def tags_delete(request: Request, name: str = Form("")):
     db = get_db(request)
     await delete_tag(db, user["id"], name)
     return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/items/{item_id}/tags", response_class=HTMLResponse)
+async def item_tags_update(
+    request: Request,
+    item_id: str,
+    add: str = Form(""),
+    remove: str = Form(""),
+):
+    # htmx tag assignment: returns the re-rendered card (HTML, not JSON).
+    user = await require_user(request)
+    db = get_db(request)
+    if add.strip():
+        await add_tags_to_item(
+            db, user["id"], item_id, [t for t in add.split(",") if t.strip()]
+        )
+    if remove.strip():
+        await remove_tags_from_item(
+            db, user["id"], item_id, [t for t in remove.split(",") if t.strip()]
+        )
+    item = await get_item(db, user["id"], item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    tag_styles = tag_styles_for(item.get("tags") or [])
+    template = jinja_env.get_template("partials/item_card.html")
+    return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
 
 
 @app.post("/items/{item_id}/suggestions/{sugg_id}/accept")
