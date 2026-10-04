@@ -49,7 +49,7 @@ from src.schemas import (
     SaveItemRequest,
     SearchRequest,
 )
-from src.search.engine import get_recent_items, hybrid_search
+from src.search.engine import get_recent_items, get_status_counts, hybrid_search
 from src.utils.importer import (
     export_library_html,
     export_library_json,
@@ -291,7 +291,12 @@ async def pwa_icon_maskable():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def library_page(request: Request, tag: str | None = None, q: str | None = None):
+async def library_page(
+    request: Request,
+    tag: str | None = None,
+    q: str | None = None,
+    status: str | None = None,
+):
     db = get_db(request)
     user = await get_current_user(request)
     if not user:
@@ -302,7 +307,10 @@ async def library_page(request: Request, tag: str | None = None, q: str | None =
         return RedirectResponse(url="/auth/login", status_code=303)
 
     env = get_env_from_request(request)
-    items = await hybrid_search(db, env, user["id"], query=q or "", tag=tag, limit=30)
+    clean_status = status.strip() if status and status.strip() else None
+    items = await hybrid_search(
+        db, env, user["id"], query=q or "", tag=tag, limit=30, status=clean_status
+    )
     tags = await list_user_tags(db, user["id"])
     tag_styles = tag_styles_for([t["name"] for t in tags])
     # True library size: the feed is capped at 30, so len(items) lies.
@@ -310,6 +318,7 @@ async def library_page(request: Request, tag: str | None = None, q: str | None =
         "SELECT COUNT(*) as count FROM items WHERE user_id = ?;", (user["id"],)
     )
     total_count = total_row["count"] if total_row else 0
+    status_counts = await get_status_counts(db, user["id"])
 
     template = jinja_env.get_template("library.html")
     html = template.render(
@@ -320,6 +329,8 @@ async def library_page(request: Request, tag: str | None = None, q: str | None =
         query=q or "",
         tag_styles=tag_styles,
         total_count=total_count,
+        active_status=clean_status,
+        status_counts=status_counts,
         active_nav="library",
     )
     return HTMLResponse(content=html)
@@ -331,6 +342,7 @@ async def search_htmx(
     query: str = Form(""),
     mode: str = Form("hybrid"),
     tag: str = Form(""),
+    status: str = Form(""),
 ):
     user = await get_current_user(request)
     if not user:
@@ -339,8 +351,18 @@ async def search_htmx(
     db = get_db(request)
     env = get_env_from_request(request)
     clean_tag = tag.strip() if tag.strip() else None
+    clean_status = status.strip() if status.strip() else None
+    # The mode selector was removed from the UI: always run hybrid. The
+    # param stays accepted so old clients and /api/search keep working.
     items = await hybrid_search(
-        db, env, user["id"], query=query, mode=mode, tag=clean_tag, limit=30
+        db,
+        env,
+        user["id"],
+        query=query,
+        mode="hybrid",
+        tag=clean_tag,
+        limit=30,
+        status=clean_status,
     )
     tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
 
@@ -462,6 +484,7 @@ async def settings_page(request: Request, new_token: str | None = None):
     db = get_db(request)
     pats = await list_pats(db, user["id"])
     base_url = str(request.base_url).rstrip("/")
+    failed_count = (await get_status_counts(db, user["id"])).get("failed", 0)
 
     template = jinja_env.get_template("settings.html")
     html = template.render(
@@ -469,6 +492,8 @@ async def settings_page(request: Request, new_token: str | None = None):
         pats=pats,
         new_token=new_token,
         base_url=base_url,
+        failed_count=failed_count,
+        deleted_count=None,
         active_nav="settings",
     )
     return HTMLResponse(content=html)
@@ -489,12 +514,15 @@ async def create_token_route(request: Request, name: str = Form(...)):
     # Re-render settings with the new token visible (raw token is shown once).
     pats = await list_pats(db, user["id"])
     base_url = str(request.base_url).rstrip("/")
+    failed_count = (await get_status_counts(db, user["id"])).get("failed", 0)
     template = jinja_env.get_template("settings.html")
     html = template.render(
         current_user=user,
         pats=pats,
         new_token=res["token"],
         base_url=base_url,
+        failed_count=failed_count,
+        deleted_count=None,
         active_nav="settings",
     )
     return HTMLResponse(content=html)
@@ -506,6 +534,81 @@ async def delete_token_route(request: Request, pat_id: str):
     db = get_db(request)
     await delete_pat(db, user["id"], pat_id)
     return RedirectResponse(url="/settings", status_code=303)
+
+
+# Whitelisted failure groups for the settings cleanup picker. fail_reason is
+# free text (str(exc)[:500]), so groups match case-insensitive LIKE patterns.
+# Keys are the only accepted form values; patterns never interpolate input.
+FAIL_CLEANUP_PATTERNS: dict[str, list[str]] = {
+    "all": [],
+    "blocked": ["%403%", "%401%", "%forbidden%"],
+    "notfound": ["%404%", "%not found%"],
+    "client": ["%HTTP 4%"],
+    "server": ["%HTTP 5%", "%500%", "%502%", "%503%", "%server error%"],
+    "connection": [
+        "%timeout%",
+        "%timed out%",
+        "%connection%",
+        "%refused%",
+        "%reset%",
+        "%unreachable%",
+        "%dns%",
+        "%resolve%",
+    ],
+}
+
+# Max failed items deleted per cleanup request (keeps R2/Vectorize fan-out fast).
+CLEANUP_LIMIT = 500
+
+
+@app.post("/settings/cleanup-failed", response_class=HTMLResponse)
+async def cleanup_failed_route(request: Request, pattern: str = Form("all")):
+    """Deletes failed items matching a whitelisted failure group."""
+    user = await require_user(request)
+    if pattern not in FAIL_CLEANUP_PATTERNS:
+        raise HTTPException(status_code=400, detail="Unknown failure group")
+    db = get_db(request)
+    env = get_env_from_request(request)
+
+    likes = FAIL_CLEANUP_PATTERNS[pattern]
+    if likes:
+        like_clause = (
+            " AND ("
+            + " OR ".join("LOWER(fail_reason) LIKE LOWER(?)" for _ in likes)
+            + ")"
+        )
+        params: tuple = (user["id"], *likes, CLEANUP_LIMIT)
+    else:
+        like_clause = ""
+        params = (user["id"], CLEANUP_LIMIT)
+    rows = await db.query_all(
+        "SELECT id FROM items WHERE user_id = ? AND status = 'failed'"
+        f"{like_clause} ORDER BY created_at ASC LIMIT ?;",
+        params,
+    )
+    deleted = 0
+    for r in rows:
+        try:
+            if await delete_item(db, env, user["id"], r["id"]):
+                deleted += 1
+        except Exception as exc:
+            logger.warning(f"Cleanup delete failed: item={r['id']}: {exc}")
+
+    # Re-render settings with the result (same pattern as token creation).
+    pats = await list_pats(db, user["id"])
+    base_url = str(request.base_url).rstrip("/")
+    failed_count = (await get_status_counts(db, user["id"])).get("failed", 0)
+    template = jinja_env.get_template("settings.html")
+    html = template.render(
+        current_user=user,
+        pats=pats,
+        new_token=None,
+        base_url=base_url,
+        failed_count=failed_count,
+        deleted_count=deleted,
+        active_nav="settings",
+    )
+    return HTMLResponse(content=html)
 
 
 # Max bookmarks per queue message for bulk imports (keeps messages small).

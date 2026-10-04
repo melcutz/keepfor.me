@@ -30,7 +30,6 @@
       <div class="p-3 bg-slate-100/70 border border-slate-200 rounded-lg text-xs text-slate-600">
         <p class="font-semibold text-slate-800 mb-1">Keyboard Shortcuts</p>
         <p><kbd class="px-1 bg-white border border-slate-300 rounded">S</kbd> Quick save link</p>
-        <p class="mt-1"><kbd class="px-1 bg-white border border-slate-300 rounded">Cmd+K</kbd> Focus search</p>
       </div>
     </aside>
 
@@ -54,33 +53,49 @@
         </div>
       </div>
 
-      <!-- Search & Mode Bar -->
-      <div class="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex flex-col sm:flex-row items-center gap-3 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
+      <!-- Search Bar -->
+      <div class="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
         <div class="relative flex-1 w-full">
           <span class="absolute inset-y-0 left-3 flex items-center text-slate-400 pointer-events-none">🔍</span>
-           <input type="search" id="search-input" name="query" placeholder="Search by keyword or meaning…" 
+           <input type="search" id="search-input" name="query" placeholder="Search by keyword or meaning…"
                   value="{{ query or '' }}"
                   hx-post="/search"
                   hx-trigger="keyup changed delay:300ms, search"
                   hx-target="#items-list"
-                  hx-include="#search-mode, #active-tag-input"
+                  hx-include="#active-tag-input, #active-status-input"
                   class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none">
-          <kbd class="absolute inset-y-0 right-3 hidden sm:flex items-center px-1.5 text-[11px] bg-slate-100 border border-slate-200 border-b-2 rounded-md text-slate-400 font-sans pointer-events-none">⌘K</kbd>
         </div>
+        <input type="hidden" id="active-tag-input" name="tag" value="{{ active_tag or '' }}">
+        <input type="hidden" id="active-status-input" name="status" value="{{ active_status or '' }}">
+      </div>
 
-        <div class="flex items-center space-x-2 shrink-0">
-          <input type="hidden" id="active-tag-input" name="tag" value="{{ active_tag or '' }}">
-          <select id="search-mode" name="mode" 
-                  hx-post="/search"
-                  hx-trigger="change"
-                  hx-target="#items-list"
-                  hx-include="#search-input, #active-tag-input"
-                  class="px-2.5 py-2 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600">
-            <option value="hybrid" selected>Hybrid (FTS5 + Vector)</option>
-            <option value="keyword">Keyword (FTS5)</option>
-            <option value="semantic">Semantic (Vectorize)</option>
-          </select>
-        </div>
+      <!-- Status Filter Pills -->
+      <div id="status-filters" class="flex flex-wrap gap-1.5">
+        {% set sc = status_counts or {'all': 0, 'saved': 0, 'extracting': 0, 'failed': 0} %}
+        <button data-status=""
+                hx-post="/search"
+                hx-target="#items-list"
+                hx-include="#search-input, #active-tag-input, #active-status-input"
+                onclick="document.getElementById('active-status-input').value='';document.querySelectorAll('#status-filters button').forEach(b=>b.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300');this.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 text-white';"
+                class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if not active_status %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">All · {{ sc.all }}</button>
+        <button data-status="saved"
+                hx-post="/search"
+                hx-target="#items-list"
+                hx-include="#search-input, #active-tag-input, #active-status-input"
+                onclick="document.getElementById('active-status-input').value='saved';document.querySelectorAll('#status-filters button').forEach(b=>b.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300');this.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 text-white';"
+                class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if active_status == 'saved' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">📚 Saved · {{ sc.saved }}</button>
+        <button data-status="extracting"
+                hx-post="/search"
+                hx-target="#items-list"
+                hx-include="#search-input, #active-tag-input, #active-status-input"
+                onclick="document.getElementById('active-status-input').value='extracting';document.querySelectorAll('#status-filters button').forEach(b=>b.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300');this.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 text-white';"
+                class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if active_status == 'extracting' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">⏳ Extracting · {{ sc.extracting }}</button>
+        <button data-status="failed"
+                hx-post="/search"
+                hx-target="#items-list"
+                hx-include="#search-input, #active-tag-input, #active-status-input"
+                onclick="document.getElementById('active-status-input').value='failed';document.querySelectorAll('#status-filters button').forEach(b=>b.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300');this.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 text-white';"
+                class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if active_status == 'failed' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">⚠️ Failed · {{ sc.failed }}</button>
       </div>
 
       <!-- Items Feed -->

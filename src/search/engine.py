@@ -9,6 +9,37 @@ RRF_K = 60  # Standard RRF constant
 # keyword-only results on timeout.
 VECTOR_SEARCH_TIMEOUT = 5.0
 
+# UI status groups: the items table stores raw statuses ('queued', 'fetching',
+# 'ok', 'failed'); the library pills group them for humans. 'fetching' is
+# legacy (nothing writes it) but counted with 'queued' defensively.
+STATUS_GROUPS = {
+    "extracting": ("queued", "fetching"),
+    "saved": ("ok",),
+    "failed": ("failed",),
+}
+
+
+def _status_values(status: str | None) -> tuple[str, ...] | None:
+    """Map a UI status filter to raw item statuses, or None for no filter."""
+    if not status or status == "all":
+        return None
+    return STATUS_GROUPS.get(status)
+
+
+async def get_status_counts(db: Database, user_id: str) -> dict[str, int]:
+    """Per-group item counts for the library status pills (single query)."""
+    rows = await db.query_all(
+        "SELECT status, COUNT(*) as count FROM items WHERE user_id = ?"
+        " GROUP BY status;",
+        (user_id,),
+    )
+    raw = {r["status"]: r["count"] for r in rows}
+    counts = {"all": 0, "saved": 0, "extracting": 0, "failed": 0}
+    for group, values in STATUS_GROUPS.items():
+        counts[group] = sum(raw.get(v, 0) for v in values)
+    counts["all"] = sum(raw.values())
+    return counts
+
 
 async def search_fts(
     db: Database, user_id: str, query: str, limit: int = 50
@@ -111,12 +142,13 @@ async def hybrid_search(
     mode: str = "hybrid",
     tag: str | None = None,
     limit: int = 20,
+    status: str | None = None,
 ) -> list[dict[str, Any]]:
     """Execute hybrid search with Reciprocal Rank Fusion and optional filters."""
     query = query.strip()
     if not query:
         # Return recent items
-        return await get_recent_items(db, user_id, tag=tag, limit=limit)
+        return await get_recent_items(db, user_id, tag=tag, limit=limit, status=status)
 
     fts_results: list[dict[str, Any]] = []
     vec_results: list[dict[str, Any]] = []
@@ -172,14 +204,20 @@ async def hybrid_search(
 
     # Fetch full item details from D1
     placeholders = ",".join("?" for _ in top_ids)
+    status_values = _status_values(status)
+    status_clause = ""
+    status_params: tuple = ()
+    if status_values:
+        status_clause = f" AND i.status IN ({','.join('?' for _ in status_values)})"
+        status_params = tuple(status_values)
     sql = f"""
         SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
                i.published_date, i.excerpt, i.status, i.fail_reason, i.is_fallback,
                i.word_count, i.created_at
         FROM items i
-        WHERE i.id IN ({placeholders}) AND i.user_id = ?;
+        WHERE i.id IN ({placeholders}) AND i.user_id = ?{status_clause};
     """
-    rows = await db.query_all(sql, (*top_ids, user_id))
+    rows = await db.query_all(sql, (*top_ids, user_id, *status_params))
     item_map = {row["id"]: row for row in rows}
 
     # Fetch tags for these items
@@ -213,33 +251,44 @@ async def hybrid_search(
 
 
 async def get_recent_items(
-    db: Database, user_id: str, tag: str | None = None, limit: int = 20, offset: int = 0
+    db: Database,
+    user_id: str,
+    tag: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    status: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Retrieves recent items for user with pagination and optional tag filtering."""
+    """Retrieves recent items for user with pagination and optional filters."""
+    status_values = _status_values(status)
+    status_clause = ""
+    status_params: tuple = ()
+    if status_values:
+        status_clause = f" AND i.status IN ({','.join('?' for _ in status_values)})"
+        status_params = tuple(status_values)
     if tag:
-        sql = """
+        sql = f"""
         SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
                i.published_date, i.excerpt, i.status, i.fail_reason, i.is_fallback,
                i.word_count, i.created_at
         FROM items i
         JOIN item_tags it ON i.id = it.item_id
         JOIN tags t ON it.tag_id = t.id
-        WHERE i.user_id = ? AND LOWER(t.name) = LOWER(?)
+        WHERE i.user_id = ? AND LOWER(t.name) = LOWER(?){status_clause}
         ORDER BY i.created_at DESC
         LIMIT ? OFFSET ?;
     """
-        rows = await db.query_all(sql, (user_id, tag, limit, offset))
+        rows = await db.query_all(sql, (user_id, tag, *status_params, limit, offset))
     else:
-        sql = """
+        sql = f"""
             SELECT id, url, canonical_url, title, byline, site_name,
                    published_date, excerpt, status, fail_reason, is_fallback,
                    word_count, created_at
             FROM items
-            WHERE user_id = ?
+            WHERE user_id = ?{status_clause.replace("i.status", "status")}
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?;
         """
-        rows = await db.query_all(sql, (user_id, limit, offset))
+        rows = await db.query_all(sql, (user_id, *status_params, limit, offset))
 
     if not rows:
         return []
