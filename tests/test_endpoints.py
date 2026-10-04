@@ -384,9 +384,10 @@ async def test_reader_missing_item_returns_html_404(client, db, auth_headers):
 def test_csp_allows_cloudflare_beacon(client):
     """Web Analytics beacon must not trip console CSP errors.
 
-    Parsed as directives and compared host-by-host rather than with a substring
-    check: `in csp` also matches "notstatic.cloudflareinsights.com.evil.test"
-    or a host hidden inside a longer token, so it proves nothing.
+    Exact-match on the split source expressions. An earlier version normalised
+    each entry with .strip().lower(), which reads as "sanitise a URL by
+    substring" to CodeQL (py/incomplete-url-substring-sanitization) and proves
+    nothing here -- there is no URL and no user input in a CSP header.
     """
     response = client.get("/auth/login")
     csp = response.headers.get("content-security-policy", "")
@@ -394,13 +395,12 @@ def test_csp_allows_cloudflare_beacon(client):
     script_src = ""
     for directive in csp.split(";"):
         name, _, value = directive.strip().partition(" ")
-        if name.strip().lower() == "script-src":
+        if name.strip() == "script-src":
             script_src = value
             break
     assert script_src, f"no script-src directive in: {csp!r}"
 
-    allowed = {source.strip().lower() for source in script_src.split()}
-    assert "https://static.cloudflareinsights.com" in allowed, allowed
+    assert "https://static.cloudflareinsights.com" in script_src.split()
 
 
 @pytest.mark.asyncio

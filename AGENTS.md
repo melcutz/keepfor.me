@@ -173,3 +173,15 @@ If a separate frontend origin is ever needed, proxy through the same origin inst
 - `client_ip()` trusts only `CF-Connecting-IP` (edge-set). It must never trust `X-Forwarded-For` — that is client-controllable and would mint a fresh limit per request.
 - The limiter **fails open** on error. Login needs D1 anyway, but hard-failing would lock the owner out of their own instance over a defect in this file.
 - Fixed 15-minute windows, not a sliding log: one indexed row per key per window. Boundary bursts are absorbed by the conservative limits.
+
+## CodeQL: `py/url-redirection` false positives on `_safe_next()`
+
+Four `py/url-redirection` alerts fire on `RedirectResponse(url=_safe_next(next))` in `/auth/login` and `/auth/register`. They are **false positives** and are dismissed with that justification.
+
+The query recognises sanitizers in a specific inline shape (`urlparse(x).netloc` / `.scheme` checks plus backslash elimination), but it **cannot infer sanitization through a user-defined wrapper function** — reported upstream in `github/codeql#15178` and hit by other projects for the same reason. The taint therefore reaches the sink as far as the query is concerned.
+
+**Do not "fix" this by weakening `_safe_next()` to the shape the query models.** It was genuinely exploitable before `d3f6051`: browsers normalise `\` to `/` inside a `Location` header, so the old `startswith("/") and not startswith("//")` check let `?next=/\evil.com` through. That was confirmed in Chromium with Playwright (a 302 carrying `Location: /\evil.example` produced a real request to `http://evil.example/`), and a literal tab before `//` is a second, independent bypass. The current implementation rejects rather than mangles, and handles control characters too.
+
+Regression coverage: `tests/test_endpoints.py::test_safe_next_rejects_open_redirect_payloads` (19 payloads) and `test_safe_next_keeps_real_relative_paths`; both fail if the old implementation is restored.
+
+Prefer dismissing verified false positives with a justification. Do **not** add a `query-filters` exclusion for `py/url-redirection` — that would hide genuine future open redirects, which is how this one nearly shipped.
