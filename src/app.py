@@ -321,12 +321,34 @@ async def service_worker():
 # ==========================================
 
 
+PER_PAGE_OPTIONS = [10, 20, 30, 50]
+
+
+def _pager_context(page: int, per_page: int, total: int) -> dict[str, int | list[int]]:
+    """Clamp page/per_page and build pager template context."""
+    per_page = per_page if per_page in PER_PAGE_OPTIONS else 20
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(max(page, 1), total_pages)
+    start = max(1, min(page - 2, max(1, total_pages - 4)))
+    pages = list(range(start, min(total_pages, start + 4) + 1))
+    return {
+        "page": page,
+        "per_page": per_page,
+        "total_pages": total_pages,
+        "pages": pages,
+        "shown_from": (page - 1) * per_page + 1 if total else 0,
+        "shown_to": min(page * per_page, total),
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def library_page(
     request: Request,
     tag: str | None = None,
     q: str | None = None,
     status: str | None = None,
+    page: int = 1,
+    per_page: int = 20,
 ):
     db = get_db(request)
     user = await get_current_user(request)
@@ -339,9 +361,29 @@ async def library_page(
 
     env = get_env_from_request(request)
     clean_status = status.strip() if status and status.strip() else None
-    items = await hybrid_search(
-        db, env, user["id"], query=q or "", tag=tag, limit=30, status=clean_status
+    items, total = await hybrid_search(
+        db,
+        env,
+        user["id"],
+        query=q or "",
+        tag=tag,
+        limit=per_page if per_page in PER_PAGE_OPTIONS else 20,
+        offset=0,
+        status=clean_status,
     )
+    pager = _pager_context(page, per_page, total)
+    if pager["page"] != page:
+        items, total = await hybrid_search(
+            db,
+            env,
+            user["id"],
+            query=q or "",
+            tag=tag,
+            limit=pager["per_page"],
+            offset=(pager["page"] - 1) * pager["per_page"],
+            status=clean_status,
+        )
+        pager = _pager_context(pager["page"], pager["per_page"], total)
     tags = await list_user_tags(db, user["id"])
     tag_styles = tag_styles_for([t["name"] for t in tags])
     # True library size: the feed is capped at 30, so len(items) lies.
@@ -351,6 +393,18 @@ async def library_page(
     total_count = total_row["count"] if total_row else 0
     status_counts = await get_status_counts(db, user["id"])
 
+    pager_qs = urlencode(
+        {
+            k: v
+            for k, v in {
+                "q": q or "",
+                "tag": tag or "",
+                "status": clean_status or "",
+            }.items()
+            if v
+        }
+    )
+    push_base = ("/?" + pager_qs + "&") if pager_qs else "/?"
     template = jinja_env.get_template("library.html")
     html = template.render(
         current_user=user,
@@ -363,6 +417,10 @@ async def library_page(
         active_status=clean_status,
         status_counts=status_counts,
         active_nav="library",
+        total=total,
+        per_page_options=PER_PAGE_OPTIONS,
+        push_base=push_base,
+        **pager,
     )
     return HTMLResponse(content=html)
 
@@ -374,6 +432,8 @@ async def search_htmx(
     mode: str = Form("hybrid"),
     tag: str = Form(""),
     status: str = Form(""),
+    page: int = Form(1),
+    per_page: int = Form(20),
 ):
     user = await get_current_user(request)
     if not user:
@@ -385,27 +445,57 @@ async def search_htmx(
     clean_status = status.strip() if status.strip() else None
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
-    items = await hybrid_search(
+    items, total = await hybrid_search(
         db,
         env,
         user["id"],
         query=query,
         mode="hybrid",
         tag=clean_tag,
-        limit=30,
+        limit=per_page if per_page in PER_PAGE_OPTIONS else 20,
+        offset=0,
         status=clean_status,
     )
+    pager = _pager_context(page, per_page, total)
+    if pager["page"] != page:
+        items, total = await hybrid_search(
+            db,
+            env,
+            user["id"],
+            query=query,
+            mode="hybrid",
+            tag=clean_tag,
+            limit=pager["per_page"],
+            offset=(pager["page"] - 1) * pager["per_page"],
+            status=clean_status,
+        )
+        pager = _pager_context(pager["page"], pager["per_page"], total)
     tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
 
+    pager_qs = urlencode(
+        {
+            k: v
+            for k, v in {
+                "q": query or "",
+                "tag": clean_tag or "",
+                "status": clean_status or "",
+            }.items()
+            if v
+        }
+    )
+    push_base = ("/?" + pager_qs + "&") if pager_qs else "/?"
+    pager_html = jinja_env.get_template("partials/pager.html").render(
+        total=total, per_page_options=PER_PAGE_OPTIONS, push_base=push_base, **pager
+    )
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
         return HTMLResponse(
             '<div class="text-center py-12 text-slate-400 text-xs">'
-            "No matching articles found.</div>"
+            "No matching articles found.</div>" + pager_html
         )
 
     cards = [template.render(item=it, tag_styles=tag_styles) for it in items]
-    return HTMLResponse(content="".join(cards))
+    return HTMLResponse(content="".join(cards) + pager_html)
 
 
 @app.get("/items/{item_id}", response_class=HTMLResponse)
