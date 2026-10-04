@@ -18,6 +18,9 @@
     [x-cloak] { display: none !important; }
     html { -webkit-tap-highlight-color: transparent; }
     body { overscroll-behavior-y: contain; }
+    /* 16px floor on form fields: readable on phones and stops iOS
+       Safari's auto-zoom on focus (<16px inputs trigger it). */
+    input, select, textarea { font-size: 16px; }
     /* htmx loading indicators: hidden until their request starts */
     .htmx-indicator { display: none; }
     .htmx-indicator.htmx-request { display: inline-flex; }
@@ -117,20 +120,20 @@
 
       <form action="/save" method="POST" class="space-y-4">
         <div>
-          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Webpage URL</label>
+          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Webpage URL</label>
           <input type="url" id="save-url-input" name="url" required placeholder="https://example.com/article"
-                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
         </div>
         <div>
-          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
+          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
           <input type="text" name="tags" placeholder="ai, research, design"
-                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
         </div>
         <div class="flex justify-end space-x-2 pt-2">
           <button type="button" onclick="closeSaveModal()"
-                  class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
+                  class="px-4 py-2.5 sm:py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
           <button type="submit"
-                  class="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800">Save Link</button>
+                  class="px-4 py-2.5 sm:py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800">Save Link</button>
         </div>
       </form>
     </div>

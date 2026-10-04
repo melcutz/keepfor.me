@@ -39,17 +39,17 @@
       </div>
 
       {% if item.title %}
-      <h3 class="text-[15.5px] font-semibold text-slate-900 leading-snug tracking-[-0.01em] group-hover:text-blue-600 transition break-words">
+      <h3 class="text-base md:text-[17px] font-semibold text-slate-900 leading-snug tracking-[-0.01em] group-hover:text-blue-600 transition break-words">
         <a href="/items/{{ item.id }}" class="block line-clamp-2">{{ item.title }}</a>
       </h3>
       {% else %}
-      <h3 class="text-sm font-medium text-slate-600 leading-snug transition break-words">
+      <h3 class="text-base font-medium text-slate-600 leading-snug transition break-words">
         <a href="/items/{{ item.id }}" class="block truncate" title="{{ raw }}">{{ short_url }}</a>
       </h3>
       {% endif %}
 
       {% if item.snippet or item.excerpt %}
-      <p class="text-xs text-slate-600 mt-2 line-clamp-2 leading-relaxed">
+      <p class="text-sm sm:text-[15px] text-slate-600 mt-2 line-clamp-2 leading-relaxed">
         {{ (item.snippet or item.excerpt) | safe }}
       </p>
       {% endif %}

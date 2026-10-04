@@ -101,7 +101,10 @@
 </div>
 
 <script>
-  let currentSize = 16;
+  // Responsive default (18px phones, 19px larger screens); a saved
+  // preference always wins over this.
+  let currentSize =
+    window.matchMedia("(min-width: 640px)").matches ? 19 : 18;
   const articleBody = document.getElementById('article-body');
   const readerContainer = document.getElementById('reader-container');
 
@@ -144,8 +147,8 @@
     const savedSize = localStorage.getItem('kfm_fontsize') || localStorage.getItem('rk_fontsize');
     if (savedSize) {
       currentSize = parseInt(savedSize, 10);
-      articleBody.style.fontSize = currentSize + 'px';
     }
+    articleBody.style.fontSize = currentSize + 'px';
 
     const savedTheme = localStorage.getItem('kfm_theme') || localStorage.getItem('rk_theme');
     if (savedTheme) setTheme(savedTheme);

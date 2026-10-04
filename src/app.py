@@ -517,6 +517,24 @@ async def share_target(
     return HTMLResponse(content=html)
 
 
+@app.get("/share/saved", response_class=HTMLResponse)
+async def share_saved(request: Request, url: str = ""):
+    """Share-target success panel (GET so the form can location.replace() here).
+
+    Replacing the form history entry means swipe-back exits the PWA instead
+    of resurrecting the just-submitted form.
+    """
+    user = await get_current_user(request)
+    if not user:
+        dest = "/share/saved?" + urlencode({"url": url})
+        return RedirectResponse(
+            url="/auth/login?" + urlencode({"next": dest}), status_code=303
+        )
+    template = jinja_env.get_template("save_popup.html")
+    html = template.render(url=url, title="", success=True, source="share")
+    return HTMLResponse(content=html)
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, new_token: str | None = None):
     user = await get_current_user(request)

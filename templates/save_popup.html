@@ -15,6 +15,9 @@
   <style>
     html { -webkit-tap-highlight-color: transparent; }
     body { overscroll-behavior-y: contain; }
+    /* 16px floor on form fields: readable on phones and stops iOS
+       Safari's auto-zoom on focus (<16px inputs trigger it). */
+    input, select, textarea { font-size: 16px; }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 font-sans min-h-dvh flex items-end sm:items-center justify-center sm:p-6">
@@ -28,8 +31,8 @@
     {% if source == 'share' %}
     <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-center">
       <p class="font-semibold text-sm">Saved to your library!</p>
-      <p class="text-xs text-emerald-600 mt-1">You can head back to what you were doing.</p>
-      <a href="/" class="inline-block mt-3 text-xs font-semibold text-blue-600 hover:underline">Open library →</a>
+      <p class="text-sm text-emerald-600 mt-1">You can head back to your app.</p>
+      <a href="/" class="inline-block mt-3 text-sm font-semibold text-blue-600 hover:underline">Open library →</a>
     </div>
     {% else %}
     <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-center">
@@ -46,30 +49,62 @@
     </script>
     {% endif %}
     {% else %}
-    <form action="/save-popup" method="POST" class="space-y-4">
+    <form id="share-save-form" action="/save-popup" method="POST" class="space-y-4">
       <input type="hidden" name="source" value="{{ source|default('') }}">
       <div>
-        <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">URL</label>
+        <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">URL</label>
         <input type="url" name="url" value="{{ url }}" required readonly
-               class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600">
+               class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-base text-slate-600">
       </div>
       <div>
-        <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Title</label>
+        <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Title</label>
         <input type="text" name="title" value="{{ title }}"
-               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-slate-900">
+               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
       </div>
       <div>
-        <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
+        <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
         <input type="text" name="tags" placeholder="tech, news, reading" autofocus
-               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-slate-900">
+               class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
       </div>
       <div class="flex justify-end space-x-2 pt-2">
-        <button type="button" onclick="window.close()" 
-                class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50">Cancel</button>
-        <button type="submit" 
-                class="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-800">Save to Library</button>
+        <button type="button" onclick="cancelShareSave()"
+                class="px-4 py-2.5 sm:py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
+        <button type="submit" id="share-save-submit"
+                class="px-4 py-2.5 sm:py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-60">Save to Library</button>
       </div>
     </form>
+    <script>
+      // window.close() is a no-op in PWA / share-target contexts. Going back
+      // leaves the app; with no history entries, fall back to the library.
+      function cancelShareSave() {
+        if ("{{ source|default('') }}" !== "share") { window.close(); return; }
+        if (history.length > 1) history.back();
+        else location.href = "/";
+      }
+      {% if source == 'share' %}
+      // Submit via fetch, then location.replace() the form history entry with
+      // the success page: swipe-back exits the PWA instead of resurrecting
+      // the just-submitted form. No-JS clients fall back to a native submit.
+      document.getElementById("share-save-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const form = e.target;
+        const btn = document.getElementById("share-save-submit");
+        btn.disabled = true;
+        btn.textContent = "Saving…";
+        fetch(form.action, { method: "POST", body: new FormData(form) }).then((r) => {
+          if (!r.ok) throw new Error("save failed: " + r.status);
+          const url = form.querySelector('input[name="url"]').value;
+          location.replace("/share/saved?" + new URLSearchParams({ url }));
+        }).catch(() => {
+          // Server rejected it: fall back to a native submit so the error
+          // surfaces instead of failing silently.
+          btn.disabled = false;
+          btn.textContent = "Save to Library";
+          form.submit();
+        });
+      });
+      {% endif %}
+    </script>
     {% endif %}
   </div>
 </body>
