@@ -572,62 +572,58 @@ def client(db, monkeypatch):
 async def paging_setup(db):
     user = await register_user(db, "paging@keepfor.me", "password123")
     env = MockEnv()
-    for n in range(5):
+    for n in range(25):
         await save_item(db, env, user["id"], f"https://example.com/pg{n}")
     pat = await create_pat(db, user["id"], "Paging PAT")
     return {"user": user, "headers": {"Authorization": f"Bearer {pat['token']}"}}
 
 
-def _login(client, db, email="paging@keepfor.me"):
+async def _login(client, db, email="paging@keepfor.me"):
     from src.auth.service import login_user
 
-    async def _go():
-        return await login_user(db, email, "password123")
-
-    import asyncio
-
-    _, session_id = asyncio.get_event_loop().run_until_complete(_go())
+    _, session_id = await login_user(db, email, "password123")
     client.cookies["kfm_session"] = session_id
 
 
 async def test_library_page_two_per_page(client, db, paging_setup):
-    _login(client, db)
-    res = client.get("/", params={"per_page": 2})
+    await _login(client, db)
+    res = client.get("/", params={"per_page": 10})
     assert res.status_code == 200
-    assert res.text.count('id="item-card-') == 2
-    assert "Showing 1–2 of 5 saves" in res.text
+    assert res.text.count('id="item-card-') == 10
+    assert "Showing 1–10 of 25 saves" in res.text
 
 
 async def test_library_clamps_bad_per_page(client, db, paging_setup):
-    _login(client, db)
+    await _login(client, db)
     res = client.get("/", params={"per_page": 999})
     assert res.status_code == 200
     assert 'value="20"' in res.text
 
 
 async def test_library_out_of_range_page_shows_last(client, db, paging_setup):
-    _login(client, db)
-    res = client.get("/", params={"per_page": 2, "page": 99})
+    await _login(client, db)
+    res = client.get("/", params={"per_page": 10, "page": 99})
     assert res.status_code == 200
-    assert res.text.count('id="item-card-') == 1
-    assert "Showing 5–5 of 5 saves" in res.text
+    assert res.text.count('id="item-card-') == 5
+    assert "Showing 21–25 of 25 saves" in res.text
 
 
 async def test_search_returns_oob_pager(client, db, paging_setup):
-    _login(client, db)
+    await _login(client, db)
     res = client.post(
-        "/search", data={"query": "", "tag": "", "status": "", "page": 2, "per_page": 2}
+        "/search",
+        data={"query": "", "tag": "", "status": "", "page": 2, "per_page": 10},
     )
     assert res.status_code == 200
     assert 'hx-swap-oob="true"' in res.text
-    assert "Showing 3–4 of 5 saves" in res.text
+    assert "Showing 11–20 of 25 saves" in res.text
 
 
 async def test_tag_add_and_remove_roundtrip(client, db, paging_setup):
-    _login(client, db)
+    await _login(client, db)
     from src.models.items import get_item
 
-    page = client.get("/", params={"per_page": 1})
+    page = client.get("/", params={"per_page": 10})
     item_id = page.text.split('id="item-card-')[1].split('"')[0]
 
     added = client.post(f"/items/{item_id}/tags", data={"add": "triage"})
@@ -646,7 +642,7 @@ async def test_tag_mutation_requires_auth(client, db, paging_setup):
 
 
 async def test_tag_mutation_404_unknown_item(client, db, paging_setup):
-    _login(client, db)
+    await _login(client, db)
     res = client.post("/items/does-not-exist/tags", data={"add": "x"})
     assert res.status_code == 404
 ```
