@@ -2,24 +2,49 @@
 <html lang="en" class="h-full bg-slate-50 text-slate-900 antialiased">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>{% block title %}Keepfor.me — Personal Library{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.ico">
   <link rel="manifest" href="/manifest.webmanifest">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" id="theme-color-meta" content="#f8fafc">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Keepfor.me">
   <link rel="apple-touch-icon" href="/icon-192.png">
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
   <style>
     [x-cloak] { display: none !important; }
+    html { -webkit-tap-highlight-color: transparent; }
+    body { overscroll-behavior-y: contain; }
+    /* 16px floor on form fields: readable on phones and stops iOS
+       Safari's auto-zoom on focus (<16px inputs trigger it). */
+    input, select, textarea { font-size: 16px; }
+    /* htmx loading indicators: hidden until their request starts */
+    .htmx-indicator { display: none; }
+    .htmx-indicator.htmx-request { display: inline-flex; }
     /* Sepia theme styles */
     .theme-sepia { background-color: #fbf0d9 !important; color: #5f4b32 !important; }
     .theme-sepia article { color: #433422 !important; }
     .theme-sepia .reader-card { background-color: #f4e7cb !important; border-color: #ebd7b2 !important; }
+    .theme-sepia #site-header, .theme-sepia #mobile-nav { background-color: rgba(244, 231, 203, 0.95) !important; border-color: #ebd7b2 !important; }
+    .theme-sepia #site-header a, .theme-sepia #site-header span, .theme-sepia #mobile-nav a { color: #5f4b32 !important; }
     /* Dark theme styles */
     .theme-dark { background-color: #0f172a !important; color: #cbd5e1 !important; }
     .theme-dark article { color: #e2e8f0 !important; }
     .theme-dark .reader-card { background-color: #1e293b !important; border-color: #334155 !important; }
+    .theme-dark #site-header, .theme-dark #mobile-nav { background-color: rgba(15, 23, 42, 0.95) !important; border-color: #334155 !important; }
+    .theme-dark #site-header a, .theme-dark #site-header span, .theme-dark #mobile-nav a { color: #cbd5e1 !important; }
+    .theme-dark #site-header .text-blue-600, .theme-dark #mobile-nav .text-blue-600 { color: #60a5fa !important; }
+    /* Reader article text stays legible when utility classes fix their color */
+    .theme-dark article h1, .theme-dark article .text-slate-900 { color: #f1f5f9 !important; }
+    .theme-dark article .text-slate-700, .theme-dark article .text-slate-500, .theme-dark article .text-slate-400 { color: #94a3b8 !important; }
+    .theme-dark article header { border-color: #334155 !important; }
+    .theme-dark article .prose { --tw-prose-body: #e2e8f0; --tw-prose-headings: #f1f5f9; --tw-prose-links: #60a5fa; --tw-prose-bold: #f1f5f9; --tw-prose-quotes: #cbd5e1; --tw-prose-code: #e2e8f0; }
+    .theme-sepia article h1, .theme-sepia article .text-slate-900, .theme-sepia article .text-slate-700 { color: #433422 !important; }
+    .theme-sepia article .text-slate-500, .theme-sepia article .text-slate-400 { color: #8a7a5f !important; }
+    .theme-sepia article header { border-color: #ebd7b2 !important; }
   </style>
   <script>
     tailwind.config = {
@@ -36,7 +61,7 @@
 </head>
 <body class="h-full flex flex-col font-sans">
   {% if current_user %}
-  <header class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200 px-4 sm:px-8 py-3 flex items-center justify-between">
+  <header id="site-header" class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200 px-4 sm:px-8 py-3 flex items-center justify-between" style="padding-top: max(0.75rem, env(safe-area-inset-top));">
     <div class="flex items-center space-x-6">
       <a href="/" class="flex items-center space-x-2 text-slate-900 font-extrabold tracking-[-0.03em] text-lg">
         <svg width="22" height="22" viewBox="0 0 44 44" aria-hidden="true"><defs><linearGradient id="kfm-base" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient></defs><rect x="2" y="2" width="40" height="40" rx="11" fill="url(#kfm-base)"/><path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#fff"/></svg>
@@ -49,7 +74,7 @@
     </div>
 
     <div class="flex items-center space-x-3">
-      <button onclick="document.getElementById('save-modal').classList.remove('hidden')" 
+      <button onclick="openSaveModal()"
               class="inline-flex items-center space-x-1.5 px-3 py-2 md:py-1.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800 transition shadow-sm">
         <span>+ Save Link</span>
         <kbd class="hidden sm:inline-block px-1.5 py-0.5 text-xs bg-slate-700 text-slate-300 rounded">S</kbd>
@@ -66,39 +91,49 @@
   </main>
 
   <!-- Mobile bottom tab bar (desktop uses the header nav) -->
-  {% if current_user %}
+  {% if current_user and not hide_mobile_nav %}
   <nav id="mobile-nav" aria-label="Mobile" class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200" style="padding-bottom: env(safe-area-inset-bottom);">
-    <div class="grid grid-cols-2 text-center">
-      <a href="/" class="py-2.5 text-xs font-semibold {% if active_nav == 'library' %}text-blue-600{% else %}text-slate-500{% endif %}">Library</a>
-      <a href="/settings" class="py-2.5 text-xs font-semibold {% if active_nav == 'settings' %}text-blue-600{% else %}text-slate-500{% endif %}">Settings</a>
+    <div class="grid grid-cols-3 items-end text-center">
+      <a href="/" class="flex flex-col items-center gap-0.5 py-2 text-xs font-semibold {% if active_nav == 'library' %}text-blue-600{% else %}text-slate-500{% endif %}">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span>Library</span>
+      </a>
+      <button onclick="openSaveModal()" aria-label="Save a link"
+              class="mx-auto -mt-6 mb-1 flex h-14 w-14 items-center justify-center rounded-full bg-slate-900 text-white shadow-lg hover:bg-slate-800 active:scale-95 transition">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <a href="/settings" class="flex flex-col items-center gap-0.5 py-2 text-xs font-semibold {% if active_nav == 'settings' %}text-blue-600{% else %}text-slate-500{% endif %}">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Settings</span>
+      </a>
     </div>
   </nav>
   {% endif %}
 
-  <!-- Quick Save Modal -->
+  <!-- Quick Save: centered modal on desktop, bottom sheet on mobile -->
   {% if current_user %}
-  <div id="save-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md p-6 relative">
-      <button onclick="document.getElementById('save-modal').classList.add('hidden')" 
-              class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+  <div id="save-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onclick="if(event.target===this)closeSaveModal()">
+    <div class="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-slate-200 w-full sm:max-w-md p-6 relative" style="padding-bottom: max(1.5rem, env(safe-area-inset-bottom));">
+      <button onclick="closeSaveModal()"
+              class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg" aria-label="Close">&times;</button>
       <h3 class="text-base font-semibold text-slate-900 mb-4">Save Link to Library</h3>
-      
+
       <form action="/save" method="POST" class="space-y-4">
         <div>
-          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Webpage URL</label>
-          <input type="url" name="url" required autofocus placeholder="https://example.com/article" 
-                 class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Webpage URL</label>
+          <input type="url" id="save-url-input" name="url" required placeholder="https://example.com/article"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
         </div>
         <div>
-          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
-          <input type="text" name="tags" placeholder="ai, research, design" 
-                 class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
+          <input type="text" name="tags" placeholder="ai, research, design"
+                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
         </div>
         <div class="flex justify-end space-x-2 pt-2">
-          <button type="button" onclick="document.getElementById('save-modal').classList.add('hidden')" 
-                  class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
-          <button type="submit" 
-                  class="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800">Save Link</button>
+          <button type="button" onclick="closeSaveModal()"
+                  class="px-4 py-2.5 sm:py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
+          <button type="submit"
+                  class="px-4 py-2.5 sm:py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800">Save Link</button>
         </div>
       </form>
     </div>
@@ -106,14 +141,37 @@
   {% endif %}
 
   <script>
+    // Save sheet helpers (shared by header button, mobile quick-save, shortcuts)
+    function openSaveModal() {
+      const modal = document.getElementById('save-modal');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+      const input = document.getElementById('save-url-input');
+      if (input) setTimeout(() => input.focus(), 50);
+    }
+    function closeSaveModal() {
+      const modal = document.getElementById('save-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+    // Keep the mobile browser chrome in sync with light/sepia/dark surfaces.
+    function syncThemeColor() {
+      const meta = document.getElementById('theme-color-meta');
+      if (!meta) return;
+      if (document.body.classList.contains('theme-dark')) meta.setAttribute('content', '#0f172a');
+      else if (document.body.classList.contains('theme-sepia')) meta.setAttribute('content', '#fbf0d9');
+      else meta.setAttribute('content', '#f8fafc');
+    }
+    document.addEventListener('DOMContentLoaded', syncThemeColor);
     // Global keyboard shortcuts
     window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { closeSaveModal(); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === 's' || e.key === 'S') {
         const modal = document.getElementById('save-modal');
         if (modal) {
           e.preventDefault();
-          modal.classList.toggle('hidden');
+          if (modal.classList.contains('hidden')) openSaveModal();
+          else closeSaveModal();
         }
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -124,6 +182,13 @@
         }
       }
     });
+    // Lightweight service worker for PWA installability (network-passthrough:
+    // no cached responses, so auth redirects and library content stay fresh).
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
   </script>
 </body>
 </html>

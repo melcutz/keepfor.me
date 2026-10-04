@@ -1,4 +1,9 @@
-<div id="item-card-{{ item.id }}" class="bg-white border border-slate-200 rounded-xl p-5 hover:shadow-md transition group relative">
+{% if item.status == 'queued' or item.status == 'fetching' %}
+<div id="item-card-{{ item.id }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative"
+     hx-get="/items/{{ item.id }}/card" hx-trigger="every 4s" hx-swap="outerHTML">
+{% else %}
+<div id="item-card-{{ item.id }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative">
+{% endif %}
   <div class="flex items-start gap-3">
   {% set raw = item.canonical_url or item.url or '' %}
   {% set parts = raw.split('/') %}
@@ -6,22 +11,22 @@
   {% set path = ('/' + '/'.join(parts[3:])) if parts|length > 3 else '' %}
   {% set short_url = domain + (path | truncate(60, True, '…')) %}
   {% set fallback = tag_styles.get(item.tags[0] if item.tags else '', ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-  <span class="relative w-5 h-5 shrink-0 mt-0.5">
+  <span class="relative w-6 h-6 shrink-0 mt-0.5 ring-1 ring-slate-200 rounded-md overflow-hidden bg-slate-100">
     <span class="absolute inset-0 rounded-md text-[11px] font-extrabold flex items-center justify-center {{ fallback[0] }}">{{ ((item.site_name or domain) ~ '')[0] if (item.site_name or domain) else '?' }}</span>
-    <img src="https://www.google.com/s2/favicons?domain={{ domain }}&sz=64" alt="" loading="lazy" onerror="if(!this.dataset.fbk){this.dataset.fbk=1;this.src='https://icons.duckduckgo.com/ip3/{{ domain }}.ico';}else{this.remove();}" class="absolute inset-0 w-5 h-5 rounded-md bg-white">
+    <img src="https://www.google.com/s2/favicons?domain={{ domain }}&sz=64" alt="" loading="lazy" onerror="if(!this.dataset.fbk){this.dataset.fbk=1;this.src='https://icons.duckduckgo.com/ip3/{{ domain }}.ico';}else{this.remove();}" class="absolute inset-0 w-6 h-6 rounded-md bg-white object-cover">
   </span>
     <div class="flex-1 min-w-0 pr-4">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mb-1.5">
         <span class="font-medium text-slate-700 whitespace-nowrap">{{ item.site_name or item.canonical_url.split('/')[2] }}</span>
         <span>•</span>
         {% if item.word_count %}
-        <span class="whitespace-nowrap">{{ (item.word_count // 200) + 1 }} min read</span>
+        <span class="whitespace-nowrap px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium">{{ (item.word_count // 200) + 1 }} min read</span>
         <span>•</span>
         {% endif %}
         <span class="whitespace-nowrap">{{ item.created_at[:10] }}</span>
 
         {% if item.status == 'queued' or item.status == 'fetching' %}
-        <span class="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium">Extracting...</span>
+        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>Extracting...</span>
         {% elif item.status == 'failed' %}
         <span class="px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-full font-medium" title="{{ item.fail_reason }}">Failed: {{ (item.fail_reason or 'unknown error') | truncate(100) }}</span>
         {% elif item.is_fallback %}
@@ -34,17 +39,17 @@
       </div>
 
       {% if item.title %}
-      <h3 class="text-[15.5px] font-semibold text-slate-900 leading-snug tracking-[-0.01em] group-hover:text-blue-600 transition break-words">
+      <h3 class="text-base md:text-[17px] font-semibold text-slate-900 leading-snug tracking-[-0.01em] group-hover:text-blue-600 transition break-words">
         <a href="/items/{{ item.id }}" class="block line-clamp-2">{{ item.title }}</a>
       </h3>
       {% else %}
-      <h3 class="text-sm font-medium text-slate-600 leading-snug transition break-words">
+      <h3 class="text-base font-medium text-slate-600 leading-snug transition break-words">
         <a href="/items/{{ item.id }}" class="block truncate" title="{{ raw }}">{{ short_url }}</a>
       </h3>
       {% endif %}
 
       {% if item.snippet or item.excerpt %}
-      <p class="text-xs text-slate-600 mt-2 line-clamp-2 leading-relaxed">
+      <p class="text-sm sm:text-[15px] text-slate-600 mt-2 line-clamp-2 leading-relaxed">
         {{ (item.snippet or item.excerpt) | safe }}
       </p>
       {% endif %}
@@ -53,7 +58,7 @@
       <div class="flex flex-wrap gap-1.5 mt-3">
         {% for tag in item.tags %}
         {% set ts = tag_styles.get(tag, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-        <a href="/?tag={{ tag }}" class="px-2 py-0.5 {{ ts[0] }} text-xs font-medium rounded-md transition">
+        <a href="/?tag={{ tag }}" class="px-2.5 py-1 {{ ts[0] }} text-xs font-medium rounded-full transition hover:opacity-80">
           #{{ tag }}
         </a>
         {% endfor %}

@@ -758,6 +758,42 @@ async def test_share_submit_stays_put_for_system_back(client, db, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_share_saved_requires_login(client):
+    """Anonymous success-panel fetches bounce to login."""
+    response = client.get(
+        "/share/saved",
+        params={"url": "https://example.com/a"},
+        follow_redirects=False,
+    )
+    assert response.status_code in [303, 307, 308]
+    assert "/auth/login" in response.headers["location"]
+    assert "next=" in response.headers["location"]
+
+
+@pytest.mark.asyncio
+async def test_share_saved_renders_static_success(client, db, auth_headers):
+    """The replace() target is a static panel that exits via system back."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/share/saved", params={"url": "https://example.com/a"})
+    assert response.status_code == 200
+    assert "Saved to your library!" in response.text
+    assert "head back to your app" in response.text
+    assert "location.replace" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_share_form_replaces_history_on_submit(client, db, auth_headers):
+    """Share form submits via fetch + location.replace (no form on back)."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get(
+        "/share", params={"url": "https://example.com/a", "title": "Hi"}
+    )
+    assert response.status_code == 200
+    assert "location.replace" in response.text
+    assert "/share/saved" in response.text
+
+
+@pytest.mark.asyncio
 async def test_popup_submit_keeps_close_behavior(client, db, auth_headers):
     """Bookmarklet-popup success still closes/redirects automatically."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
