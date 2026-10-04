@@ -67,6 +67,8 @@ CI's `deploy.yml` runs this same dry run and hard-fails above a **58,000 KiB** b
 
 Residual known waste: ~1725 `.py` files (~19 MiB) from `.venv-workers`, plus `tests/*.py` and `browser-extension/`, still ship because `PythonModule` can't be shadowed. Removing them requires narrowing `base_dir` so it doesn't contain the venv, which means moving `worker.py` + `src/` + `templates/` into a subdirectory (this changes the packaged import path from `src.*` to `worker.src.*`). **Untested**: the payoff would be faster bundle *decompress* at cold start, not import time — those files are never imported.
 
+**Trap:** never put a git worktree under the repo root. `getFiles()` walks `.worktrees/` too, so a worktree with its own venv ships thousands of extra modules — verified 2026-10-04: a stale merged `ui-pwa-redesign` worktree took the bundle from ~52,700 KiB to 81,778 KiB and failed the deploy with `10021 multipart: message too large`. Create worktrees outside the repo (`git worktree add ../<name>`) and remove them once merged (`git worktree remove <path>`).
+
 ### Reading a failed deploy
 
 `wrangler` writes a full module table to `~/.config/.wrangler/logs/wrangler-<ts>.log`. To find the culprit fast:
