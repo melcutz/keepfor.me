@@ -112,3 +112,24 @@ async def test_tag_mutation_404_unknown_item(client, db, paging_setup):
     await _login(client, db)
     res = client.post("/items/does-not-exist/tags", data={"add": "x"})
     assert res.status_code == 404
+
+
+async def test_page_two_shows_different_items(client, db, paging_setup):
+    """Regression: an in-range page>1 must return different cards, not page 1."""
+    import re
+
+    await _login(client, db)
+    p1 = client.get("/", params={"per_page": 10})
+    ids1 = re.findall(r'id="item-card-([^"]+)"', p1.text)
+    assert len(ids1) == 10
+    p2 = client.get("/", params={"per_page": 10, "page": 2})
+    ids2 = re.findall(r'id="item-card-([^"]+)"', p2.text)
+    assert len(ids2) == 10
+    assert set(ids1).isdisjoint(set(ids2))
+
+    r = client.post(
+        "/search",
+        data={"query": "", "tag": "", "status": "", "page": 2, "per_page": 10},
+    )
+    ids3 = re.findall(r'id="item-card-([^"]+)"', r.text)
+    assert set(ids3) == set(ids2)

@@ -361,14 +361,15 @@ async def library_page(
 
     env = get_env_from_request(request)
     clean_status = status.strip() if status and status.strip() else None
+    limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     items, total = await hybrid_search(
         db,
         env,
         user["id"],
         query=q or "",
         tag=tag,
-        limit=per_page if per_page in PER_PAGE_OPTIONS else 20,
-        offset=0,
+        limit=limit,
+        offset=(max(page, 1) - 1) * limit,
         status=clean_status,
     )
     pager = _pager_context(page, per_page, total)
@@ -453,7 +454,7 @@ async def search_htmx(
         mode="hybrid",
         tag=clean_tag,
         limit=per_page if per_page in PER_PAGE_OPTIONS else 20,
-        offset=0,
+        offset=(max(page, 1) - 1) * (per_page if per_page in PER_PAGE_OPTIONS else 20),
         status=clean_status,
     )
     pager = _pager_context(page, per_page, total)
