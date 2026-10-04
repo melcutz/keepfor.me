@@ -78,6 +78,11 @@
         <input type="hidden" id="active-page-input" name="page" value="{{ page }}">
         <input type="hidden" id="active-perpage-input" name="per_page" value="{{ per_page }}">
       </div>
+<div class="flex items-center gap-2">
+  <button id="tag-mode-toggle" aria-pressed="false"
+          class="shrink-0 px-3 py-2 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">🏷 Tag</button>
+  <p id="tag-mode-hint" class="hidden text-xs text-slate-500">Tap a tag, then tap articles to add it. Tap again to stop.</p>
+</div>
 
       <!-- Status Filter Pills -->
       <div id="status-filters" class="flex flex-wrap gap-1.5">
@@ -194,6 +199,49 @@
       dragged = { tag: pill.getAttribute('data-pill'), itemId: pill.getAttribute('data-item-id') };
       showTrash(true, 'Drop here to remove #' + dragged.tag);
     }
+  });
+  var armedTag = null, tagMode = false;
+  var toggle = document.getElementById('tag-mode-toggle');
+  var hint = document.getElementById('tag-mode-hint');
+  function setMode(on) {
+    tagMode = on; if (!on) armedTag = null;
+    toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    toggle.className = 'shrink-0 px-3 py-2 rounded-full text-xs font-medium ' +
+      (on ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600');
+    hint.classList.toggle('hidden', !on);
+    document.querySelectorAll('[data-tag-source]').forEach(function (el) {
+      el.classList.toggle('ring-2', on && el.getAttribute('data-tag-source') === armedTag);
+      el.classList.toggle('ring-slate-900', on && el.getAttribute('data-tag-source') === armedTag);
+    });
+  }
+  if (toggle) toggle.addEventListener('click', function () { setMode(!tagMode); });
+  document.querySelectorAll('[data-tag-source]').forEach(function (el) {
+    el.addEventListener('click', function (e) {
+      if (!tagMode) return; // normal filter navigation
+      e.preventDefault();
+      var t = el.getAttribute('data-tag-source');
+      armedTag = (armedTag === t) ? null : t;
+      hint.textContent = armedTag
+        ? 'Tap articles to add #' + armedTag + '. Tap #' + armedTag + ' again to stop.'
+        : 'Tap a tag, then tap articles to add it. Tap again to stop.';
+      setMode(true);
+    });
+  });
+  document.getElementById('items-list').addEventListener('click', function (e) {
+    if (!tagMode || !armedTag) return;
+    if (e.target.closest('a, button')) return; // links/buttons keep working
+    var card = e.target.closest('[data-item-id]');
+    if (!card) return;
+    var has = (card.getAttribute('data-tags') || '').split(',').indexOf(armedTag) !== -1;
+    var vals = {};
+    vals[has ? 'remove' : 'add'] = armedTag;
+    htmx.ajax('POST', '/items/' + card.getAttribute('data-item-id') + '/tags',
+      { target: '#' + card.id, swap: 'outerHTML', values: vals });
+  });
+  // New searches start on page 1.
+  var searchInput = document.getElementById('search-input');
+  if (searchInput) searchInput.addEventListener('input', function () {
+    document.getElementById('active-page-input').value = '1';
   });
 })();
 </script>
