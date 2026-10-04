@@ -1188,7 +1188,7 @@ async def api_search(request: Request, body: SearchRequest):
     db = get_db(request)
     env = get_env_from_request(request)
     # body is already validated by Pydantic
-    results = await hybrid_search(
+    results, _ = await hybrid_search(
         db,
         env,
         user["id"],

@@ -86,9 +86,10 @@ async def test_fts5_search(user_with_env):
     )
 
     # Keyword search
-    results = await hybrid_search(
+    results, total = await hybrid_search(
         db, env, user["id"], query="Python Workers", mode="keyword"
     )
+    assert total == 1
     assert len(results) == 1
     assert results[0]["id"] == item["id"]
     assert "Architecture" in results[0]["title"]

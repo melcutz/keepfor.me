@@ -173,7 +173,7 @@ async def test_hybrid_search_runs_fts_and_vector_concurrently(monkeypatch):
     monkeypatch.setattr(engine, "search_fts", slow_fts)
 
     start = time.perf_counter()
-    results = await engine.hybrid_search(
+    results, _ = await engine.hybrid_search(
         _StubDB(), _SearchEnv(_SlowAI(0.30)), "u1", "query", mode="hybrid"
     )
     elapsed = time.perf_counter() - start
@@ -194,7 +194,7 @@ async def test_vector_search_timeout_degrades_to_keyword(monkeypatch):
     monkeypatch.setattr(engine, "search_fts", fast_fts)
     monkeypatch.setattr(engine, "VECTOR_SEARCH_TIMEOUT", 0.05)
 
-    results = await engine.hybrid_search(
+    results, _ = await engine.hybrid_search(
         _StubDB(), _SearchEnv(_HangingAI()), "u1", "query", mode="hybrid"
     )
     assert len(results) == 1
