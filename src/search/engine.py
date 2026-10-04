@@ -142,13 +142,22 @@ async def hybrid_search(
     mode: str = "hybrid",
     tag: str | None = None,
     limit: int = 20,
+    offset: int = 0,
     status: str | None = None,
-) -> list[dict[str, Any]]:
-    """Execute hybrid search with Reciprocal Rank Fusion and optional filters."""
+) -> tuple[list[dict[str, Any]], int]:
+    """Execute hybrid search with RRF fusion, filters, and pagination.
+
+    Returns (page_items, total_matches). total is exact for browse, and
+    the ranked-candidate count (~100 max) for text queries.
+    """
     query = query.strip()
     if not query:
         # Return recent items
-        return await get_recent_items(db, user_id, tag=tag, limit=limit, status=status)
+        items = await get_recent_items(
+            db, user_id, tag=tag, limit=limit, offset=offset, status=status
+        )
+        total = await count_recent_items(db, user_id, tag=tag, status=status)
+        return items, total
 
     fts_results: list[dict[str, Any]] = []
     vec_results: list[dict[str, Any]] = []
@@ -193,14 +202,14 @@ async def hybrid_search(
             rrf_scores[item_id] = rrf_scores.get(item_id, 0.0) + (1.0 / (RRF_K + rank))
 
     if not rrf_scores:
-        return []
+        return [], 0
 
     # Sort item_ids by RRF score descending
     sorted_item_ids = [
         item_id
         for item_id, _ in sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
     ]
-    top_ids = sorted_item_ids[: limit * 2]  # Fetch extra in case tag filter drops some
+    top_ids = sorted_item_ids  # Full ranked window; sliced per page below
 
     # Fetch full item details from D1
     placeholders = ",".join("?" for _ in top_ids)
@@ -244,10 +253,8 @@ async def hybrid_search(
             item["rrf_score"] = round(rrf_scores[item_id], 4)
             item["snippet"] = snippets.get(item_id) or item["excerpt"]
             final_items.append(item)
-            if len(final_items) >= limit:
-                break
 
-    return final_items
+    return final_items[offset : offset + limit], len(final_items)
 
 
 async def get_recent_items(
@@ -312,3 +319,33 @@ async def get_recent_items(
         item["tags"] = item_tags_map.get(r["id"], [])
         result.append(item)
     return result
+
+
+async def count_recent_items(
+    db: Database,
+    user_id: str,
+    tag: str | None = None,
+    status: str | None = None,
+) -> int:
+    """Count items matching the browse filters (same WHERE as get_recent_items)."""
+    status_values = _status_values(status)
+    status_clause = ""
+    status_params: tuple = ()
+    if status_values:
+        status_clause = f" AND status IN ({','.join('?' for _ in status_values)})"
+        status_params = tuple(status_values)
+    if tag:
+        tag_clause = status_clause.replace("status", "i.status")
+        rows = await db.query_all(
+            "SELECT COUNT(*) as count FROM items i "
+            "JOIN item_tags it ON i.id = it.item_id "
+            "JOIN tags t ON it.tag_id = t.id "
+            f"WHERE i.user_id = ? AND LOWER(t.name) = LOWER(?){tag_clause};",
+            (user_id, tag, *status_params),
+        )
+    else:
+        rows = await db.query_all(
+            f"SELECT COUNT(*) as count FROM items WHERE user_id = ?{status_clause};",
+            (user_id, *status_params),
+        )
+    return rows[0]["count"] if rows else 0
