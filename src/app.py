@@ -285,6 +285,29 @@ async def pwa_icon_maskable():
     return _pwa_icon_response(pwa_icons.ICON_MASKABLE_B64)
 
 
+# Lightweight service worker: satisfies PWA installability without caching
+# anything. Network-passthrough keeps auth redirects and library content
+# fresh; served from Python so there is zero static-asset bundle impact.
+SW_JS = (
+    "const CACHE = 'kfm-v1';\n"
+    "self.addEventListener('install', (e) => { self.skipWaiting(); });\n"
+    "self.addEventListener('activate', (e) => { self.clients.claim(); });\n"
+    "self.addEventListener('fetch', (e) => {});\n"
+).encode("utf-8")
+
+
+@app.get("/sw.js")
+async def service_worker():
+    return Response(
+        content=SW_JS,
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Service-Worker-Allowed": "/",
+        },
+    )
+
+
 # ==========================================
 # Web UI Pages
 # ==========================================
@@ -400,9 +423,28 @@ async def reader_page(request: Request, item_id: str):
     tag_styles = tag_styles_for(item.get("tags") or [])
     template = jinja_env.get_template("reader.html")
     html = template.render(
-        current_user=user, item=item, clean_html=clean_html, tag_styles=tag_styles
+        current_user=user,
+        item=item,
+        clean_html=clean_html,
+        tag_styles=tag_styles,
+        hide_mobile_nav=True,
     )
     return HTMLResponse(content=html)
+
+
+@app.get("/items/{item_id}/card", response_class=HTMLResponse)
+async def item_card(request: Request, item_id: str):
+    """Single card fragment for htmx polling of extracting items."""
+    user = await get_current_user(request)
+    if not user:
+        return HTMLResponse("<p>Please log in</p>", status_code=401)
+    db = get_db(request)
+    item = await get_item(db, user["id"], item_id)
+    if not item:
+        return HTMLResponse(content="", status_code=404)
+    tag_styles = tag_styles_for(item.get("tags") or [])
+    template = jinja_env.get_template("partials/item_card.html")
+    return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
 
 
 @app.post("/save")
