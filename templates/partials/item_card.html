@@ -1,8 +1,8 @@
 {% if item.status == 'queued' or item.status == 'fetching' %}
-<div id="item-card-{{ item.id }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative"
+<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative"
      hx-get="/items/{{ item.id }}/card" hx-trigger="every 4s" hx-swap="outerHTML">
 {% else %}
-<div id="item-card-{{ item.id }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative">
+<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative">
 {% endif %}
   <div class="flex items-start gap-3">
   {% set raw = item.canonical_url or item.url or '' %}
@@ -58,9 +58,13 @@
       <div class="flex flex-wrap gap-1.5 mt-3">
         {% for tag in item.tags %}
         {% set ts = tag_styles.get(tag, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-        <a href="/?tag={{ tag }}" class="px-2.5 py-1 {{ ts[0] }} text-xs font-medium rounded-full transition hover:opacity-80">
-          #{{ tag }}
-        </a>
+        <span class="inline-flex items-center gap-1 pl-2.5 pr-1 py-1 {{ ts[0] }} text-xs font-medium rounded-full">
+          <a href="/?tag={{ tag }}" class="hover:opacity-80">#{{ tag }}</a>
+          <button hx-post="/items/{{ item.id }}/tags" hx-vals='{"remove": "{{ tag }}"}'
+                  hx-target="#item-card-{{ item.id }}" hx-swap="outerHTML"
+                  class="min-w-8 min-h-8 md:min-w-0 md:min-h-0 px-2 py-1.5 md:py-0.5 rounded-full hover:bg-black/10 font-bold"
+                  aria-label="Remove tag {{ tag }}">×</button>
+        </span>
         {% endfor %}
       </div>
       {% endif %}
