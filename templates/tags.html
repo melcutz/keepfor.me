@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}Tags — Keepfor.me{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 sm:px-8 py-8 space-y-8">
+  <div>
+    <h2 class="text-xl font-bold text-slate-900 tracking-tight">Tags</h2>
+    <p class="text-xs text-slate-500 mt-1">Organize your library: create, rename, merge, and delete tags. Renaming onto an existing name merges the two.</p>
+  </div>
+
+  <!-- New tag form -->
+  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+    <h3 class="text-base font-semibold text-slate-900 mb-4">New tag</h3>
+    <form action="/tags/create" method="POST" class="flex items-center space-x-3">
+      <input type="text" name="name" required placeholder="e.g. research"
+             class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
+      <button type="submit" class="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-800 shrink-0">
+        Create tag
+      </button>
+    </form>
+  </section>
+
+  <!-- Pending suggestions -->
+  {% if suggestions %}
+  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+    <h3 class="text-base font-semibold text-slate-900 mb-1">Suggested tags</h3>
+    <p class="text-xs text-slate-500 mb-4">Automatically proposed during extraction. Accept to apply, dismiss to hide.</p>
+    <div class="space-y-2">
+      {% for s in suggestions %}
+      <div class="flex items-center gap-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <span class="font-medium text-slate-800">#{{ s.phrase }}</span>
+        <a href="/items/{{ s.item_id }}" class="text-slate-400 hover:text-slate-600 truncate">{{ s.title or s.item_id }}</a>
+        <span class="ml-auto flex items-center gap-2 shrink-0">
+          <form action="/items/{{ s.item_id }}/suggestions/{{ s.id }}/accept" method="POST">
+            <input type="hidden" name="next" value="/tags">
+            <button type="submit" class="px-3 py-1 bg-emerald-600 text-white rounded-md font-medium hover:bg-emerald-700">Accept</button>
+          </form>
+          <form action="/items/{{ s.item_id }}/suggestions/{{ s.id }}/dismiss" method="POST">
+            <input type="hidden" name="next" value="/tags">
+            <button type="submit" class="px-3 py-1 border border-slate-200 text-slate-500 rounded-md font-medium hover:bg-slate-100">Dismiss</button>
+          </form>
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Tag table -->
+  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+    <h3 class="text-base font-semibold text-slate-900 mb-4">All tags ({{ tags|length }})</h3>
+    {% if tags %}
+    <div class="border border-slate-200 rounded-lg overflow-x-auto">
+      <table class="w-full min-w-[560px] text-left text-xs">
+        <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase">
+          <tr>
+            <th class="px-4 py-2.5">Tag</th>
+            <th class="px-4 py-2.5">Items</th>
+            <th class="px-4 py-2.5">Rename</th>
+            <th class="px-4 py-2.5 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for t in tags %}
+          {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
+          <tr>
+            <td class="px-4 py-3 font-medium text-slate-800">
+              <span class="w-2 h-2 rounded-full {{ ts[1] }} inline-block mr-1.5"></span>#{{ t.name }}
+            </td>
+            <td class="px-4 py-3 text-slate-500">
+              <a href="/?tag={{ t.name }}" class="hover:underline">{{ t.count }}</a>
+            </td>
+            <td class="px-4 py-3">
+              <form action="/tags/rename" method="POST" class="flex items-center gap-2">
+                <input type="hidden" name="old_name" value="{{ t.name }}">
+                <input type="text" name="new_name" required placeholder="New name"
+                       class="w-32 px-2 py-1 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-slate-900">
+                <button type="submit" class="px-2.5 py-1 border border-slate-200 text-slate-600 rounded-md font-medium hover:bg-slate-50">Rename</button>
+              </form>
+            </td>
+            <td class="px-4 py-3 text-right">
+              <form action="/tags/delete" method="POST" onsubmit="return confirm('Delete tag #{{ t.name }}? Items stay in your library, untagged.');">
+                <input type="hidden" name="name" value="{{ t.name }}">
+                <button type="submit" class="px-2.5 py-1 text-red-600 hover:bg-red-50 rounded-md font-medium">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="text-xs text-slate-500">No tags yet. Create one above, or add tags when saving a link.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

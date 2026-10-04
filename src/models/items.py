@@ -213,6 +213,167 @@ async def delete_item(db: Database, env: Any, user_id: str, item_id: str) -> boo
     return True
 
 
+async def create_tag(db: Database, user_id: str, raw_name: str) -> str | None:
+    """Creates an empty tag (zero items allowed); idempotent. Returns name or None."""
+    from src.utils.tagger import validate_tag_name
+
+    clean = validate_tag_name(raw_name or "")
+    if not clean:
+        return None
+    existing = await db.query_first(
+        "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, clean)
+    )
+    if existing:
+        return clean
+    await db.execute(
+        "INSERT OR IGNORE INTO tags (id, user_id, name) VALUES (?, ?, ?);",
+        (str(uuid.uuid4()), user_id, clean),
+    )
+    return clean
+
+
+async def rename_tag(db: Database, user_id: str, old_name: str, new_name: str) -> str:
+    """Renames a tag; renaming onto an existing name merges the two.
+
+    Returns 'merged', 'unchanged', 'not_found' or 'invalid'.
+    """
+    from src.utils.tagger import normalize_tag, validate_tag_name
+
+    old_clean = normalize_tag(old_name or "")
+    new_clean = validate_tag_name(new_name or "")
+    if not new_clean:
+        return "invalid"
+    if old_clean == new_clean:
+        return "unchanged"
+    old_row = await db.query_first(
+        "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, old_clean)
+    )
+    if not old_row:
+        return "not_found"
+    new_row = await db.query_first(
+        "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, new_clean)
+    )
+    if new_row and new_row["id"] != old_row["id"]:
+        # Merge: move item links onto the surviving tag, drop the source.
+        linked = await db.query_all(
+            "SELECT item_id FROM item_tags WHERE tag_id = ?;", (old_row["id"],)
+        )
+        for row in linked:
+            await db.execute(
+                "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?);",
+                (row["item_id"], new_row["id"]),
+            )
+        await db.execute("DELETE FROM item_tags WHERE tag_id = ?;", (old_row["id"],))
+        await db.execute("DELETE FROM tags WHERE id = ?;", (old_row["id"],))
+        return "merged"
+    await db.execute(
+        "UPDATE tags SET name = ? WHERE id = ?;", (new_clean, old_row["id"])
+    )
+    return "merged"
+
+
+async def delete_tag(db: Database, user_id: str, raw_name: str) -> bool:
+    """Deletes a tag; items survive untagged. Also dismisses pending suggestions."""
+    from src.utils.tagger import normalize_tag
+
+    clean = normalize_tag(raw_name or "")
+    if not clean:
+        return False
+    row = await db.query_first(
+        "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, clean)
+    )
+    if not row:
+        return False
+    # Explicit deletes (no reliance on ON DELETE CASCADE pragma state).
+    await db.execute("DELETE FROM item_tags WHERE tag_id = ?;", (row["id"],))
+    await db.execute("DELETE FROM tags WHERE id = ?;", (row["id"],))
+    await db.execute(
+        "UPDATE suggested_tags SET status = 'dismissed'"
+        " WHERE user_id = ? AND phrase = ? AND status = 'pending';",
+        (user_id, clean),
+    )
+    return True
+
+
+async def add_suggestions(
+    db: Database,
+    user_id: str,
+    item_id: str,
+    phrases: list[tuple[str, float]],
+    limit: int = 8,
+) -> int:
+    """Records pending tag suggestions; idempotent per (item, phrase)."""
+    from src.utils.tagger import normalize_tag
+
+    inserted = 0
+    for raw_phrase, score in phrases[:limit]:
+        phrase = normalize_tag(raw_phrase or "")
+        if len(phrase) < 3:
+            continue
+        try:
+            await db.execute(
+                "INSERT OR IGNORE INTO suggested_tags"
+                " (id, item_id, user_id, phrase, score) VALUES (?, ?, ?, ?, ?);",
+                (str(uuid.uuid4()), item_id, user_id, phrase, float(score)),
+            )
+            inserted += 1
+        except Exception:
+            continue
+    return inserted
+
+
+async def accept_suggestion(db: Database, user_id: str, sugg_id: str) -> bool:
+    """Applies a pending suggestion as a real tag; marks it accepted."""
+    row = await db.query_first(
+        "SELECT item_id, phrase FROM suggested_tags"
+        " WHERE id = ? AND user_id = ? AND status = 'pending';",
+        (sugg_id, user_id),
+    )
+    if not row:
+        return False
+    await add_tags_to_item(db, user_id, row["item_id"], [row["phrase"]])
+    await db.execute(
+        "UPDATE suggested_tags SET status = 'accepted' WHERE id = ?;", (sugg_id,)
+    )
+    return True
+
+
+async def dismiss_suggestion(db: Database, user_id: str, sugg_id: str) -> bool:
+    """Marks a pending suggestion dismissed (never suggested again)."""
+    row = await db.query_first(
+        "SELECT id FROM suggested_tags"
+        " WHERE id = ? AND user_id = ? AND status = 'pending';",
+        (sugg_id, user_id),
+    )
+    if not row:
+        return False
+    await db.execute(
+        "UPDATE suggested_tags SET status = 'dismissed' WHERE id = ?;", (sugg_id,)
+    )
+    return True
+
+
+async def list_pending_suggestions(
+    db: Database, user_id: str, item_id: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Pending tag suggestions, optionally scoped to one item."""
+    if item_id:
+        return await db.query_all(
+            "SELECT s.id, s.item_id, s.phrase, s.score, i.title"
+            " FROM suggested_tags s LEFT JOIN items i ON i.id = s.item_id"
+            " WHERE s.user_id = ? AND s.item_id = ? AND s.status = 'pending'"
+            " ORDER BY s.score DESC LIMIT ?;",
+            (user_id, item_id, limit),
+        )
+    return await db.query_all(
+        "SELECT s.id, s.item_id, s.phrase, s.score, i.title"
+        " FROM suggested_tags s LEFT JOIN items i ON i.id = s.item_id"
+        " WHERE s.user_id = ? AND s.status = 'pending'"
+        " ORDER BY s.score DESC LIMIT ?;",
+        (user_id, limit),
+    )
+
+
 async def list_user_tags(db: Database, user_id: str) -> list[dict[str, Any]]:
     return await db.query_all(
         """

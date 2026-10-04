@@ -167,6 +167,47 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
             (item_id, user_id, extracted["title"], extracted["content_text"]),
         )
 
+        # 5b. Automatic tagging (fail-open: a tagger defect must never
+        # flip an extracted item to failed).
+        try:
+            from src.models.items import (
+                add_suggestions,
+                add_tags_to_item,
+                get_item_tags,
+            )
+            from src.utils import tagger as _tagger
+
+            vocab_rows = await db.query_all(
+                "SELECT name FROM tags WHERE user_id = ?;", (user_id,)
+            )
+            vocab = [r["name"] for r in vocab_rows]
+            matched = _tagger.match_existing_tags(
+                title=extracted.get("title") or "",
+                excerpt=extracted.get("excerpt") or "",
+                url=url,
+                body=extracted.get("content_text") or "",
+                user_tags=vocab,
+            )
+            if matched.auto_apply:
+                await add_tags_to_item(db, user_id, item_id, matched.auto_apply)
+            already = set(await get_item_tags(db, item_id)) | set(matched.auto_apply)
+            novel = _tagger.suggest_new_tags(
+                title=extracted.get("title") or "",
+                excerpt=extracted.get("excerpt") or "",
+                url=url,
+                body=extracted.get("content_text") or "",
+                user_tags=vocab,
+                limit=5,
+            )
+            phrases = [(s.phrase, s.score) for s in novel if s.phrase not in already]
+            for tag in matched.suggest_only:
+                if tag not in already and tag not in [p for p, _ in phrases]:
+                    phrases.append((tag, 1.0))
+            if phrases:
+                await add_suggestions(db, user_id, item_id, phrases)
+        except Exception as exc:
+            logger.warning(f"Auto-tagging failed: item={item_id}: {exc}")
+
         # 6. Semantic chunking & Vectorize indexing
         chunks = recursive_character_split(
             extracted["content_text"], target_tokens=400, overlap_tokens=50

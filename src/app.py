@@ -36,10 +36,16 @@ from src.auth.service import (
 from src.mcp.server import process_mcp_request
 from src.models.db import Database
 from src.models.items import (
+    accept_suggestion,
+    create_tag,
     delete_item,
+    delete_tag,
+    dismiss_suggestion,
     get_item,
     get_item_clean_html,
+    list_pending_suggestions,
     list_user_tags,
+    rename_tag,
     save_item,
 )
 from src.schemas import (
@@ -421,12 +427,14 @@ async def reader_page(request: Request, item_id: str):
 
     clean_html = await get_item_clean_html(db, env, user["id"], item_id)
     tag_styles = tag_styles_for(item.get("tags") or [])
+    suggestions = await list_pending_suggestions(db, user["id"], item_id=item_id)
     template = jinja_env.get_template("reader.html")
     html = template.render(
         current_user=user,
         item=item,
         clean_html=clean_html,
         tag_styles=tag_styles,
+        suggestions=suggestions,
         hide_mobile_nav=True,
     )
     return HTMLResponse(content=html)
@@ -492,6 +500,83 @@ async def save_popup_post(
     template = jinja_env.get_template("save_popup.html")
     html = template.render(url=url, title=title, success=True, source=source)
     return HTMLResponse(content=html)
+
+
+# ==========================================
+# Tags management + suggestion review
+# ==========================================
+
+
+@app.get("/tags", response_class=HTMLResponse)
+async def tags_page(request: Request):
+    user = await get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/auth/login", status_code=303)
+    db = get_db(request)
+    tags = await list_user_tags(db, user["id"])
+    tag_styles = tag_styles_for([t["name"] for t in tags])
+    suggestions = await list_pending_suggestions(db, user["id"])
+    template = jinja_env.get_template("tags.html")
+    html = template.render(
+        current_user=user,
+        tags=tags,
+        tag_styles=tag_styles,
+        suggestions=suggestions,
+        active_nav="tags",
+    )
+    return HTMLResponse(content=html)
+
+
+@app.post("/tags/create")
+async def tags_create(request: Request, name: str = Form("")):
+    user = await require_user(request)
+    db = get_db(request)
+    await create_tag(db, user["id"], name)
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/rename")
+async def tags_rename(
+    request: Request, old_name: str = Form(""), new_name: str = Form("")
+):
+    user = await require_user(request)
+    db = get_db(request)
+    await rename_tag(db, user["id"], old_name, new_name)
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/delete")
+async def tags_delete(request: Request, name: str = Form("")):
+    user = await require_user(request)
+    db = get_db(request)
+    await delete_tag(db, user["id"], name)
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/items/{item_id}/suggestions/{sugg_id}/accept")
+async def suggestion_accept(
+    request: Request, item_id: str, sugg_id: str, next: str = Form("/tags")
+):
+    user = await require_user(request)
+    db = get_db(request)
+    ok = await accept_suggestion(db, user["id"], sugg_id)
+    if not ok:
+        return HTMLResponse(content="<p>Suggestion not found.</p>", status_code=404)
+    back = _safe_next(next)
+    return RedirectResponse(url=back if back != "/" else "/tags", status_code=303)
+
+
+@app.post("/items/{item_id}/suggestions/{sugg_id}/dismiss")
+async def suggestion_dismiss(
+    request: Request, item_id: str, sugg_id: str, next: str = Form("/tags")
+):
+    user = await require_user(request)
+    db = get_db(request)
+    ok = await dismiss_suggestion(db, user["id"], sugg_id)
+    if not ok:
+        return HTMLResponse(content="<p>Suggestion not found.</p>", status_code=404)
+    back = _safe_next(next)
+    return RedirectResponse(url=back if back != "/" else "/tags", status_code=303)
 
 
 @app.get("/share", response_class=HTMLResponse)
