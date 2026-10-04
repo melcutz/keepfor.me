@@ -11,6 +11,32 @@ from src.models.items import (
 )
 from src.search.engine import get_recent_items, hybrid_search
 
+# Protocol versions this server speaks, newest first. Streamable HTTP clients
+# propose one in initialize params; the server echoes it back when supported.
+SUPPORTED_PROTOCOL_VERSIONS = (
+    "2025-11-25",
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+)
+LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
+
+
+def negotiate_protocol_version(params: dict[str, Any]) -> str | None:
+    """Return the protocol version to answer with, or None if unsupported.
+
+    A missing version is answered with the latest (lenient: older clients
+    predate the negotiation dance). An explicitly unknown version returns
+    None so the transport can reject it with 400.
+    """
+    requested = params.get("protocolVersion")
+    if not requested:
+        return LATEST_PROTOCOL_VERSION
+    if requested in SUPPORTED_PROTOCOL_VERSIONS:
+        return requested
+    return None
+
+
 MCP_TOOLS = [
     {
         "name": "save_url",
@@ -236,17 +262,39 @@ async def handle_tool_call(
 
 async def process_mcp_request(
     body: dict[str, Any], db: Database, env: Any, user: dict[str, Any]
-) -> dict[str, Any]:
-    """Handles an incoming JSON-RPC 2.0 MCP request."""
+) -> dict[str, Any] | None:
+    """Handles an incoming JSON-RPC 2.0 MCP message.
+
+    Returns the response payload for requests, or None for notifications
+    and JSON-RPC responses, which carry no reply — the HTTP transport
+    answers those with 202 and an empty body (stateless server: nothing
+    to cancel or correlate, so they are accepted and ignored).
+    """
+    if "method" not in body or "id" not in body:
+        return None
+
     method = body.get("method")
     req_id = body.get("id")
 
     if method == "initialize":
+        params = body.get("params", {})
+        version = negotiate_protocol_version(params)
+        if version is None:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32602,
+                    "message": (
+                        f"Unsupported protocol version: {params.get('protocolVersion')}"
+                    ),
+                },
+            }
         return {
             "jsonrpc": "2.0",
             "id": req_id,
             "result": {
-                "protocolVersion": "2024-11-05",
+                "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": {"name": "keepfor-me-mcp", "version": "0.1.0"},
             },

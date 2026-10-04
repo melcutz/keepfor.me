@@ -201,6 +201,152 @@ async def test_vector_search_timeout_degrades_to_keyword(monkeypatch):
     assert results[0]["id"] == "i1"
 
 
+# ==========================================
+# Streamable HTTP transport (endpoint level)
+# ==========================================
+
+
+@pytest.fixture
+def mcp_client(db, monkeypatch):
+    """TestClient with DB/env pinned, mirroring test_endpoints.client."""
+    from fastapi.testclient import TestClient
+
+    from src import app as app_module
+
+    monkeypatch.setattr(app_module, "get_db", lambda request: db)
+    monkeypatch.setattr(app_module, "get_env_from_request", lambda request: MockEnv())
+
+    return TestClient(app_module.app)
+
+
+@pytest.fixture
+async def pat_headers(db):
+    """Bearer headers for a fresh PAT."""
+    from src.auth.service import create_pat, register_user
+
+    user = await register_user(db, "mcphttp@example.com", "password123")
+    pat = await create_pat(db, user["id"], "Test MCP PAT")
+    return {"Authorization": f"Bearer {pat['token']}"}
+
+
+async def test_mcp_initialize_negotiates_version(mcp_client, pat_headers):
+    """Server echoes a supported client protocol version + header."""
+    res = mcp_client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18"},
+        },
+        headers=pat_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["result"]["protocolVersion"] == "2025-06-18"
+    assert res.headers["mcp-protocol-version"] == "2025-06-18"
+
+
+async def test_mcp_initialize_defaults_to_latest(mcp_client, pat_headers):
+    """Missing version is answered with the latest, not rejected."""
+    res = mcp_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        headers=pat_headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["result"]["protocolVersion"] == "2025-11-25"
+
+
+async def test_mcp_initialize_rejects_unknown_version(mcp_client, pat_headers):
+    """Explicitly unknown versions fail with 400, not a 200 error payload."""
+    res = mcp_client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "1999-01-01"},
+        },
+        headers=pat_headers,
+    )
+    assert res.status_code == 400
+
+
+async def test_mcp_notification_returns_202_empty(mcp_client, pat_headers):
+    """notifications/initialized (no id) is accepted with 202 + empty body."""
+    res = mcp_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+        headers=pat_headers,
+    )
+    assert res.status_code == 202
+    assert res.content == b""
+
+
+async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
+    """tools/list works over plain-JSON POST (what the old proxy sent)."""
+    res = mcp_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        headers=pat_headers,
+    )
+    assert res.status_code == 200
+    names = [t["name"] for t in res.json()["result"]["tools"]]
+    assert len(names) == 6
+    assert "save_url" in names
+
+
+async def test_mcp_tools_call_save_url_over_http(mcp_client, pat_headers):
+    """Full save_url roundtrip over HTTP with a PAT."""
+    res = mcp_client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "save_url",
+                "arguments": {"url": "https://example.com/mcp-http"},
+            },
+        },
+        headers=pat_headers,
+    )
+    assert res.status_code == 200
+    data = json.loads(res.json()["result"]["content"][0]["text"])
+    assert data["url"] == "https://example.com/mcp-http"
+
+
+async def test_mcp_get_returns_405(mcp_client, pat_headers):
+    """Stateless server: no SSE stream, GET is 405."""
+    res = mcp_client.get("/api/mcp", headers=pat_headers)
+    assert res.status_code == 405
+    assert "POST" in res.headers["allow"]
+
+
+async def test_mcp_delete_returns_405(mcp_client, pat_headers):
+    """Stateless server: no sessions, DELETE is 405."""
+    res = mcp_client.delete("/api/mcp", headers=pat_headers)
+    assert res.status_code == 405
+
+
+async def test_mcp_requires_auth(mcp_client):
+    """No PAT and no session cookie: 401 on POST, GET, and DELETE."""
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    assert mcp_client.post("/api/mcp", json=body).status_code == 401
+    assert mcp_client.get("/api/mcp").status_code == 401
+    assert mcp_client.delete("/api/mcp").status_code == 401
+
+
+async def test_mcp_rejects_foreign_origin(mcp_client, pat_headers):
+    """DNS-rebinding guard: forged Origin is 403 even with a valid PAT."""
+    res = mcp_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={**pat_headers, "Origin": "https://evil.test"},
+    )
+    assert res.status_code == 403
+
+
 def test_heavy_extraction_libs_are_not_imported_at_module_load():
     """bs4/lxml/trafilatura must stay out of the request import path.
 

@@ -1200,8 +1200,25 @@ async def api_search(request: Request, body: SearchRequest):
     return JSONResponse(content=results)
 
 
+def _is_mcp_origin_allowed(request: Request) -> bool:
+    """DNS-rebinding guard for the MCP endpoint.
+
+    Server-to-server MCP clients send no Origin header and always pass.
+    Requests carrying one must be same-origin (Origin host == Host header).
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+    host = request.headers.get("host", "")
+    return urlparse(origin).netloc.lower() == host.lower()
+
+
 @app.post("/api/mcp")
 async def mcp_endpoint(request: Request):
+    # Stateless Streamable HTTP endpoint: no sessions, no SSE. Requests get
+    # 200 + JSON, notifications/responses get 202 + empty body.
+    if not _is_mcp_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="Invalid Origin")
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
@@ -1211,7 +1228,40 @@ async def mcp_endpoint(request: Request):
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     response_payload = await process_mcp_request(body, db, env, user)
+    if response_payload is None:
+        return Response(status_code=202)
+    if body.get("method") == "initialize":
+        if "result" in response_payload:
+            return JSONResponse(
+                content=response_payload,
+                headers={
+                    "MCP-Protocol-Version": response_payload["result"][
+                        "protocolVersion"
+                    ]
+                },
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=response_payload.get("error", {}).get(
+                "message", "Unsupported protocol version"
+            ),
+        )
+
     return JSONResponse(content=response_payload)
+
+
+@app.get("/api/mcp")
+async def mcp_no_stream(request: Request):
+    """Stateless server: there is no SSE stream to resume."""
+    await require_user(request)
+    return Response(status_code=405, headers={"Allow": "GET, POST, DELETE"})
+
+
+@app.delete("/api/mcp")
+async def mcp_no_session(request: Request):
+    """Stateless server: there are no sessions to terminate."""
+    await require_user(request)
+    return Response(status_code=405, headers={"Allow": "GET, POST, DELETE"})
 
 
 @app.get("/api/export")

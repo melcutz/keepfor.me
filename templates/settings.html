@@ -92,19 +92,20 @@
       </table>
     </div>
 
-    <!-- Claude Desktop Configuration Snippet -->
+    <!-- Remote MCP Configuration Snippet -->
     <div class="mt-6 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-      <h4 class="text-xs font-bold text-slate-800 mb-1">Claude Desktop Configuration (claude_desktop_config.json)</h4>
-      <p class="text-[11px] text-slate-500 mb-2">Add this to enable Claude to search, read, and save to your Keepfor.me library:</p>
-      <pre class="bg-slate-900 text-slate-200 p-3 rounded text-[11px] font-mono overflow-x-auto"><code>{
-  "mcpServers": {
+      <h4 class="text-xs font-bold text-slate-800 mb-1">AI Agent Configuration (Remote MCP)</h4>
+      <p class="text-[11px] text-slate-500 mb-2">Point any Streamable HTTP MCP client at this endpoint with a token as the Bearer header — no local install needed:</p>
+      <pre class="bg-slate-900 text-slate-200 p-3 rounded text-[11px] font-mono overflow-x-auto"><code>URL:    {{ base_url }}/api/mcp
+Header: Authorization: Bearer YOUR_PAT_TOKEN_HERE
+
+opencode (opencode.json):
+{
+  "mcp": {
     "keepfor-me": {
-      "command": "uvx",
-      "args": [
-        "keepfor-me-mcp",
-        "--url", "{{ base_url }}",
-        "--token", "YOUR_PAT_TOKEN_HERE"
-      ]
+      "type": "remote",
+      "url": "{{ base_url }}/api/mcp",
+      "headers": { "Authorization": "Bearer {env:KEEPFOR_ME_TOKEN}" }
     }
   }
 }</code></pre>

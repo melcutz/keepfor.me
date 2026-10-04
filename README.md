@@ -15,7 +15,7 @@ A thin, fast read-it-later and personal library application running entirely on 
 - **Visible Extraction State**: Every item shows `Extracting…`, content, or a **failed reason** (e.g. `HTTP 403`) rather than silently stalling. Bulk imports fan out through the queue, never blocking the request.
 - **Dual Snapshots in R2**: Raw original HTML snapshot (`raw.html`) and sanitized reader HTML (`clean.html`).
 - **Zero-Config Single-Tenant Lock**: First registration automatically claims admin ownership and locks out external signups.
-- **Model Context Protocol (MCP)**: Native `/api/mcp` endpoint and standalone `uvx keepfor-me-mcp` CLI for Claude Desktop and Cursor.
+- **Model Context Protocol (MCP)**: Remote Streamable HTTP server at `/api/mcp` (stateless, Bearer PAT auth) for opencode, Claude Desktop, and Cursor — no local install needed.
 - **Instant Browser Capture**: Drag-and-drop JavaScript bookmarklet and unpacked Manifest V3 extension.
 - **Import & Export**: Ingest Pocket, Instapaper, Omnivore, and browser bookmark exports (Netscape HTML & CSV). Chrome folder names are preserved as tags.
 - **Mobile-First UI**: Bottom tab bar and tag chip strip on phones, ≥32px touch targets, no horizontal overflow down to 360px.
@@ -27,7 +27,7 @@ A thin, fast read-it-later and personal library application running entirely on 
 ```mermaid
 flowchart LR
     Browser["Web UI / PWA / Share Sheet"] -->|FastAPI| Worker["Cloudflare Python Worker"]
-    Claude["Claude Desktop / MCP Agents"] -->|uvx keepfor-me-mcp| Worker
+    Claude["Claude Desktop / MCP Agents"] -->|Streamable HTTP + Bearer PAT| Worker
 
     Worker -->|Queries & FTS5| D1[("D1 Database")]
     Worker -->|Enqueue job| Queue["Cloudflare Queue"]
@@ -132,9 +132,10 @@ working.
 
 ---
 
-## Connecting Claude Desktop & AI Agents (MCP)
+## Connecting AI Agents (Remote MCP)
 
-Keepfor.me provides a full Model Context Protocol server exposing 6 tools:
+Keepfor.me hosts a remote Streamable HTTP MCP server at `https://app.keepfor.me/api/mcp`,
+exposing 6 tools:
 1. `save_url`: Save any webpage to your library.
 2. `search_library`: Hybrid search across text and meaning.
 3. `get_item`: Read full clean text/markdown and metadata.
@@ -142,25 +143,44 @@ Keepfor.me provides a full Model Context Protocol server exposing 6 tools:
 5. `tag_item`: Add or remove tags.
 6. `delete_item`: Remove items and clean up vectors.
 
-### Setup Claude Desktop
+The server is stateless (no sessions, plain JSON responses, no SSE stream) and
+authenticates with the same Personal Access Tokens as the REST API.
+
+### Setup
 
 1. Go to **Settings & API** in your Keepfor.me UI.
 2. Click **Generate Token** to create a Personal Access Token (`kfm_live_...`).
-3. Add the server to your `claude_desktop_config.json`:
+3. Point your client at the endpoint with the token as a Bearer header:
+
+**opencode** (`opencode.json`):
 
 ```json
 {
-  "mcpServers": {
+  "mcp": {
     "keepfor-me": {
-      "command": "uvx",
-      "args": [
-        "keepfor-me-mcp",
-        "--url", "https://app.keepfor.me",
-        "--token", "kfm_live_YOUR_TOKEN_HERE"
-      ]
+      "type": "remote",
+      "url": "https://app.keepfor.me/api/mcp",
+      "headers": { "Authorization": "Bearer {env:KEEPFOR_ME_TOKEN}" }
     }
   }
 }
+```
+
+Then `export KEEPFOR_ME_TOKEN=kfm_live_...` before launching opencode, and
+restart opencode after changing the config.
+
+**Cursor / Claude Desktop:** add a custom remote MCP server with URL
+`https://app.keepfor.me/api/mcp` and header
+`Authorization: Bearer kfm_live_YOUR_TOKEN_HERE`.
+
+Handshake check without any client:
+
+```bash
+curl https://app.keepfor.me/api/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H "Authorization: Bearer kfm_live_YOUR_TOKEN_HERE" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 ---

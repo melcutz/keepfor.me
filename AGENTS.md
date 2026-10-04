@@ -128,12 +128,12 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 
 - 16 `*.pyc` files and `.DS_Store` are still **tracked** despite `.gitignore` listing them. `.gitignore` does not untrack anything — use `git rm --cached`.- `pylock.toml`, `python_modules/`, and `.venv-workers/` are gitignored Workers build artifacts (~200 MB on disk). The deployed dependency set is therefore **not locked in git**; `pyproject.toml` ranges are the only constraint.
 - `.wrangler/` (local dev-server state) is **not** gitignored, so `git status` stays dirty after any `pywrangler dev`. Don't commit it.
-- `mcp-cli/keepforme_mcp.py` is a legacy 12-line shim that duplicates the `keepfor-me-mcp` / `keepforme-mcp` console scripts (`src.mcp.cli:main`). Prefer `pyproject.toml` entrypoints.
+- `/api/mcp` is a remote stateless Streamable HTTP MCP endpoint (no sessions, no SSE, Bearer PAT auth). There is deliberately no local stdio proxy/CLI anymore — `src/mcp/cli.py`, the `pyproject.toml` console scripts, and the `mcp-cli/` shim were removed.
 - CI runs Python 3.11; local venvs are 3.12/3.14. `src/utils/logging.py:39` uses `datetime.utcnow()`, deprecated on 3.12+ and noisy in test output.
 
 ## Layout
 
-`worker.py` (root, the deploy entrypoint) → `src/worker.py` → `src/app.py` (FastAPI, 30 routes, owns HTML + JSON endpoints). Supporting packages: `src/auth`, `src/consumer` (extraction + queue processing), `src/models` (data access), `src/search` (RRF hybrid search), `src/utils`, `src/mcp` (JSON-RPC server + CLI). Jinja templates in `templates/`, static assets in `static/`, Manifest V3 extension in `browser-extension/`.
+`worker.py` (root, the deploy entrypoint) → `src/worker.py` → `src/app.py` (FastAPI, 32 routes, owns HTML + JSON endpoints). Supporting packages: `src/auth`, `src/consumer` (extraction + queue processing), `src/models` (data access), `src/search` (RRF hybrid search), `src/utils`, `src/mcp` (stateless Streamable HTTP JSON-RPC server: `process_mcp_request` returns a payload for requests, `None` for notifications → 202). Jinja templates in `templates/`, static assets in `static/`, Manifest V3 extension in `browser-extension/`.
 
 Icons, PWA icons, and the web manifest are served by **dynamic Python routes** (`/favicon.ico`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable.png`, `/manifest.webmanifest`) with bytes embedded in `src/pwa_icons.py` / `src/app.py` — deliberately no static files, so there is zero bundle impact and it works identically in the Worker, local dev, and TestClient.
 
