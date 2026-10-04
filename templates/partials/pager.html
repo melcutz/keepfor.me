@@ -1,0 +1,36 @@
+<div id="pager" hx-swap-oob="true" class="flex flex-wrap items-center gap-x-3 gap-y-2 py-2">
+  <p class="text-xs text-slate-500">Showing {{ shown_from }}–{{ shown_to }} of {{ total }} saves</p>
+  <label class="inline-flex items-center gap-1.5 text-xs text-slate-500">Per page
+    <select id="pager-perpage" name="per_page"
+            hx-post="/search" hx-target="#items-list"
+            hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #pager-perpage"
+            hx-on:change="document.getElementById('active-page-input').value='1'"
+            class="text-base md:text-xs border border-slate-200 rounded-lg px-2 py-2 md:py-1 bg-white">
+      {% for n in per_page_options %}
+      <option value="{{ n }}" {% if n == per_page %}selected{% endif %}>{{ n }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <nav class="inline-flex items-center gap-1" aria-label="Pages">
+    <button {% if page <= 1 %}disabled{% endif %}
+            hx-post="/search" hx-target="#items-list"
+            hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input"
+            hx-push-url="{{ push_base }}page={{ page - 1 }}&per_page={{ per_page }}"
+            onclick="document.getElementById('active-page-input').value='{{ page - 1 }}'"
+            class="min-w-11 min-h-11 md:min-w-0 md:min-h-0 px-3 py-2 md:py-1 rounded-lg text-xs font-medium border border-slate-200 bg-white text-slate-600 disabled:opacity-40" aria-label="Previous page">‹ Prev</button>
+    {% for p in pages %}
+    <button hx-post="/search" hx-target="#items-list"
+            hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input"
+            hx-push-url="{{ push_base }}page={{ p }}&per_page={{ per_page }}"
+            onclick="document.getElementById('active-page-input').value='{{ p }}'"
+            aria-current="{% if p == page %}page{% else %}false{% endif %}"
+            class="min-w-11 min-h-11 md:min-w-0 md:min-h-0 px-3 py-2 md:py-1 rounded-lg text-xs font-medium {% if p == page %}bg-slate-900 text-white{% else %}border border-slate-200 bg-white text-slate-600{% endif %}">{{ p }}</button>
+    {% endfor %}
+    <button {% if page >= total_pages %}disabled{% endif %}
+            hx-post="/search" hx-target="#items-list"
+            hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input"
+            hx-push-url="{{ push_base }}page={{ page + 1 }}&per_page={{ per_page }}"
+            onclick="document.getElementById('active-page-input').value='{{ page + 1 }}'"
+            class="min-w-11 min-h-11 md:min-w-0 md:min-h-0 px-3 py-2 md:py-1 rounded-lg text-xs font-medium border border-slate-200 bg-white text-slate-600 disabled:opacity-40" aria-label="Next page">Next ›</button>
+  </nav>
+</div>
