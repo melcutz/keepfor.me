@@ -4,7 +4,7 @@
     <select id="pager-perpage" name="per_page"
             hx-post="/search" hx-target="#items-list"
             hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #pager-perpage"
-            hx-on:change="document.getElementById('active-page-input').value='1'"
+            onchange="document.getElementById('active-page-input').value='1';document.getElementById('active-perpage-input').value=this.value"
             class="text-base md:text-xs border border-slate-200 rounded-lg px-2 py-2 md:py-1 bg-white">
       {% for n in per_page_options %}
       <option value="{{ n }}" {% if n == per_page %}selected{% endif %}>{{ n }}</option>
