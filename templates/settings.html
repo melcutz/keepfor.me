@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/icons.html" import icon %}
 
 {% block title %}Settings & API — Keepfor.me{% endblock %}
 
@@ -69,7 +70,7 @@
             </div>
           </div>
           <div class="mt-3 pt-2 flex items-center justify-between border-t border-slate-200/60">
-            <span class="text-[11px] font-medium text-emerald-700">✓ No setup needed</span>
+            <span class="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">{{ icon("check", class="w-3.5 h-3.5") }}<span>No setup needed</span></span>
             <span class="text-[10px] text-slate-400">Uses device clipboard</span>
           </div>
         </div>
@@ -94,7 +95,7 @@
       <div class="mt-3 text-[11px] text-slate-500 leading-relaxed">
         <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('bookmarklet').href); alert('Bookmarklet code copied!');"
                 class="font-medium text-blue-600 hover:underline">Copy code</button>
-        <span> — bookmarklets always show a generic icon: browsers never fetch a site icon for <code>javascript:</code> URLs, so our logo can't attach (editing a normal bookmark's URL to the code below resets its icon too). Tip: name it "📘 Keepfor.me" to spot it fast, or use the browser extension for a real toolbar icon.</span>
+        <span> — bookmarklets always show a generic icon: browsers never fetch a site icon for <code>javascript:</code> URLs, so our logo can't attach (editing a normal bookmark's URL to the code below resets its icon too). Tip: name it "Keepfor.me" to spot it fast, or use the browser extension for a real toolbar icon.</span>
       </div>
     </section>
   </div>

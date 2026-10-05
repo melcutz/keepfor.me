@@ -1,31 +1,285 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>Keepfor.me</title>
-<style>
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:12px;color:#1f2937;min-width:280px}
-nav{display:flex;gap:4px;margin-bottom:10px}nav button{flex:1;padding:7px;border:1px solid #d1d5db;background:#f9fafb;border-radius:6px;cursor:pointer;font-size:12px}nav button.active{background:#0f172a;color:#fff;border-color:#0f172a}
-.row{display:flex;gap:6px;align-items:center;margin:6px 0}.row input[type=text]{flex:1;padding:6px 8px;font-size:12px;border:1px solid #d1d5db;border-radius:6px}
-.list{max-height:55vh;overflow:auto;border:1px solid #e5e7eb;border-radius:6px}.item{display:flex;gap:8px;padding:6px 8px;border-bottom:1px solid #f3f4f6;font-size:12px;align-items:flex-start}.item img{width:14px;height:14px;margin-top:2px}.item .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.item .u{color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.btn{width:100%;margin-top:8px;padding:8px;background:#0f172a;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer}.btn:disabled{opacity:.5}
-.prog{font-size:12px;margin-top:6px}.err{color:#dc2626;font-size:12px;white-space:pre-wrap}
-section{display:none}section.active{display:block}
-</style></head><body>
-<nav><button data-tab="tabs" class="active">Tabs</button><button data-tab="history">History</button><button data-tab="search">Search</button><button data-tab="chat">Ask</button></nav>
-<section id="tab-tabs" class="active">
-  <div class="row"><button id="scope-win">This window</button><button id="scope-all">All windows</button><span id="tabs-count"></span></div>
-  <div class="row"><input type="text" id="tabs-filter" placeholder="Filter title or URL…"><button id="tabs-all">All</button><button id="tabs-none">None</button></div>
-  <div class="row"><input type="text" id="tabs-tags" placeholder="Tags for batch (comma separated)"></div>
-  <div id="tabs-list" class="list"></div>
-  <button id="tabs-save" class="btn">Save selected</button><div id="tabs-prog" class="prog"></div><div id="tabs-err" class="err"></div>
-</section>
-<section id="tab-history">
-  <div class="row"><select id="hist-range"><option value="86400000">Last 24h</option><option value="604800000" selected>Last 7 days</option><option value="2592000000">Last 30 days</option><option value="0">All time</option></select>
-  <select id="hist-max"><option value="100">100</option><option value="500" selected>500</option></select></div>
-  <div class="row"><input type="text" id="hist-q" placeholder="Search history…"><button id="hist-go">Search</button></div>
-  <div class="row"><input type="text" id="hist-tags" placeholder="Tags for batch (comma separated)"></div>
-  <div id="hist-list" class="list"></div>
-  <button id="hist-save" class="btn">Save selected</button><div id="hist-prog" class="prog"></div><div id="hist-err" class="err"></div>
-</section>
-<section id="tab-search"><div class="row"><input type="text" id="s-q" placeholder="Search your library…"><button id="s-go">Go</button></div><div id="s-list" class="list"></div></section>
-<section id="tab-chat"><div class="row"><input type="text" id="c-q" placeholder="Ask your library…"><button id="c-go">Ask</button></div><div id="c-list" class="list"></div><div style="font-size:11px;color:#6b7280">Grounded search over your saves (no generative answer in V1).</div></section>
-<script type="module" src="sidepanel.js"></script>
-</body></html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Keepfor.me</title>
+  <style>
+    :root {
+      --bg: #fcfbf8;
+      --card-bg: #ffffff;
+      --border: #e7e3da;
+      --border-subtle: #f0eee6;
+      --text: #1c1917;
+      --muted: #78716c;
+      --accent: #1e3a2f;
+      --accent-hover: #152921;
+      --btn-text: #ffffff;
+      --focus-ring: rgba(30, 58, 47, 0.2);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #141413;
+        --card-bg: #1c1b1a;
+        --border: #2d2b29;
+        --border-subtle: #242220;
+        --text: #f5f5f4;
+        --muted: #a8a29e;
+        --accent: #10b981;
+        --accent-hover: #059669;
+        --btn-text: #09090b;
+        --focus-ring: rgba(16, 185, 129, 0.25);
+      }
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      margin: 0;
+      padding: 12px;
+      color: var(--text);
+      background: var(--bg);
+      min-width: 280px;
+      -webkit-font-smoothing: antialiased;
+    }
+    nav {
+      display: flex;
+      gap: 3px;
+      margin-bottom: 12px;
+      background: var(--card-bg);
+      padding: 3px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    nav button {
+      flex: 1;
+      padding: 6px 4px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 11px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: background 0.15s, color 0.15s;
+    }
+    nav button:hover {
+      color: var(--text);
+    }
+    nav button.active {
+      background: var(--accent);
+      color: var(--btn-text);
+    }
+    .row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin: 6px 0;
+    }
+    .row button {
+      padding: 5px 9px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.1s;
+    }
+    .row button:hover {
+      background: var(--border-subtle);
+    }
+    .row select, .row input[type=text] {
+      flex: 1;
+      padding: 6px 9px;
+      font-size: 12px;
+      color: var(--text);
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      outline: none;
+    }
+    .row select:focus, .row input[type=text]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--focus-ring);
+    }
+    .list {
+      max-height: 52vh;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card-bg);
+      margin-top: 8px;
+    }
+    .item {
+      display: flex;
+      gap: 8px;
+      padding: 7px 9px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 12px;
+      align-items: flex-start;
+      cursor: pointer;
+    }
+    .item:last-child {
+      border-bottom: none;
+    }
+    .item input[type=checkbox] {
+      margin-top: 2px;
+      accent-color: var(--accent);
+    }
+    .item img {
+      width: 14px;
+      height: 14px;
+      margin-top: 2px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .item .t {
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+    }
+    .item .u {
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+    }
+    .btn {
+      width: 100%;
+      margin-top: 10px;
+      padding: 8px;
+      background: var(--accent);
+      color: var(--btn-text);
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.15s;
+    }
+    .btn:hover {
+      background: var(--accent-hover);
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .prog {
+      font-size: 11px;
+      margin-top: 6px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .err {
+      color: #dc2626;
+      font-size: 11px;
+      white-space: pre-wrap;
+      margin-top: 4px;
+    }
+    section {
+      display: none;
+    }
+    section.active {
+      display: block;
+    }
+    #tabs-count {
+      font-size: 11px;
+      color: var(--muted);
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <button data-tab="tabs" class="active">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+      <span>Tabs</span>
+    </button>
+    <button data-tab="history">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      <span>History</span>
+    </button>
+    <button data-tab="search">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <span>Search</span>
+    </button>
+    <button data-tab="chat">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"/></svg>
+      <span>Ask</span>
+    </button>
+  </nav>
+
+  <section id="tab-tabs" class="active">
+    <div class="row">
+      <button id="scope-win">This window</button>
+      <button id="scope-all">All windows</button>
+      <span id="tabs-count"></span>
+    </div>
+    <div class="row">
+      <input type="text" id="tabs-filter" placeholder="Filter title or URL…">
+      <button id="tabs-all">All</button>
+      <button id="tabs-none">None</button>
+    </div>
+    <div class="row">
+      <input type="text" id="tabs-tags" placeholder="Tags for batch (comma separated)">
+    </div>
+    <div id="tabs-list" class="list"></div>
+    <button id="tabs-save" class="btn">Save selected</button>
+    <div id="tabs-prog" class="prog"></div>
+    <div id="tabs-err" class="err"></div>
+  </section>
+
+  <section id="tab-history">
+    <div class="row">
+      <select id="hist-range">
+        <option value="86400000">Last 24h</option>
+        <option value="604800000" selected>Last 7 days</option>
+        <option value="2592000000">Last 30 days</option>
+        <option value="0">All time</option>
+      </select>
+      <select id="hist-max">
+        <option value="100">100</option>
+        <option value="500" selected>500</option>
+      </select>
+    </div>
+    <div class="row">
+      <input type="text" id="hist-q" placeholder="Search history…">
+      <button id="hist-go">Search</button>
+    </div>
+    <div class="row">
+      <input type="text" id="hist-tags" placeholder="Tags for batch (comma separated)">
+    </div>
+    <div id="hist-list" class="list"></div>
+    <button id="hist-save" class="btn">Save selected</button>
+    <div id="hist-prog" class="prog"></div>
+    <div id="hist-err" class="err"></div>
+  </section>
+
+  <section id="tab-search">
+    <div class="row">
+      <input type="text" id="s-q" placeholder="Search your library…">
+      <button id="s-go">Go</button>
+    </div>
+    <div id="s-list" class="list"></div>
+  </section>
+
+  <section id="tab-chat">
+    <div class="row">
+      <input type="text" id="c-q" placeholder="Ask your library…">
+      <button id="c-go">Ask</button>
+    </div>
+    <div id="c-list" class="list"></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:8px;">Grounded search over your saves (no generative answer in V1).</div>
+  </section>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
