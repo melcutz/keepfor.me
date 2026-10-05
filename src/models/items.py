@@ -295,6 +295,277 @@ async def delete_tag(db: Database, user_id: str, raw_name: str) -> bool:
     return True
 
 
+async def merge_tags(
+    db: Database, user_id: str, old_names: list[str], new_name: str
+) -> str:
+    """Merges several tags into one via rename-onto-existing.
+
+    Returns 'merged', 'unchanged', 'not_found' or 'invalid'.
+    """
+    from src.utils.tagger import validate_tag_name
+
+    if not validate_tag_name(new_name or ""):
+        return "invalid"
+    seen = "not_found"
+    for raw in old_names or []:
+        res = await rename_tag(db, user_id, raw, new_name)
+        if res in ("merged", "unchanged"):
+            seen = "merged"
+    return seen
+
+
+async def prune_unused_tags(db: Database, user_id: str) -> int:
+    """Deletes zero-item tags for the user; returns the deleted count."""
+    rows = await db.query_all(
+        """
+        SELECT t.id
+        FROM tags t
+        LEFT JOIN item_tags it ON t.id = it.tag_id
+        WHERE t.user_id = ? AND it.item_id IS NULL;
+        """,
+        (user_id,),
+    )
+    for row in rows:
+        await db.execute("DELETE FROM tags WHERE id = ?;", (row["id"],))
+    return len(rows)
+
+
+async def suggest_tags(
+    db: Database,
+    user_id: str,
+    q: str = "",
+    exclude: list[str] | None = None,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Tags ranked most-used then most-recently-used, prefix-filtered.
+
+    Empty `q` returns the recents list. `exclude` skips attached tags.
+    """
+    prefix = (
+        (q or "")
+        .strip()
+        .lower()
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    excluded = {e.strip().lower() for e in (exclude or []) if e.strip()}
+    fetch_limit = limit + min(len(excluded), limit)
+    rows = await db.query_all(
+        """
+        SELECT t.name, COUNT(it.item_id) AS count, MAX(i.created_at) AS recent
+        FROM tags t
+        LEFT JOIN item_tags it ON t.id = it.tag_id
+        LEFT JOIN items i ON i.id = it.item_id
+        WHERE t.user_id = ? AND LOWER(t.name) LIKE ? ESCAPE '\\'
+        GROUP BY t.id, t.name
+        ORDER BY count DESC, recent DESC
+        LIMIT ?;
+        """,
+        (user_id, prefix + "%", fetch_limit),
+    )
+    out = [
+        {"name": r["name"], "count": r["count"]}
+        for r in rows
+        if r["name"].lower() not in excluded
+    ]
+    return out[:limit]
+
+
+BULK_TAG_LIMIT = 100
+
+
+async def bulk_update_tags(
+    db: Database,
+    user_id: str,
+    item_ids: list[str],
+    add: list[str] | None = None,
+    remove: list[str] | None = None,
+) -> int:
+    """Adds/removes tags across owned items; skips foreign and missing ids."""
+    add = [t for t in (add or []) if t.strip()]
+    remove = [t for t in (remove or []) if t.strip()]
+    done = 0
+    for item_id in (item_ids or [])[:BULK_TAG_LIMIT]:
+        row = await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (item_id, user_id),
+        )
+        if not row:
+            continue
+        if add:
+            await add_tags_to_item(db, user_id, item_id, add)
+        if remove:
+            await remove_tags_from_item(db, user_id, item_id, remove)
+        done += 1
+    return done
+
+
+RULE_FIELDS = ("domain", "title", "url")
+RULES_PER_USER_MAX = 50
+
+
+async def create_rule(
+    db: Database, user_id: str, field: str, substr: str, tag: str
+) -> str | None:
+    """Creates a tagging rule; returns id or None when invalid/capped."""
+    from src.utils.tagger import validate_tag_name
+
+    field = (field or "").strip().lower()
+    clean_sub = (substr or "").strip().lower()
+    clean_tag = validate_tag_name(tag or "")
+    if field not in RULE_FIELDS or not (2 <= len(clean_sub) <= 64):
+        return None
+    if not clean_tag or clean_tag == "__untagged__":
+        return None
+    existing = await db.query_all(
+        "SELECT id FROM tag_rules WHERE user_id = ?;", (user_id,)
+    )
+    if len(existing) >= RULES_PER_USER_MAX:
+        return None
+    dup = await db.query_first(
+        "SELECT id FROM tag_rules"
+        " WHERE user_id = ? AND field = ? AND substr = ? AND tag = ?;",
+        (user_id, field, clean_sub, clean_tag),
+    )
+    if dup:
+        return dup["id"]
+    rule_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT OR IGNORE INTO tag_rules (id, user_id, field, substr, tag)"
+        " VALUES (?, ?, ?, ?, ?);",
+        (rule_id, user_id, field, clean_sub, clean_tag),
+    )
+    return rule_id
+
+
+async def list_rules(db: Database, user_id: str) -> list[dict[str, Any]]:
+    return await db.query_all(
+        "SELECT id, field, substr, tag FROM tag_rules"
+        " WHERE user_id = ? ORDER BY created_at ASC;",
+        (user_id,),
+    )
+
+
+async def delete_rule(db: Database, user_id: str, rule_id: str) -> bool:
+    row = await db.query_first(
+        "SELECT id FROM tag_rules WHERE id = ? AND user_id = ?;",
+        (rule_id, user_id),
+    )
+    if not row:
+        return False
+    await db.execute("DELETE FROM tag_rules WHERE id = ?;", (rule_id,))
+    return True
+
+
+def match_rules(rules: list[dict], url: str, title: str) -> list[str]:
+    """Pure matcher: domain/title/url substring rules. No I/O, no raises."""
+    from urllib.parse import urlparse
+
+    try:
+        host = urlparse(url or "").netloc.lower()
+    except Exception:
+        host = ""
+    lowered_title = (title or "").lower()
+    lowered_url = (url or "").lower()
+    out: list[str] = []
+    for rule in rules:
+        field, sub = rule.get("field"), rule.get("substr") or ""
+        hit = (
+            (field == "domain" and sub in host)
+            or (field == "title" and sub in lowered_title)
+            or (field == "url" and sub in lowered_url)
+        )
+        if hit and rule.get("tag") not in out:
+            out.append(rule["tag"])
+    return out
+
+
+async def suggest_rules(
+    db: Database,
+    user_id: str,
+    min_precision: float = 0.8,
+    min_support: int = 5,
+) -> list[dict[str, Any]]:
+    """Mine domain->tag pairs worth turning into rules.
+
+    Precision denominator counts ALL of the user's items per host (tagged
+    and untagged); support counts only tagged items. No input LIMIT is
+    applied so support counts stay exact (correctness over scan cost at
+    current scale). Output is bounded to the top 20, ordered by (host, tag).
+
+    Skips existing rules and dismissed keys (`domain:<d>:<t>`).
+    """
+    rows = await db.query_all(
+        "SELECT i.canonical_url, t.name FROM item_tags it"
+        " JOIN items i ON i.id = it.item_id"
+        " JOIN tags t ON t.id = it.tag_id"
+        " WHERE i.user_id = ?;",
+        (user_id,),
+    )
+    url_rows = await db.query_all(
+        "SELECT canonical_url FROM items WHERE user_id = ?;", (user_id,)
+    )
+    from collections import Counter
+    from urllib.parse import urlparse
+
+    pair: Counter[tuple[str, str]] = Counter()
+    pair_urls: dict[tuple[str, str], set[str]] = {}
+    per_host_urls: dict[str, set[str]] = {}
+    for url_row in url_rows:
+        try:
+            host = urlparse(url_row["canonical_url"] or "").netloc.lower()
+        except Exception:
+            continue
+        if not host or not url_row["canonical_url"]:
+            continue
+        per_host_urls.setdefault(host, set()).add(url_row["canonical_url"])
+    for row in rows:
+        try:
+            host = urlparse(row["canonical_url"] or "").netloc.lower()
+        except Exception:
+            continue
+        if not host or not row["canonical_url"]:
+            continue
+        key = (host, row["name"])
+        if row["canonical_url"] not in pair_urls.setdefault(key, set()):
+            pair_urls[key].add(row["canonical_url"])
+            pair[key] += 1
+    existing = {
+        (r["field"], r["substr"], r["tag"]) for r in await list_rules(db, user_id)
+    }
+    dismissed = {
+        r["key"]
+        for r in await db.query_all(
+            "SELECT key FROM rule_suggestion_dismissals WHERE user_id = ?;",
+            (user_id,),
+        )
+    }
+    out = []
+    for (host, tag), support in sorted(pair.items()):
+        if not (2 <= len(host) <= 64):
+            continue
+        total = len(per_host_urls.get(host, set()))
+        precision = (support / total) if total else 0.0
+        key = f"domain:{host}:{tag}"
+        if (
+            support >= min_support
+            and precision >= min_precision
+            and ("domain", host, tag) not in existing
+            and key not in dismissed
+        ):
+            out.append(
+                {
+                    "domain": host,
+                    "tag": tag,
+                    "precision": round(precision, 3),
+                    "support": support,
+                    "key": key,
+                }
+            )
+    return out[:20]
+
+
 async def add_suggestions(
     db: Database,
     user_id: str,

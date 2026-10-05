@@ -11,19 +11,40 @@
       <div>
         <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Filter by Tag</h4>
         <div class="space-y-1">
-          <a href="/" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium {% if not active_tag %}bg-slate-200 text-slate-900{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
+          <a href="/" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium {% if not active_tags and not active_untagged %}bg-slate-200 text-slate-900{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
             <span class="w-2 h-2 rounded-full bg-blue-600 shrink-0"></span>
             <span>All Items</span>
             <span class="ml-auto text-slate-400 bg-slate-100 rounded-md px-1.5">{{ total_count or items|length }}</span>
           </a>
           {% for t in tags %}
           {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-          <a href="/?tag={{ t.name }}" draggable="true" data-tag-source="{{ t.name }}" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium {% if active_tag == t.name %}bg-slate-200 text-slate-900{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
+          {% if t.name in active_tags %}
+          {% set rest = active_tags|reject('equalto', t.name)|list %}
+          <a href="{% if rest %}/?tag={{ rest|join(',') }}{% else %}/{% endif %}" draggable="true" data-tag-source="{{ t.name }}" aria-label="Remove #{{ t.name }} filter" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 text-slate-900">
+            <span class="w-2 h-2 rounded-full {{ ts[1] }} shrink-0"></span>
+            <span>#{{ t.name }} <span aria-hidden="true">&times;</span></span>
+            <span class="ml-auto text-slate-400 bg-slate-100 rounded-md px-1.5">{{ t.count }}</span>
+          </a>
+          {% else %}
+          {% set added = (active_tags + [t.name])|reject('equalto', '__untagged__')|list %}
+          <a href="/?tag={{ added|join(',') }}" draggable="true" data-tag-source="{{ t.name }}" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">
             <span class="w-2 h-2 rounded-full {{ ts[1] }} shrink-0"></span>
             <span>#{{ t.name }}</span>
             <span class="ml-auto text-slate-400 bg-slate-100 rounded-md px-1.5">{{ t.count }}</span>
           </a>
+          {% endif %}
           {% endfor %}
+          {% if active_untagged %}
+          <a href="/" aria-label="Remove untagged filter" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 text-slate-900">
+            <span class="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
+            <span>Untagged <span aria-hidden="true">&times;</span></span>
+          </a>
+          {% else %}
+          <a href="/?tag=__untagged__" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">
+            <span class="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
+            <span>Untagged</span>
+          </a>
+          {% endif %}
           <a href="/tags" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:bg-slate-100">
             <span class="text-sm leading-none">＋</span>
             <span>Manage tags</span>
@@ -47,13 +68,26 @@
       <!-- Mobile tag strip: horizontal chips instead of the sidebar -->
       <div id="mobile-tags" class="md:hidden -mx-4 px-4 overflow-x-auto">
         <div class="flex gap-1.5 w-max py-1">
-          <a href="/" class="shrink-0 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if not active_tag %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · {{ total_count or items|length }}</a>
+          <a href="/" class="shrink-0 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if not active_tags and not active_untagged %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · {{ total_count or items|length }}</a>
           {% for t in tags %}
           {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-          <a href="/?tag={{ t.name }}" data-tag-source="{{ t.name }}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if active_tag == t.name %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">
+          {% if t.name in active_tags %}
+          {% set rest = active_tags|reject('equalto', t.name)|list %}
+          <a href="{% if rest %}/?tag={{ rest|join(',') }}{% else %}/{% endif %}" data-tag-source="{{ t.name }}" aria-label="Remove #{{ t.name }} filter" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium bg-slate-900 text-white">
+            <span class="w-1.5 h-1.5 rounded-full {{ ts[1] }} shrink-0"></span>#{{ t.name }} <span aria-hidden="true">&times;</span>
+          </a>
+          {% else %}
+          {% set added = (active_tags + [t.name])|reject('equalto', '__untagged__')|list %}
+          <a href="/?tag={{ added|join(',') }}" data-tag-source="{{ t.name }}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">
             <span class="w-1.5 h-1.5 rounded-full {{ ts[1] }} shrink-0"></span>#{{ t.name }} · {{ t.count }}
           </a>
+          {% endif %}
           {% endfor %}
+          {% if active_untagged %}
+          <a href="/" aria-label="Remove untagged filter" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium bg-slate-900 text-white">Untagged <span aria-hidden="true">&times;</span></a>
+          {% else %}
+          <a href="/?tag=__untagged__" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">Untagged</a>
+          {% endif %}
         </div>
       </div>
 
@@ -73,7 +107,10 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>
           </span>
         </div>
-        <input type="hidden" id="active-tag-input" name="tag" value="{{ active_tag or '' }}">
+        <input type="hidden" id="active-tag-input" name="tag" value="{{ active_tags|join(',') if active_tags else (active_tag or '') }}">
+        <datalist id="tag-suggest-all">
+          {% for t in tags %}<option value="{{ t.name }}"></option>{% endfor %}
+        </datalist>
         <input type="hidden" id="active-status-input" name="status" value="{{ active_status or '' }}">
         <input type="hidden" id="active-page-input" name="page" value="{{ page }}">
         <input type="hidden" id="active-perpage-input" name="per_page" value="{{ per_page }}">
@@ -83,6 +120,55 @@
           class="shrink-0 px-3 py-2 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">🏷 Tag</button>
   <p id="tag-mode-hint" class="hidden text-xs text-slate-500">Tap a tag, then tap articles to add it. Tap again to stop.</p>
 </div>
+<div class="flex items-center gap-2">
+  <button id="bulk-toggle" aria-pressed="false" type="button"
+          class="shrink-0 px-3 py-2 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">☑ Select</button>
+</div>
+<form id="bulk-bar" action="/items/bulk-tags" method="POST" class="hidden sticky bottom-4 z-40 items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-lg">
+  <input type="hidden" name="next" value="/">
+  <span id="bulk-count" class="text-xs text-slate-600 whitespace-nowrap"></span>
+  <input type="text" name="add" placeholder="Add tags…" autocomplete="off" list="tag-suggest-all"
+         class="flex-1 min-w-24 px-2 py-1.5 border border-slate-200 rounded-lg text-xs">
+  <input type="text" name="remove" placeholder="Remove tags…" autocomplete="off" list="tag-suggest-all"
+         class="flex-1 min-w-24 px-2 py-1.5 border border-slate-200 rounded-lg text-xs">
+  <button type="submit" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-medium shrink-0">Apply</button>
+  <div id="bulk-items"></div>
+</form>
+<script>
+(function () {
+  var toggle = document.getElementById('bulk-toggle');
+  var bar = document.getElementById('bulk-bar');
+  var holder = document.getElementById('bulk-items');
+  var count = document.getElementById('bulk-count');
+  if (!toggle || !bar) return;
+  var on = false;
+  function refresh() {
+    var boxes = document.querySelectorAll('#items-list .bulk-select');
+    var checked = Array.from(boxes).filter(function (b) { return b.checked; });
+    holder.innerHTML = '';
+    checked.forEach(function (b) {
+      var h = document.createElement('input');
+      h.type = 'hidden'; h.name = 'item_ids'; h.value = b.value;
+      holder.appendChild(h);
+    });
+    count.textContent = checked.length + ' selected';
+  }
+  toggle.addEventListener('click', function () {
+    on = !on;
+    toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    document.querySelectorAll('#items-list .bulk-select').forEach(function (b) {
+      b.classList.toggle('hidden', !on);
+      if (!on) b.checked = false;
+    });
+    bar.classList.toggle('hidden', !on);
+    bar.classList.toggle('flex', on);
+    refresh();
+  });
+  document.getElementById('items-list').addEventListener('change', function (e) {
+    if (e.target.classList && e.target.classList.contains('bulk-select')) refresh();
+  });
+})();
+</script>
 
       <!-- Status Filter Pills -->
       <div id="status-filters" class="flex flex-wrap gap-1.5">
@@ -113,12 +199,40 @@
                 class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if active_status == 'failed' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">⚠️ Failed · {{ sc.failed }}</button>
       </div>
 
+      {% if active_tags or active_untagged %}
+      <div id="active-filters-bar" class="flex flex-wrap items-center gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3">
+        <span class="text-slate-500 font-medium mr-1">Filtered by:</span>
+        {% for at in active_tags %}
+        {% set rest = active_tags|reject('equalto', at)|list %}
+        <a href="{% if rest %}/?tag={{ rest|join(',') }}{% else %}/{% endif %}"
+           class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-900 text-white rounded-full font-medium hover:bg-slate-800">
+          #{{ at }} <span aria-hidden="true">&times;</span>
+        </a>
+        {% endfor %}
+        {% if active_untagged %}
+        <a href="/"
+           class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-900 text-white rounded-full font-medium hover:bg-slate-800">
+          Untagged <span aria-hidden="true">&times;</span>
+        </a>
+        {% endif %}
+        <a href="/" class="ml-auto text-slate-500 hover:text-slate-800 underline text-xs">Clear all</a>
+      </div>
+      {% endif %}
+
       <!-- Items Feed -->
       <div id="items-list" class="space-y-4">
         {% if items %}
           {% for item in items %}
             {% include "partials/item_card.html" %}
           {% endfor %}
+        {% elif active_tags or active_untagged %}
+          <div class="text-center py-16 bg-white border border-slate-200 rounded-xl">
+            <span class="text-4xl">🏷️</span>
+            <h3 class="text-base font-semibold text-slate-800 mt-3">No saves match these tags</h3>
+            <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              Try removing a tag or <a href="/" class="underline font-medium text-slate-700">clear all filters</a>.
+            </p>
+          </div>
         {% else %}
           <div class="text-center py-16 bg-white border border-slate-200 rounded-xl">
             <span class="text-4xl">📖</span>

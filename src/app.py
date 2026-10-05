@@ -38,17 +38,25 @@ from src.models.db import Database
 from src.models.items import (
     accept_suggestion,
     add_tags_to_item,
+    bulk_update_tags,
+    create_rule,
     create_tag,
     delete_item,
+    delete_rule,
     delete_tag,
     dismiss_suggestion,
     get_item,
     get_item_clean_html,
     list_pending_suggestions,
+    list_rules,
     list_user_tags,
+    merge_tags,
+    prune_unused_tags,
     remove_tags_from_item,
     rename_tag,
     save_item,
+    suggest_rules,
+    suggest_tags,
 )
 from src.schemas import (
     CreatePATRequest,
@@ -57,7 +65,12 @@ from src.schemas import (
     SaveItemRequest,
     SearchRequest,
 )
-from src.search.engine import get_recent_items, get_status_counts, hybrid_search
+from src.search.engine import (
+    get_recent_items,
+    get_status_counts,
+    hybrid_search,
+    parse_tag_filter,
+)
 from src.utils.importer import (
     export_library_html,
     export_library_json,
@@ -362,12 +375,14 @@ async def library_page(
     env = get_env_from_request(request)
     clean_status = status.strip() if status and status.strip() else None
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
+    tag_list, untagged_only = parse_tag_filter(tag)
     items, total = await hybrid_search(
         db,
         env,
         user["id"],
         query=q or "",
-        tag=tag,
+        tags=tag_list,
+        untagged=untagged_only,
         limit=limit,
         offset=(max(page, 1) - 1) * limit,
         status=clean_status,
@@ -379,7 +394,8 @@ async def library_page(
             env,
             user["id"],
             query=q or "",
-            tag=tag,
+            tags=tag_list,
+            untagged=untagged_only,
             limit=pager["per_page"],
             offset=(pager["page"] - 1) * pager["per_page"],
             status=clean_status,
@@ -412,6 +428,8 @@ async def library_page(
         items=items,
         tags=tags,
         active_tag=tag,
+        active_tags=tag_list,
+        active_untagged=untagged_only,
         query=q or "",
         tag_styles=tag_styles,
         total_count=total_count,
@@ -446,13 +464,15 @@ async def search_htmx(
     clean_status = status.strip() if status.strip() else None
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
+    tag_list, untagged_only = parse_tag_filter(clean_tag)
     items, total = await hybrid_search(
         db,
         env,
         user["id"],
         query=query,
         mode="hybrid",
-        tag=clean_tag,
+        tags=tag_list,
+        untagged=untagged_only,
         limit=per_page if per_page in PER_PAGE_OPTIONS else 20,
         offset=(max(page, 1) - 1) * (per_page if per_page in PER_PAGE_OPTIONS else 20),
         status=clean_status,
@@ -465,7 +485,8 @@ async def search_htmx(
             user["id"],
             query=query,
             mode="hybrid",
-            tag=clean_tag,
+            tags=tag_list,
+            untagged=untagged_only,
             limit=pager["per_page"],
             offset=(pager["page"] - 1) * pager["per_page"],
             status=clean_status,
@@ -490,9 +511,22 @@ async def search_htmx(
     )
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
+        msg = (
+            "No saves match these tags."
+            if (tag_list or untagged_only)
+            else "No matching articles found."
+        )
+        clear = (
+            ' <a href="/" class="underline">Clear filters</a>'
+            if (tag_list or untagged_only)
+            else ""
+        )
         return HTMLResponse(
             '<div class="text-center py-12 text-slate-400 text-xs">'
-            "No matching articles found.</div>" + pager_html
+            + msg
+            + clear
+            + "</div>"
+            + pager_html
         )
 
     cards = [template.render(item=it, tag_styles=tag_styles) for it in items]
@@ -573,7 +607,11 @@ async def save_popup_get(request: Request, url: str = "", title: str = ""):
             url="/auth/login?" + urlencode({"next": dest}), status_code=303
         )
     template = jinja_env.get_template("save_popup.html")
-    html = template.render(url=url, title=title, success=False, source="")
+    db = get_db(request)
+    recent_tags = [r["name"] for r in await suggest_tags(db, user["id"], "", limit=5)]
+    html = template.render(
+        url=url, title=title, success=False, source="", recent_tags=recent_tags
+    )
     return HTMLResponse(content=html)
 
 
@@ -615,9 +653,22 @@ async def tags_page(request: Request):
         tags=tags,
         tag_styles=tag_styles,
         suggestions=suggestions,
+        rules=await list_rules(db, user["id"]),
+        suggested_rules=await suggest_rules(db, user["id"]),
         active_nav="tags",
     )
     return HTMLResponse(content=html)
+
+
+def _tags_list_html(db_tags: list[dict]) -> str:
+    tag_styles = tag_styles_for([t["name"] for t in db_tags])
+    template = jinja_env.get_template("partials/tag_list.html")
+    return template.render(tags=db_tags, tag_styles=tag_styles)
+
+
+async def _render_tags_list(db, user_id: str) -> str:
+    tags = await list_user_tags(db, user_id)
+    return _tags_list_html(tags)
 
 
 @app.post("/tags/create")
@@ -635,6 +686,8 @@ async def tags_rename(
     user = await require_user(request)
     db = get_db(request)
     await rename_tag(db, user["id"], old_name, new_name)
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content=await _render_tags_list(db, user["id"]))
     return RedirectResponse(url="/tags", status_code=303)
 
 
@@ -643,7 +696,98 @@ async def tags_delete(request: Request, name: str = Form("")):
     user = await require_user(request)
     db = get_db(request)
     await delete_tag(db, user["id"], name)
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content=await _render_tags_list(db, user["id"]))
     return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.get("/tags/suggest")
+async def tags_suggest(request: Request, q: str = "", exclude: str = ""):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    db = get_db(request)
+    return await suggest_tags(
+        db, user["id"], q, [e for e in exclude.split(",") if e.strip()]
+    )
+
+
+@app.post("/tags/merge")
+async def tags_merge(
+    request: Request, old_names: str = Form(""), new_name: str = Form("")
+):
+    user = await require_user(request)
+    db = get_db(request)
+    names = [n.strip() for n in old_names.split(",") if n.strip()]
+    await merge_tags(db, user["id"], names, new_name)
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content=await _render_tags_list(db, user["id"]))
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/prune")
+async def tags_prune(request: Request):
+    user = await require_user(request)
+    db = get_db(request)
+    await prune_unused_tags(db, user["id"])
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content=await _render_tags_list(db, user["id"]))
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/rules/create")
+async def tag_rule_create(
+    request: Request,
+    field: str = Form(""),
+    substr: str = Form(""),
+    tag: str = Form(""),
+):
+    user = await require_user(request)
+    db = get_db(request)
+    await create_rule(db, user["id"], field, substr, tag)
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/rules/delete")
+async def tag_rule_delete(request: Request, rule_id: str = Form("")):
+    user = await require_user(request)
+    db = get_db(request)
+    await delete_rule(db, user["id"], rule_id)
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/rules/suggestions/dismiss")
+async def tag_rule_suggestion_dismiss(request: Request, key: str = Form("")):
+    user = await require_user(request)
+    db = get_db(request)
+    clean = (key or "").strip()
+    if clean:
+        await db.execute(
+            "INSERT OR IGNORE INTO rule_suggestion_dismissals (user_id, key)"
+            " VALUES (?, ?);",
+            (user["id"], clean),
+        )
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/items/bulk-tags")
+async def items_bulk_tags(
+    request: Request,
+    item_ids: list[str] = Form([]),
+    add: str = Form(""),
+    remove: str = Form(""),
+    next: str = Form("/"),
+):
+    user = await require_user(request)
+    db = get_db(request)
+    await bulk_update_tags(
+        db,
+        user["id"],
+        item_ids,
+        [t for t in add.split(",") if t.strip()],
+        [t for t in remove.split(",") if t.strip()],
+    )
+    return RedirectResponse(url=_safe_next(next), status_code=303)
 
 
 @app.post("/items/{item_id}/tags", response_class=HTMLResponse)
@@ -717,7 +861,11 @@ async def share_target(
     if not target:
         return RedirectResponse(url="/", status_code=303)
     template = jinja_env.get_template("save_popup.html")
-    html = template.render(url=target, title=title, success=False, source="share")
+    db = get_db(request)
+    recent_tags = [r["name"] for r in await suggest_tags(db, user["id"], "", limit=5)]
+    html = template.render(
+        url=target, title=title, success=False, source="share", recent_tags=recent_tags
+    )
     return HTMLResponse(content=html)
 
 

@@ -205,6 +205,19 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
                     phrases.append((tag, 1.0))
             if phrases:
                 await add_suggestions(db, user_id, item_id, phrases)
+            rules_rows = await db.query_all(
+                "SELECT field, substr, tag FROM tag_rules WHERE user_id = ?;",
+                (user_id,),
+            )
+            from src.models.items import match_rules as _match_rules
+
+            rule_tags = _match_rules(
+                [dict(r) for r in rules_rows],
+                url,
+                extracted.get("title") or "",
+            )
+            if rule_tags:
+                await add_tags_to_item(db, user_id, item_id, rule_tags)
         except Exception as exc:
             logger.warning(f"Auto-tagging failed: item={item_id}: {exc}")
 

@@ -4,6 +4,8 @@
 {% else %}
 <div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative">
 {% endif %}
+  <input type="checkbox" value="{{ item.id }}" aria-label="Select item"
+         class="bulk-select hidden absolute top-3 right-3 w-4 h-4 accent-slate-900">
   <div class="flex items-start gap-3">
   {% set raw = item.canonical_url or item.url or '' %}
   {% set parts = raw.split('/') %}
@@ -66,6 +68,19 @@
                   aria-label="Remove tag {{ tag }}">×</button>
         </span>
         {% endfor %}
+        <form hx-post="/items/{{ item.id }}/tags" hx-target="#item-card-{{ item.id }}" hx-swap="outerHTML"
+              class="inline-flex items-center gap-1">
+          <input type="text" name="add" placeholder="+ add tag" list="tag-suggest-all" autocomplete="off" aria-label="Add tag"
+                 class="w-24 px-2 py-1 border border-dashed border-slate-300 rounded-full text-xs focus:outline-none focus:border-slate-500">
+        </form>
+      </div>
+      {% else %}
+      <div class="flex flex-wrap gap-1.5 mt-3">
+        <form hx-post="/items/{{ item.id }}/tags" hx-target="#item-card-{{ item.id }}" hx-swap="outerHTML"
+              class="inline-flex items-center gap-1">
+          <input type="text" name="add" placeholder="+ add tag" list="tag-suggest-all" autocomplete="off" aria-label="Add tag"
+                 class="w-24 px-2 py-1 border border-dashed border-slate-300 rounded-full text-xs focus:outline-none focus:border-slate-500">
+        </form>
       </div>
       {% endif %}
     </div>
