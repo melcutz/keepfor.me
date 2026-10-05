@@ -38,3 +38,20 @@ async def test_suggest_ranks_frequent_first_then_prefix(db):
         {"name": "cooking", "count": 1},
         {"name": "ai", "count": 1},
     ]
+
+
+@pytest.mark.asyncio
+async def test_suggest_escapes_like_wildcards(db):
+    user = await register_user(db, "sg2@keepfor.me", "password123")
+    await _seed(db, user["id"], "w1", "https://example.com/1", ["tech"])
+    assert await suggest_tags(db, user["id"], "%") == []
+    assert await suggest_tags(db, user["id"], "_") == []
+
+
+@pytest.mark.asyncio
+async def test_suggest_caps_fetch_on_huge_exclude(db):
+    user = await register_user(db, "sg3@keepfor.me", "password123")
+    await _seed(db, user["id"], "w1", "https://example.com/1", ["tech"])
+    huge = [f"nope{i}" for i in range(5000)]
+    got = await suggest_tags(db, user["id"], "", exclude=huge)
+    assert [r["name"] for r in got] == ["tech"]

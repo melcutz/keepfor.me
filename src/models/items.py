@@ -341,20 +341,28 @@ async def suggest_tags(
 
     Empty `q` returns the recents list. `exclude` skips attached tags.
     """
-    prefix = (q or "").strip().lower()
+    prefix = (
+        (q or "")
+        .strip()
+        .lower()
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
     excluded = {e.strip().lower() for e in (exclude or []) if e.strip()}
+    fetch_limit = limit + min(len(excluded), limit)
     rows = await db.query_all(
         """
         SELECT t.name, COUNT(it.item_id) AS count, MAX(i.created_at) AS recent
         FROM tags t
         LEFT JOIN item_tags it ON t.id = it.tag_id
         LEFT JOIN items i ON i.id = it.item_id
-        WHERE t.user_id = ? AND LOWER(t.name) LIKE ?
+        WHERE t.user_id = ? AND LOWER(t.name) LIKE ? ESCAPE '\\'
         GROUP BY t.id, t.name
         ORDER BY count DESC, recent DESC
         LIMIT ?;
         """,
-        (user_id, prefix + "%", limit + len(excluded)),
+        (user_id, prefix + "%", fetch_limit),
     )
     out = [
         {"name": r["name"], "count": r["count"]}
