@@ -8,7 +8,7 @@ A thin, fast read-it-later and personal library application running entirely on 
 
 - **Four Core Jobs**: Capture, Store, Search, and Share with AI Agents.
 - **Python Edge Runtime**: Powered by FastAPI on Cloudflare Python Workers (Pyodide).
-- **Installable PWA**: Add to Home screen on Android/iOS, with a Web Share Target so **Share → Keepfor.me** appears in the system share sheet from any app.
+- **Installable PWA & Native Sharing**: Add to Home screen on Android and iOS. On Android, native Web Share Target integrates directly into the system share sheet. On iOS, 1-tap Apple Shortcuts integrate with the system share sheet using your Safari session, paired with smart clipboard detection in the PWA.
 - **Distraction-Free Reader**: Customizable themes (Light, Sepia, Dark), fonts (Sans, Serif, Mono), and font sizes.
 - **Hybrid Search**: Reciprocal Rank Fusion (RRF) combining D1 FTS5 BM25 keyword matching and Vectorize semantic embeddings (`bge-base-en-v1.5`). FTS and embedding calls run concurrently, and the vector path is time-bounded so a slow AI binding degrades to keyword-only instead of hanging.
 - **Resilient Content Extraction**: Automated body parsing via `trafilatura` with OpenGraph metadata fallback so bookmarks are never lost. Browser-identical request headers plus a reader-proxy fallback recover many bot-walled (HTTP 403) origins.
@@ -187,12 +187,16 @@ curl https://app.keepfor.me/api/mcp \
 
 ## Browser & Mobile Capture
 
-### 1. Phone (PWA + Share Sheet) — Android/iOS
-1. Open your domain in Chrome and choose **Add to Home screen** (or **Install app**).
-2. To save from anywhere, use **Share → Keepfor.me** from any app — a prefilled save
-   sheet opens, and after saving, one system-back swipe returns you to where you were.
+### 1. Android (PWA + System Share Sheet)
+1. Open your domain in Chrome and tap **Add to Home screen** (or **Install app**).
+2. To save from anywhere, tap **Share → Keepfor.me** in any app — the native Web Share Target opens a prefilled save sheet, and swiping back returns you seamlessly to your app.
 
-### 2. Drag-and-Drop Bookmarklet (desktop)
+### 2. iPhone & iPad (Apple Shortcut & Smart Clipboard)
+iOS WebKit sandboxes PWAs from the system share sheet. Keepfor.me provides two zero-friction capture methods for iOS:
+1. **1-Tap Apple Shortcut (Share Sheet)**: Go to **Settings & API → iPhone & iPad Quick Sharing** and tap **Install Keepfor.me Shortcut**. This adds a native action to your iOS Share Sheet that sends URLs directly to Keepfor.me using your existing Safari login session (no API tokens or technical configuration required).
+2. **PWA Smart Clipboard**: Add the app to your Home Screen from Safari (**Share → Add to Home Screen**). When you copy a link in any app and switch to the Keepfor.me PWA, a floating toast detects the clipboard URL and lets you save it with a single tap.
+
+### 3. Drag-and-Drop Bookmarklet (desktop)
 Go to **Settings** and drag the **Keepfor.me** button to your browser's bookmarks
 bar. Click it on any page to open a quick-save dialog.
 
@@ -200,7 +204,7 @@ bar. Click it on any page to open a quick-save dialog.
 > page on your domain, edit that bookmark, paste the copied code (Settings →
 > **Copy code**) as its URL, and name it `Keepfor.me`.
 
-### 3. Browser Extension (Manifest V3)
+### 4. Browser Extension (Manifest V3)
 1. Open Chrome/Brave/Edge and navigate to `chrome://extensions/`.
 2. Enable **Developer mode** (top right).
 3. Click **Load unpacked** and select the `keepfor.me/browser-extension` folder.
@@ -241,11 +245,18 @@ immediately.
 ### Performance notes
 
 Cold starts dominate perceived latency on Python Workers: page loads sit around
-250ms warm but can spike past 1.5s when an isolate boots. Two things keep the
-import graph small — heavy article parsers (`trafilatura`, `bs4`, `lxml`) are
-imported lazily inside the extraction code, and search runs its D1 and AI calls
-concurrently. A regression test asserts the parsers stay out of the request import
-path.
+250ms warm but can spike past 1.5s when an isolate boots.
+
+- **Import graph hygiene**: Heavy article parsers (`trafilatura`, `bs4`, `lxml`)
+  are imported lazily inside the extraction code. A regression test asserts
+  they stay out of the request import path.
+- **Concurrent search & I/O**: Hybrid search runs D1 FTS and Workers AI embedding
+  lookups concurrently (`asyncio.gather`), bounded by a 5s timeout.
+- **D1 query optimization**: Composite indexes (`(user_id, created_at DESC)` and
+  `(user_id, status, created_at DESC)`) eliminate SQLite in-memory temporary B-tree
+  filesorts (`USE TEMP B-TREE FOR ORDER BY`). Status counts, feed items, and tag
+  aggregations are parallelized via `asyncio.gather`, and multi-statement tag/deletion
+  mutations are batched via `execute_batch` to minimize RPC roundtrips.
 
 ---
 

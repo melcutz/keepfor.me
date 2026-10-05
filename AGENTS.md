@@ -5,7 +5,7 @@ FastAPI read-it-later app deployed as a Cloudflare **Python Worker** (`compatibi
 ## Commands
 
 ```bash
-python3 -m pytest tests/ -q                          # 90 passed, 1 skipped, ~16s
+python3 -m pytest tests/ -q                          # 237 passed, 1 skipped, ~55s
 python3 -m pytest tests/test_crypto.py::test_password_hashing   # single test
 python3 -m pytest tests/ -k crypto -q                # filter
 
@@ -116,6 +116,16 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 
 `src/models/db.py` is a 71-line dual-backend adapter: D1 in production, `sqlite3` in tests. It exposes only `query_all`, `query_first`, `execute`, `execute_batch`. **If you add a method, implement both branches** — the sqlite branch will otherwise be dead in prod and untested in CI.
 
+- **Migrations (`migrations/*.sql`)**: Five schema files exist:
+  - `0001_initial_schema.sql` (core tables, FTS5 virtual table, triggers)
+  - `0002_rate_limits.sql` (rate limiting table)
+  - `0003_suggested_tags.sql` (suggested tags table)
+  - `0004_tag_rules.sql` (auto-tagging rules table)
+  - `0005_performance_indexes.sql` (composite indexes for library feeds and lookups)
+- **`deploy.yml` does NOT apply migrations**: Schema migrations must be applied manually to production via `npx wrangler d1 migrations apply keepfor-me-db --remote`.
+- **Composite indexes are mandatory for sorted feeds**: SQLite's query planner requires composite indexes matching the `WHERE` + `ORDER BY` pattern (e.g. `items(user_id, created_at DESC)` and `items(user_id, status, created_at DESC)`). Without them, SQLite performs `USE TEMP B-TREE FOR ORDER BY`, incurring noticeable CPU and memory overhead on library page loads. Check `EXPLAIN QUERY PLAN` on any new list query.
+- **Batching mutations**: D1 executes queries over remote RPC. Multi-row or cascading updates (such as updating tag associations or deleting an item with related tag mappings and vector embeddings) must use `db.execute_batch()` rather than looping individual `db.execute()` calls to prevent sequential RPC latency.
+
 ## Testing quirks
 
 - `tests/conftest.py` now loads **every** `migrations/*.sql` in filename order (it previously hardcoded `0001`, which silently hid `0002_rate_limits.sql` from the entire suite). The fixture strips `--` comment lines before splitting on `;`, so a semicolon inside a SQL comment no longer splits mid-comment and produces unparseable SQL.
@@ -144,6 +154,7 @@ Measured on prod: page loads are **~250-300ms warm but spike to 1.5-3.5s on ~15%
 - **Heavy parsers must stay out of the module-scope import path.** `src/worker.py` imports the consumer chain at module scope, so an eager `import trafilatura` / `from bs4 import BeautifulSoup` in `src/consumer/extractor.py` **or `src/utils/importer.py`** (imported by `src/app.py`) makes *every* request pay for the parsing stack — including `/auth/login`. Both now import lazily via `_load_parsers()` / inside `parse_netscape_bookmarks()`. This was worth **0.46s → 0.35s** of import time in the Workers venv. `tests/test_mcp.py::test_heavy_extraction_libs_are_not_imported_at_module_load` pins it (verified it fails if an eager import returns).
 - Measure import cost in the real venv, not the local one: `.venv-workers/bin/python -c "import src.worker"`.
 - Hybrid search runs FTS and the Workers AI embedding **concurrently** (`asyncio.gather`), and both the embedding and the vector query are bounded by `VECTOR_SEARCH_TIMEOUT` (5s) so a hanging AI binding degrades to keyword-only instead of hanging the request.
+- **D1 latency waterfalls**: Each D1 query from a Worker isolate incurs an internal RPC roundtrip. Running independent queries sequentially adds cumulative latency (7 sequential queries = 150-250ms of overhead). Independent feed reads (`get_recent_items`, `count_recent_items`, `get_status_counts`, `get_user_tags`) are parallelized using `asyncio.gather`. Avoid redundant queries — e.g. `status_counts["all"]` is reused instead of issuing an extra `COUNT(*)` query.
 - Untested lever: the 1725 `.venv-workers` modules still ship. Trimming them requires narrowing `base_dir` (see bundle section) — the win is faster bundle decompress at cold start, **not** import time, since those files are never imported.
 
 ## Form endpoints must return HTML, not JSON
@@ -187,3 +198,14 @@ The query recognises sanitizers in a specific inline shape (`urlparse(x).netloc`
 Regression coverage: `tests/test_endpoints.py::test_safe_next_rejects_open_redirect_payloads` (19 payloads) and `test_safe_next_keeps_real_relative_paths`; both fail if the old implementation is restored.
 
 Prefer dismissing verified false positives with a justification. Do **not** add a `query-filters` exclusion for `py/url-redirection` — that would hide genuine future open redirects, which is how this one nearly shipped.
+
+## Mobile capture & URL extraction
+
+- **iOS WebKit PWA vs Android PWA**:
+  - Android supports the W3C Web Share Target API (`share_target` in `manifest.webmanifest`), dispatching directly to `POST /save-popup` from the Android system share sheet.
+  - iOS WebKit deliberately omits Web Share Target for PWAs. iOS relies on two complementary paths:
+    1. **1-Tap Apple Shortcut**: Dispatches to `/save-popup?url=...&source=shortcut` or `POST` directly from the iOS Share Sheet. Uses the user's active Safari cookie session so no PAT / API token is required. When `source=shortcut`, the save confirmation page provides an interactive close/back panel (since web pages cannot `window.close()` iOS Safari tabs opened from shortcuts).
+    2. **Smart Clipboard in PWA**: When installed as a standalone PWA, switching to Keepfor.me checks the clipboard (`navigator.clipboard.readText()`) on `visibilitychange` and `window.focus`. If a URL is detected, a floating toast appears offering 1-tap save.
+- **URL extraction resiliency (`src/utils/url.py:extract_url`)**:
+  - Native mobile share actions often share text blobs combining article titles and URLs (e.g., `"Article Title: https://example.com/path?utm=..."`).
+  - All save entry points (`/save`, `/save-popup`, `/api/items`) use `extract_url()` to extract and normalize valid URLs, strip surrounding punctuation/text/markdown, and prepend `https://` for bare domain strings.
