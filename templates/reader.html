@@ -10,7 +10,7 @@
 
     <!-- Top Reader Navigation & Controls -->
     <div class="reader-card bg-white border border-slate-200 rounded-xl px-4 py-3 mb-8 shadow-sm flex flex-wrap items-center justify-between gap-3">
-      <a href="/" class="text-xs font-semibold text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5">
+      <a href="/" class="reader-back-link text-xs font-semibold text-slate-600 hover:text-slate-900 inline-flex items-center gap-1.5 shrink-0">
         {{ icon("arrow-left", class="w-3.5 h-3.5") }}
         <span>Back to Library</span>
       </a>
@@ -19,64 +19,66 @@
       <div class="flex flex-wrap items-center gap-2 text-xs min-w-0">
         
         <!-- Font Family Selector -->
-        <div class="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-          <button onclick="setFont('sans')" class="px-2 py-1 font-sans font-medium rounded hover:bg-white text-slate-700">Sans</button>
-          <button onclick="setFont('serif')" class="px-2 py-1 font-serif font-medium rounded hover:bg-white text-slate-700">Serif</button>
-          <button onclick="setFont('mono')" class="px-2 py-1 font-mono font-medium rounded hover:bg-white text-slate-700">Mono</button>
+        <div class="reader-control-bg flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+          <button onclick="setFont('sans')" class="reader-control-btn px-2 py-1 font-sans font-medium rounded hover:bg-white text-slate-700">Sans</button>
+          <button onclick="setFont('serif')" class="reader-control-btn px-2 py-1 font-serif font-medium rounded hover:bg-white text-slate-700">Serif</button>
+          <button onclick="setFont('mono')" class="reader-control-btn px-2 py-1 font-mono font-medium rounded hover:bg-white text-slate-700">Mono</button>
         </div>
 
         <!-- Font Size +/- -->
-        <div class="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-          <button onclick="adjustFontSize(-1)" class="px-2 py-1 font-bold rounded hover:bg-white text-slate-700">A-</button>
-          <button onclick="adjustFontSize(1)" class="px-2 py-1 font-bold rounded hover:bg-white text-slate-700">A+</button>
+        <div class="reader-control-bg flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+          <button onclick="adjustFontSize(-1)" class="reader-control-btn px-2 py-1 font-bold rounded hover:bg-white text-slate-700">A-</button>
+          <button onclick="adjustFontSize(1)" class="reader-control-btn px-2 py-1 font-bold rounded hover:bg-white text-slate-700">A+</button>
         </div>
 
         <!-- Theme Selector (Light, Sepia, Dark) -->
-        <div class="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-          <button onclick="setTheme('light')" class="p-1.5 rounded hover:bg-white text-slate-700" title="Light theme" aria-label="Light theme">
+        <div class="reader-control-bg flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+          <button onclick="setTheme('light')" class="reader-control-btn p-1.5 rounded hover:bg-white text-slate-700" title="Light theme" aria-label="Light theme">
             {{ icon("sun", class="w-4 h-4") }}
           </button>
-          <button onclick="setTheme('sepia')" class="p-1.5 rounded hover:bg-white text-slate-700" title="Sepia theme" aria-label="Sepia theme">
+          <button onclick="setTheme('sepia')" class="reader-control-btn p-1.5 rounded hover:bg-white text-slate-700" title="Sepia theme" aria-label="Sepia theme">
             {{ icon("book", class="w-4 h-4") }}
           </button>
-          <button onclick="setTheme('dark')" class="p-1.5 rounded hover:bg-white text-slate-700" title="Dark theme" aria-label="Dark theme">
+          <button onclick="setTheme('dark')" class="reader-control-btn p-1.5 rounded hover:bg-white text-slate-700" title="Dark theme" aria-label="Dark theme">
             {{ icon("moon", class="w-4 h-4") }}
           </button>
         </div>
 
-        <!-- Original Source & Delete -->
-        <button onclick="copyForAI('{{ item.id }}', this)"
-                class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg font-medium hover:bg-white text-slate-700" title="Copy clean Markdown for AI">
-          {{ icon("clipboard", class="w-3.5 h-3.5") }}
-          <span>Copy for AI</span>
-        </button>
-        <form action="/items/{{ item.id }}/pin" method="POST" class="inline">
-          <button type="submit" class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg font-medium hover:bg-white text-slate-700" title="{% if item.is_pinned %}Unpin{% else %}Pin to top{% endif %}">
-            {% if item.is_pinned %}{{ icon("pin-filled", class="w-3.5 h-3.5 text-amber-600") }}<span>Pinned</span>{% else %}{{ icon("pin", class="w-3.5 h-3.5") }}<span>Pin</span>{% endif %}
+        <!-- Actions -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button onclick="copyForAI('{{ item.id }}', this)"
+                  class="reader-control-bg reader-control-btn inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg font-medium hover:bg-white text-slate-700" title="Copy clean Markdown for AI">
+            {{ icon("clipboard", class="w-3.5 h-3.5") }}
+            <span>Copy for AI</span>
           </button>
-        </form>
-        {% if item.read_state != 'archived' %}
-        <form action="/items/{{ item.id }}/archive" method="POST" class="inline">
-          <input type="hidden" name="next" value="/">
-          <button type="submit" class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800" title="Mark as read & archive">
-            {{ icon("check", class="w-3.5 h-3.5") }}
-            <span>Mark as Read</span>
-          </button>
-        </form>
-        {% else %}
-        <form action="/items/{{ item.id }}/unarchive" method="POST" class="inline">
-          <input type="hidden" name="next" value="/items/{{ item.id }}">
-          <button type="submit" class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg font-medium hover:bg-white text-slate-700">
-            {{ icon("undo", class="w-3.5 h-3.5") }}
-            <span>Unarchive</span>
-          </button>
-        </form>
-        {% endif %}
-        <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" 
-           class="inline-flex items-center gap-1 text-blue-600 hover:underline font-medium whitespace-nowrap" title="Original website">
-          <span>Original</span>
-          {{ icon("external", class="w-3.5 h-3.5") }}
-        </a>
+          <form action="/items/{{ item.id }}/pin" method="POST" class="inline">
+            <button type="submit" class="reader-control-bg reader-control-btn inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg font-medium hover:bg-white text-slate-700" title="{% if item.is_pinned %}Unpin{% else %}Pin to top{% endif %}">
+              {% if item.is_pinned %}{{ icon("pin-filled", class="w-3.5 h-3.5 text-amber-600") }}<span>Pinned</span>{% else %}{{ icon("pin", class="w-3.5 h-3.5") }}<span>Pin</span>{% endif %}
+            </button>
+          </form>
+          {% if item.read_state != 'archived' %}
+          <form action="/items/{{ item.id }}/archive" method="POST" class="inline">
+            <input type="hidden" name="next" value="/">
+            <button type="submit" class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800" title="Mark as read & archive">
+              {{ icon("check", class="w-3.5 h-3.5") }}
+              <span>Mark as Read</span>
+            </button>
+          </form>
+          {% else %}
+          <form action="/items/{{ item.id }}/unarchive" method="POST" class="inline">
+            <input type="hidden" name="next" value="/items/{{ item.id }}">
+            <button type="submit" class="reader-control-bg reader-control-btn inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg font-medium hover:bg-white text-slate-700">
+              {{ icon("undo", class="w-3.5 h-3.5") }}
+              <span>Unarchive</span>
+            </button>
+          </form>
+          {% endif %}
+          <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" 
+             class="inline-flex items-center gap-1 text-blue-600 hover:underline font-medium whitespace-nowrap ml-1" title="Original website">
+            <span>Original</span>
+            {{ icon("external", class="w-3.5 h-3.5") }}
+          </a>
+        </div>
       </div>
     </div>
 
@@ -115,7 +117,7 @@
         <div class="flex flex-wrap gap-1.5 mt-4">
           {% for tag in item.tags %}
           {% set ts = tag_styles.get(tag, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-          <span class="px-2 py-0.5 {{ ts[0] }} text-xs font-medium rounded-md">#{{ tag }}</span>
+          <span class="reader-tag-pill px-2.5 py-0.5 {{ ts[0] }} text-xs font-medium rounded-md">#{{ tag }}</span>
           {% endfor %}
         </div>
         {% endif %}
@@ -148,14 +150,14 @@
       </div>
 
       {% if item.summary %}
-      <div class="mt-8 p-4 bg-violet-50/70 border border-violet-200 rounded-xl">
+      <div class="reader-callout-takeaway mt-8 p-4 bg-violet-50/70 border border-violet-200 rounded-xl">
         <p class="text-xs font-bold uppercase tracking-wider text-violet-600 mb-2 inline-flex items-center gap-1.5">{{ icon("sparkle", class="w-3.5 h-3.5 text-violet-600") }}<span>Key Takeaway</span></p>
         <p class="text-sm text-slate-700 leading-relaxed">{{ item.summary }}</p>
       </div>
       {% endif %}
 
       <!-- User notes: why I kept this -->
-      <div class="mt-8 p-4 bg-amber-50/60 border border-amber-200 rounded-xl">
+      <div class="reader-callout-notes mt-8 p-4 bg-amber-50/60 border border-amber-200 rounded-xl">
         <p class="text-xs font-bold uppercase tracking-wider text-amber-700 mb-2">Why I kept this</p>
         {% if item.user_notes %}
         <p class="text-sm text-slate-700 leading-relaxed mb-3">{{ item.user_notes }}</p>
@@ -171,8 +173,14 @@
 
     </article>
 
-    <!-- Table of Contents drawer -->
-    <div id="toc-drawer" class="hidden fixed right-4 top-1/2 -translate-y-1/2 z-40 max-w-56 bg-white border border-slate-200 rounded-xl shadow-lg p-3">
+    <!-- Table of Contents drawer: hidden on screens < 1280px to avoid obscuring text -->
+    <style>
+      #toc-drawer { display: none; }
+      @media (min-width: 1280px) {
+        #toc-drawer.toc-ready { display: block; }
+      }
+    </style>
+    <div id="toc-drawer" class="fixed right-6 top-1/2 -translate-y-1/2 z-30 max-w-60 bg-white border border-slate-200 rounded-xl shadow-lg p-3.5 transition-colors">
       <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-2">Contents</p>
       <nav id="toc-list" class="space-y-1 max-h-80 overflow-y-auto"></nav>
     </div>
@@ -274,7 +282,7 @@
           a.className = 'block text-xs truncate hover:underline ' + (h.tagName === 'H3' ? 'pl-3 text-slate-500' : 'text-slate-700 font-medium');
           list.appendChild(a);
         });
-        drawer.classList.remove('hidden');
+        drawer.classList.add('toc-ready');
       }
     } catch (_) {}
   });

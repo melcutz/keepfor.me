@@ -88,13 +88,15 @@
         #items-list.view-cards { display: grid; grid-template-columns: 1fr; gap: 1rem; }
         @media (min-width: 640px) { #items-list.view-cards { grid-template-columns: repeat(2, 1fr); } }
         @media (min-width: 1024px) { #items-list.view-cards { grid-template-columns: repeat(3, 1fr); } }
-        #items-list.view-cards > * { margin: 0; }
+        #items-list.view-cards > * { margin: 0 !important; }
         #items-list.view-list { display: flex; flex-direction: column; gap: 1rem; }
         #items-list.view-compact { display: flex; flex-direction: column; gap: 0.25rem; }
         #items-list.view-compact .item-card { padding: 0.5rem 0.75rem; }
         #items-list.view-compact .card-cover,
         #items-list.view-compact .card-excerpt,
-        #items-list.view-compact .card-actions { display: none; }
+        #items-list.view-compact .card-actions,
+        #items-list.view-compact .card-tags,
+        #items-list.view-compact details { display: none !important; }
       </style>
 
       <!-- Mobile tag strip: horizontal chips instead of the sidebar -->
@@ -123,41 +125,42 @@
         </div>
       </div>
 
-      <!-- Search Bar -->
-      <div class="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex items-center gap-3 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
-        <div class="relative flex-1 w-full">
-          <span class="absolute inset-y-0 left-3 flex items-center text-slate-400 pointer-events-none">{{ icon("search", class="w-4 h-4") }}</span>
-           <input type="search" id="search-input" name="query" placeholder="Search by keyword or meaning…"
-                  value="{{ query or '' }}"
-                  hx-post="/search"
-                  hx-trigger="keyup changed delay:300ms, search"
-                  hx-target="#items-list"
+      <!-- Search & Actions Toolbar -->
+      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <div class="bg-white border border-slate-200 rounded-xl p-2.5 shadow-sm flex-1 flex items-center gap-3 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
+          <div class="relative flex-1 w-full">
+            <span class="absolute inset-y-0 left-3 flex items-center text-slate-400 pointer-events-none">{{ icon("search", class="w-4 h-4") }}</span>
+            <input type="search" id="search-input" name="query" placeholder="Search by keyword or meaning…"
+                   value="{{ query or '' }}"
+                   hx-post="/search"
+                   hx-trigger="keyup changed delay:300ms, search"
+                   hx-target="#items-list"
                    hx-include="#active-tag-input, #active-status-input, #active-page-input, #active-perpage-input, #active-category-input, #active-quick-input"
-                  hx-indicator="#search-spinner"
-                  class="w-full pl-9 pr-10 py-2 border border-slate-200 rounded-lg text-base focus:outline-none">
-          <span id="search-spinner" class="htmx-indicator absolute inset-y-0 right-3 items-center text-blue-600" aria-hidden="true">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>
-          </span>
+                   hx-indicator="#search-spinner"
+                   class="w-full pl-9 pr-10 py-1.5 border border-slate-200 rounded-lg text-sm sm:text-base focus:outline-none">
+            <span id="search-spinner" class="htmx-indicator absolute inset-y-0 right-3 items-center text-blue-600" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>
+            </span>
+          </div>
+          <input type="hidden" id="active-tag-input" name="tag" value="{{ active_tags|join(',') if active_tags else (active_tag or '') }}">
+          <datalist id="tag-suggest-all">
+            {% for t in tags %}<option value="{{ t.name }}"></option>{% endfor %}
+          </datalist>
+          <input type="hidden" id="active-status-input" name="status" value="{{ active_status or '' }}">
+          <input type="hidden" id="active-page-input" name="page" value="{{ page }}">
+          <input type="hidden" id="active-perpage-input" name="per_page" value="{{ per_page }}">
+          <input type="hidden" id="active-category-input" name="category" value="{{ active_category or '' }}">
+          <input type="hidden" id="active-quick-input" name="quick" value="{{ '1' if active_quick else '' }}">
         </div>
-        <input type="hidden" id="active-tag-input" name="tag" value="{{ active_tags|join(',') if active_tags else (active_tag or '') }}">
-        <datalist id="tag-suggest-all">
-          {% for t in tags %}<option value="{{ t.name }}"></option>{% endfor %}
-        </datalist>
-        <input type="hidden" id="active-status-input" name="status" value="{{ active_status or '' }}">
-        <input type="hidden" id="active-page-input" name="page" value="{{ page }}">
-        <input type="hidden" id="active-perpage-input" name="per_page" value="{{ per_page }}">
-        <input type="hidden" id="active-category-input" name="category" value="{{ active_category or '' }}">
-        <input type="hidden" id="active-quick-input" name="quick" value="{{ '1' if active_quick else '' }}">
+
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button id="tag-mode-toggle" aria-pressed="false"
+                  class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300 shadow-sm transition">{{ icon("tag", class="w-3.5 h-3.5") }}<span>Tag</span></button>
+          <button id="bulk-toggle" aria-pressed="false" type="button"
+                  class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300 shadow-sm transition">{{ icon("check-square", class="w-3.5 h-3.5") }}<span>Select</span></button>
+        </div>
       </div>
-<div class="flex items-center gap-2">
-  <button id="tag-mode-toggle" aria-pressed="false"
-          class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">{{ icon("tag", class="w-3.5 h-3.5") }}<span>Tag</span></button>
-  <p id="tag-mode-hint" class="hidden text-xs text-slate-500">Tap a tag, then tap articles to add it. Tap again to stop.</p>
-</div>
-<div class="flex items-center gap-2">
-  <button id="bulk-toggle" aria-pressed="false" type="button"
-          class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">{{ icon("check-square", class="w-3.5 h-3.5") }}<span>Select</span></button>
-</div>
+      <p id="tag-mode-hint" class="hidden text-xs text-blue-700 bg-blue-50 border border-blue-200 px-3 py-2 rounded-xl">Tap a tag, then tap articles to add it. Tap again to stop.</p>
 <form id="bulk-bar" action="/items/bulk-tags" method="POST" class="hidden sticky bottom-4 z-40 items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-lg">
   <input type="hidden" name="next" value="/">
   <span id="bulk-count" class="text-xs text-slate-600 whitespace-nowrap"></span>

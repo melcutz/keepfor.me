@@ -55,6 +55,19 @@
     .theme-sepia article h1, .theme-sepia article .text-slate-900, .theme-sepia article .text-slate-700 { color: #433422 !important; }
     .theme-sepia article .text-slate-500, .theme-sepia article .text-slate-400 { color: #8a7a5f !important; }
     .theme-sepia article header { border-color: #ded1b1 !important; }
+    .theme-sepia #toc-drawer { background-color: #ede3c7 !important; border-color: #ded1b1 !important; box-shadow: 0 4px 12px rgba(67, 52, 34, 0.12) !important; }
+    .theme-sepia #toc-drawer p { color: #856d50 !important; }
+    .theme-sepia #toc-drawer a { color: #433422 !important; }
+    .theme-sepia #toc-drawer a.text-slate-500 { color: #8a7a5f !important; }
+    .theme-sepia .reader-tag-pill { background-color: #e4d7b5 !important; color: #433422 !important; }
+    .theme-sepia .reader-callout-takeaway { background-color: #e8ddbf !important; border-color: #ded1b1 !important; }
+    .theme-sepia .reader-callout-takeaway p { color: #433422 !important; }
+    .theme-sepia .reader-callout-takeaway span { color: #5f4b32 !important; }
+    .theme-sepia .reader-callout-notes { background-color: #ede3c7 !important; border-color: #ded1b1 !important; }
+    .theme-sepia .reader-control-bg { background-color: #e4d7b5 !important; border-color: #ded1b1 !important; }
+    .theme-sepia .reader-control-btn { color: #433422 !important; }
+    .theme-sepia .reader-control-btn:hover { background-color: #ede3c7 !important; }
+
     /* Dark theme styles */
     body.theme-dark {
       --bg-canvas: #121212;
@@ -74,6 +87,23 @@
     .theme-dark article .text-slate-700, .theme-dark article .text-slate-500, .theme-dark article .text-slate-400 { color: #94a3b8 !important; }
     .theme-dark article header { border-color: #2d2b29 !important; }
     .theme-dark article .prose { --tw-prose-body: #e2e8f0; --tw-prose-headings: #f1f5f9; --tw-prose-links: #60a5fa; --tw-prose-bold: #f1f5f9; --tw-prose-quotes: #cbd5e1; --tw-prose-code: #e2e8f0; }
+    .theme-dark #toc-drawer { background-color: #1c1b1a !important; border-color: #2d2b29 !important; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important; }
+    .theme-dark #toc-drawer p { color: #94a3b8 !important; }
+    .theme-dark #toc-drawer a { color: #cbd5e1 !important; }
+    .theme-dark #toc-drawer a.text-slate-500 { color: #64748b !important; }
+    .theme-dark .reader-tag-pill { background-color: rgba(255, 255, 255, 0.08) !important; color: #cbd5e1 !important; }
+    .theme-dark .reader-back-link { color: #94a3b8 !important; }
+    .theme-dark .reader-back-link:hover { color: #f1f5f9 !important; }
+    .theme-dark .reader-callout-takeaway { background-color: rgba(139, 92, 246, 0.1) !important; border-color: rgba(139, 92, 246, 0.25) !important; }
+    .theme-dark .reader-callout-takeaway p { color: #e2e8f0 !important; }
+    .theme-dark .reader-callout-takeaway span { color: #c4b5fd !important; }
+    .theme-dark .reader-callout-notes { background-color: rgba(245, 158, 11, 0.08) !important; border-color: rgba(245, 158, 11, 0.2) !important; }
+    .theme-dark .reader-callout-notes p, .theme-dark .reader-callout-notes span { color: #e2e8f0 !important; }
+    .theme-dark .reader-callout-notes input { background-color: #262524 !important; border-color: #3f3c39 !important; color: #f5f5f4 !important; }
+    .theme-dark .reader-callout-notes button { background-color: #3b82f6 !important; color: #ffffff !important; }
+    .theme-dark .reader-control-bg { background-color: #262524 !important; border-color: #3f3c39 !important; }
+    .theme-dark .reader-control-btn { color: #cbd5e1 !important; }
+    .theme-dark .reader-control-btn:hover { background-color: #33312e !important; color: #ffffff !important; }
   </style>
   <script>
     tailwind.config = {
@@ -119,23 +149,27 @@
   </header>
   {% endif %}
 
-  <main class="flex-1 overflow-y-auto pb-20 md:pb-0">
+  <main class="flex-1 overflow-y-auto pb-28 md:pb-8">
     {% block content %}{% endblock %}
   </main>
 
   <!-- Mobile bottom tab bar (desktop uses the header nav) -->
   {% if current_user and not hide_mobile_nav %}
   <nav id="mobile-nav" aria-label="Mobile" class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200" style="padding-bottom: env(safe-area-inset-bottom);">
-    <div class="grid grid-cols-3 items-end text-center">
-      <a href="/" class="flex flex-col items-center gap-0.5 py-2 text-xs font-semibold {% if active_nav == 'library' %}text-blue-600{% else %}text-slate-500{% endif %}">
+    <div class="grid grid-cols-4 items-center text-center py-1">
+      <a href="/" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'library' %}text-blue-600{% else %}text-slate-500{% endif %}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <span>Library</span>
       </a>
+      <a href="/tags" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'tags' %}text-blue-600{% else %}text-slate-500{% endif %}">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><circle cx="7" cy="7" r=".5" fill="currentColor"/></svg>
+        <span>Tags</span>
+      </a>
       <button onclick="openSaveModal()" aria-label="Save a link"
-              class="mx-auto -mt-6 mb-1 flex h-14 w-14 items-center justify-center rounded-full bg-slate-900 text-white shadow-lg hover:bg-slate-800 active:scale-95 transition">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-slate-900 text-white shadow-md hover:bg-slate-800 active:scale-95 transition">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       </button>
-      <a href="/settings" class="flex flex-col items-center gap-0.5 py-2 text-xs font-semibold {% if active_nav == 'settings' %}text-blue-600{% else %}text-slate-500{% endif %}">
+      <a href="/settings" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'settings' %}text-blue-600{% else %}text-slate-500{% endif %}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Settings</span>
       </a>
@@ -150,7 +184,7 @@
     <span>Copied clean Markdown for AI prompt</span>
   </div>
   <div id="save-modal" class="hidden fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onclick="if(event.target===this)closeSaveModal()">
-    <div class="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-stone-200 w-full sm:max-w-md p-6 relative" style="padding-bottom: max(1.5rem, env(safe-area-inset-bottom));">
+    <div class="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-stone-200 w-full sm:max-w-md p-6 relative" style="padding-bottom: max(2rem, calc(env(safe-area-inset-bottom) + 1.25rem));">
       <button onclick="closeSaveModal()"
               class="absolute top-4 right-4 text-stone-400 hover:text-stone-600 text-lg" aria-label="Close">&times;</button>
       <div class="flex gap-1 mb-4 bg-stone-100 p-0.5 rounded-lg border border-stone-200 w-max">
