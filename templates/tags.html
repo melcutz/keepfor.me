@@ -84,6 +84,68 @@
   <p class="text-xs text-slate-500">No tags yet. Create one above, or add tags when saving a link.</p>
   {% endif %}
 </section>
+
+  <!-- Tagging rules -->
+  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+    <h3 class="text-base font-semibold text-slate-900 mb-1">Tagging rules</h3>
+    <p class="text-xs text-slate-500 mb-4">Automatically tag matching saves during extraction. Rules never fail a save.</p>
+    {% if rules %}
+    <div class="space-y-2 mb-4">
+      {% for r in rules %}
+      <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <span class="font-mono text-slate-500">{{ r.field }} contains</span>
+        <span class="font-medium text-slate-800">"{{ r.substr }}"</span>
+        <span class="text-slate-400">→</span>
+        <span class="font-medium text-slate-800">#{{ r.tag }}</span>
+        <form action="/tags/rules/delete" method="POST" class="ml-auto">
+          <input type="hidden" name="rule_id" value="{{ r.id }}">
+          <button type="submit" aria-label="Delete rule" class="w-8 h-8 text-lg leading-none text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-full">&times;</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <form action="/tags/rules/create" method="POST" class="flex flex-wrap items-center gap-2">
+      <select name="field" aria-label="Match field" class="px-2 py-2 border border-slate-300 rounded-lg text-xs bg-white">
+        <option value="domain">domain</option>
+        <option value="title">title</option>
+        <option value="url">url</option>
+      </select>
+      <input type="text" name="substr" required minlength="2" maxlength="64" placeholder="e.g. arxiv.org"
+             class="flex-1 min-w-32 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+      <span class="text-xs text-slate-400">→</span>
+      <input type="text" name="tag" required placeholder="tag"
+             class="w-32 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+      <button type="submit" class="px-4 py-2 bg-slate-900 text-white rounded-lg text-xs font-medium hover:bg-slate-800">Add rule</button>
+    </form>
+  </section>
+
+  {% if suggested_rules %}
+  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+    <h3 class="text-base font-semibold text-slate-900 mb-1">Suggested rules</h3>
+    <p class="text-xs text-slate-500 mb-4">Mined from your tagging history. Create to automate, dismiss to hide.</p>
+    <div class="space-y-2">
+      {% for s in suggested_rules %}
+      <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <span>Always tag <span class="font-medium">{{ s.domain }}</span> as <span class="font-medium">#{{ s.tag }}</span></span>
+        <span class="text-slate-400">({{ s.support }} saves, {{ (s.precision * 100)|round|int }}% match)</span>
+        <span class="ml-auto flex items-center gap-2 shrink-0">
+          <form action="/tags/rules/create" method="POST" class="inline">
+            <input type="hidden" name="field" value="domain">
+            <input type="hidden" name="substr" value="{{ s.domain }}">
+            <input type="hidden" name="tag" value="{{ s.tag }}">
+            <button type="submit" class="px-3 py-1 bg-emerald-600 text-white rounded-md font-medium hover:bg-emerald-700">Create rule</button>
+          </form>
+          <form action="/tags/rules/suggestions/dismiss" method="POST" class="inline">
+            <input type="hidden" name="key" value="{{ s.key }}">
+            <button type="submit" class="px-3 py-1 border border-slate-200 text-slate-500 rounded-md font-medium hover:bg-slate-100">Dismiss</button>
+          </form>
+        </span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 <script>
 (function () {
   // NOTE: listeners are delegated from `document` (not #tag-list) and the

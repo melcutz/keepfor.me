@@ -39,19 +39,23 @@ from src.models.items import (
     accept_suggestion,
     add_tags_to_item,
     bulk_update_tags,
+    create_rule,
     create_tag,
     delete_item,
+    delete_rule,
     delete_tag,
     dismiss_suggestion,
     get_item,
     get_item_clean_html,
     list_pending_suggestions,
+    list_rules,
     list_user_tags,
     merge_tags,
     prune_unused_tags,
     remove_tags_from_item,
     rename_tag,
     save_item,
+    suggest_rules,
     suggest_tags,
 )
 from src.schemas import (
@@ -649,6 +653,8 @@ async def tags_page(request: Request):
         tags=tags,
         tag_styles=tag_styles,
         suggestions=suggestions,
+        rules=await list_rules(db, user["id"]),
+        suggested_rules=await suggest_rules(db, user["id"]),
         active_nav="tags",
     )
     return HTMLResponse(content=html)
@@ -726,6 +732,41 @@ async def tags_prune(request: Request):
     await prune_unused_tags(db, user["id"])
     if request.headers.get("hx-request"):
         return HTMLResponse(content=await _render_tags_list(db, user["id"]))
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/rules/create")
+async def tag_rule_create(
+    request: Request,
+    field: str = Form(""),
+    substr: str = Form(""),
+    tag: str = Form(""),
+):
+    user = await require_user(request)
+    db = get_db(request)
+    await create_rule(db, user["id"], field, substr, tag)
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/rules/delete")
+async def tag_rule_delete(request: Request, rule_id: str = Form("")):
+    user = await require_user(request)
+    db = get_db(request)
+    await delete_rule(db, user["id"], rule_id)
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/rules/suggestions/dismiss")
+async def tag_rule_suggestion_dismiss(request: Request, key: str = Form("")):
+    user = await require_user(request)
+    db = get_db(request)
+    clean = (key or "").strip()[:128]
+    if clean:
+        await db.execute(
+            "INSERT OR IGNORE INTO rule_suggestion_dismissals (user_id, key)"
+            " VALUES (?, ?);",
+            (user["id"], clean),
+        )
     return RedirectResponse(url="/tags", status_code=303)
 
 
