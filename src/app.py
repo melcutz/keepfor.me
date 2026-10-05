@@ -46,6 +46,8 @@ from src.models.items import (
     get_item_clean_html,
     list_pending_suggestions,
     list_user_tags,
+    merge_tags,
+    prune_unused_tags,
     remove_tags_from_item,
     rename_tag,
     save_item,
@@ -620,6 +622,17 @@ async def tags_page(request: Request):
     return HTMLResponse(content=html)
 
 
+def _tags_list_html(db_tags: list[dict]) -> str:
+    tag_styles = tag_styles_for([t["name"] for t in db_tags])
+    template = jinja_env.get_template("partials/tag_list.html")
+    return template.render(tags=db_tags, tag_styles=tag_styles)
+
+
+async def _render_tags_list(db, user_id: str) -> str:
+    tags = await list_user_tags(db, user_id)
+    return _tags_list_html(tags)
+
+
 @app.post("/tags/create")
 async def tags_create(request: Request, name: str = Form("")):
     user = await require_user(request)
@@ -635,6 +648,8 @@ async def tags_rename(
     user = await require_user(request)
     db = get_db(request)
     await rename_tag(db, user["id"], old_name, new_name)
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content=await _render_tags_list(db, user["id"]))
     return RedirectResponse(url="/tags", status_code=303)
 
 
@@ -643,6 +658,31 @@ async def tags_delete(request: Request, name: str = Form("")):
     user = await require_user(request)
     db = get_db(request)
     await delete_tag(db, user["id"], name)
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content=await _render_tags_list(db, user["id"]))
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/merge")
+async def tags_merge(
+    request: Request, old_names: str = Form(""), new_name: str = Form("")
+):
+    user = await require_user(request)
+    db = get_db(request)
+    names = [n.strip() for n in old_names.split(",") if n.strip()]
+    await merge_tags(db, user["id"], names, new_name)
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content=await _render_tags_list(db, user["id"]))
+    return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/tags/prune")
+async def tags_prune(request: Request):
+    user = await require_user(request)
+    db = get_db(request)
+    await prune_unused_tags(db, user["id"])
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content=await _render_tags_list(db, user["id"]))
     return RedirectResponse(url="/tags", status_code=303)
 
 

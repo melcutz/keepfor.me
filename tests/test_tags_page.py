@@ -194,3 +194,51 @@ async def test_accept_missing_suggestion_404(client, db, auth_headers):
         f"/items/{item_id}/suggestions/does-not-exist/accept", data={"next": "/tags"}
     )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_merge_tags_via_form(client, db, auth_headers):
+    _login(client, auth_headers)
+    user_id = auth_headers["admin_user"]["id"]
+    await _seed_item(db, user_id, "https://a.example/", ["ai"])
+    await _seed_item(db, user_id, "https://b.example/", ["ml"])
+    response = client.post(
+        "/tags/merge",
+        data={"old_names": "ai, ml", "new_name": "tech"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (200, 303, 307, 308)
+    from src.models.items import list_user_tags
+
+    names = {t["name"]: t["count"] for t in await list_user_tags(db, user_id)}
+    assert names == {"tech": 2}
+
+
+@pytest.mark.asyncio
+async def test_prune_tags_via_form(client, db, auth_headers):
+    _login(client, auth_headers)
+    user_id = auth_headers["admin_user"]["id"]
+    await _seed_item(db, user_id, "https://a.example/", ["used"])
+    from src.models.items import create_tag
+
+    await create_tag(db, user_id, "empty")
+    response = client.post("/tags/prune", follow_redirects=False)
+    assert response.status_code in (200, 303, 307, 308)
+    from src.models.items import list_user_tags
+
+    assert [t["name"] for t in await list_user_tags(db, user_id)] == ["used"]
+
+
+@pytest.mark.asyncio
+async def test_rename_returns_fragment_for_htmx(client, db, auth_headers):
+    _login(client, auth_headers)
+    user_id = auth_headers["admin_user"]["id"]
+    await _seed_item(db, user_id, "https://a.example/", ["oldname"])
+    response = client.post(
+        "/tags/rename",
+        data={"old_name": "oldname", "new_name": "newname"},
+        headers={"hx-request": "true"},
+    )
+    assert response.status_code == 200
+    assert "newname" in response.text
+    assert "<table" not in response.text
