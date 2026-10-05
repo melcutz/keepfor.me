@@ -108,6 +108,9 @@
           </span>
         </div>
         <input type="hidden" id="active-tag-input" name="tag" value="{{ active_tags|join(',') if active_tags else (active_tag or '') }}">
+        <datalist id="tag-suggest-all">
+          {% for t in tags %}<option value="{{ t.name }}"></option>{% endfor %}
+        </datalist>
         <input type="hidden" id="active-status-input" name="status" value="{{ active_status or '' }}">
         <input type="hidden" id="active-page-input" name="page" value="{{ page }}">
         <input type="hidden" id="active-perpage-input" name="per_page" value="{{ per_page }}">

@@ -602,7 +602,11 @@ async def save_popup_get(request: Request, url: str = "", title: str = ""):
             url="/auth/login?" + urlencode({"next": dest}), status_code=303
         )
     template = jinja_env.get_template("save_popup.html")
-    html = template.render(url=url, title=title, success=False, source="")
+    db = get_db(request)
+    recent_tags = [r["name"] for r in await suggest_tags(db, user["id"], "", limit=5)]
+    html = template.render(
+        url=url, title=title, success=False, source="", recent_tags=recent_tags
+    )
     return HTMLResponse(content=html)
 
 
@@ -795,7 +799,11 @@ async def share_target(
     if not target:
         return RedirectResponse(url="/", status_code=303)
     template = jinja_env.get_template("save_popup.html")
-    html = template.render(url=target, title=title, success=False, source="share")
+    db = get_db(request)
+    recent_tags = [r["name"] for r in await suggest_tags(db, user["id"], "", limit=5)]
+    html = template.render(
+        url=target, title=title, success=False, source="share", recent_tags=recent_tags
+    )
     return HTMLResponse(content=html)
 
 
