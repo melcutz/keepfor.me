@@ -141,6 +141,25 @@
   </div>
   {% endif %}
 
+  <!-- Smart Clipboard Link Detection Toast (PWA / Mobile) -->
+  {% if current_user %}
+  <div id="clipboard-toast" class="hidden fixed bottom-20 sm:bottom-6 inset-x-4 max-w-md mx-auto z-50 bg-slate-900 text-white rounded-xl p-3 shadow-xl border border-slate-800 flex items-center justify-between space-x-3 transition-all duration-300">
+    <div class="flex items-center space-x-2.5 min-w-0">
+      <div class="w-7 h-7 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+      </div>
+      <div class="truncate text-xs">
+        <span class="text-slate-400 block text-[10px] uppercase font-semibold tracking-wider">Save Copied Link?</span>
+        <span id="clipboard-toast-url" class="font-medium text-slate-200 block truncate"></span>
+      </div>
+    </div>
+    <div class="flex items-center space-x-1 shrink-0">
+      <button type="button" onclick="dismissClipboardToast()" class="px-2 py-1 text-xs text-slate-400 hover:text-white transition">Ignore</button>
+      <button type="button" id="clipboard-toast-save-btn" onclick="saveClipboardToast()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition">Save</button>
+    </div>
+  </div>
+  {% endif %}
+
   <script>
     // Save sheet helpers (shared by header button, mobile quick-save, shortcuts)
     function openSaveModal() {
@@ -148,7 +167,18 @@
       if (!modal) return;
       modal.classList.remove('hidden');
       const input = document.getElementById('save-url-input');
-      if (input) setTimeout(() => input.focus(), 50);
+      if (input) {
+        // If input is empty and clipboard has a link, pre-populate it for convenience
+        if (!input.value && navigator.clipboard && navigator.clipboard.readText) {
+          navigator.clipboard.readText().then(text => {
+            if (text && !input.value) {
+              const match = text.trim().match(/https?:\/\/[^\s<>"]+/i);
+              if (match) input.value = match[0].replace(/[.,;:!?)]+$/, '');
+            }
+          }).catch(() => {});
+        }
+        setTimeout(() => input.focus(), 50);
+      }
     }
     function closeSaveModal() {
       const modal = document.getElementById('save-modal');
@@ -183,6 +213,80 @@
         }
       }
     });
+
+    {% if current_user %}
+    // Smart Clipboard Detection
+    let detectedClipboardUrl = "";
+
+    function checkClipboardForLinks() {
+      if (!navigator.clipboard || !navigator.clipboard.readText) return;
+      const saveModal = document.getElementById('save-modal');
+      if (saveModal && !saveModal.classList.contains('hidden')) return;
+
+      navigator.clipboard.readText().then(text => {
+        if (!text) return;
+        text = text.trim();
+        const urlMatch = text.match(/https?:\/\/[^\s<>"]+/i);
+        if (!urlMatch) return;
+        const clean = urlMatch[0].replace(/[.,;:!?)]+$/, '');
+        if (!clean) return;
+
+        const lastSeen = sessionStorage.getItem('kfm_last_clipboard_url');
+        if (lastSeen === clean) return;
+
+        detectedClipboardUrl = clean;
+        const toast = document.getElementById('clipboard-toast');
+        const label = document.getElementById('clipboard-toast-url');
+        if (toast && label) {
+          label.textContent = clean;
+          toast.classList.remove('hidden');
+        }
+      }).catch(() => {});
+    }
+
+    function dismissClipboardToast() {
+      const toast = document.getElementById('clipboard-toast');
+      if (toast) toast.classList.add('hidden');
+      if (detectedClipboardUrl) {
+        sessionStorage.setItem('kfm_last_clipboard_url', detectedClipboardUrl);
+      }
+    }
+
+    function saveClipboardToast() {
+      if (!detectedClipboardUrl) return;
+      const btn = document.getElementById('clipboard-toast-save-btn');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Saving…";
+      }
+
+      fetch('/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ url: detectedClipboardUrl, tags: '' })
+      }).then(r => {
+        if (!r.ok) throw new Error("Save failed");
+        sessionStorage.setItem('kfm_last_clipboard_url', detectedClipboardUrl);
+        if (btn) btn.textContent = "Saved! ✓";
+        setTimeout(() => {
+          dismissClipboardToast();
+          location.reload();
+        }, 600);
+      }).catch(() => {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Failed";
+          setTimeout(() => { btn.textContent = "Save"; }, 1500);
+        }
+      });
+    }
+
+    window.addEventListener('focus', checkClipboardForLinks);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkClipboardForLinks();
+    });
+    {% endif %}
+
     // Lightweight service worker for PWA installability (network-passthrough:
     // no cached responses, so auth redirects and library content stay fresh).
     if ('serviceWorker' in navigator) {

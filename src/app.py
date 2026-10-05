@@ -2,7 +2,6 @@ import base64
 import datetime
 import hashlib
 import os
-import re
 import time
 from typing import Any
 from urllib.parse import urlencode, urlparse
@@ -85,6 +84,7 @@ from src.utils.rate_limit import (
     rate_limited_html,
     record_failure,
 )
+from src.utils.url import extract_url
 
 # Initialize Jinja2 templates
 templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
@@ -588,21 +588,22 @@ async def save_form(request: Request, url: str = Form(...), tags: str = Form("")
     db = get_db(request)
     env = get_env_from_request(request)
 
-    # Validate URL is not empty
-    if not url or not url.strip():
-        logger.warning("Save validation failed: empty URL")
-        raise HTTPException(status_code=400, detail="URL cannot be empty")
+    clean_url = extract_url(url)
+    if not clean_url:
+        logger.warning(f"Save validation failed: invalid URL '{url}'")
+        raise HTTPException(status_code=400, detail="Invalid URL")
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    await save_item(db, env, user["id"], url, tag_list)
+    await save_item(db, env, user["id"], clean_url, tag_list)
     return RedirectResponse(url="/", status_code=303)
 
 
 @app.get("/save-popup", response_class=HTMLResponse)
 async def save_popup_get(request: Request, url: str = "", title: str = ""):
+    clean_url = extract_url(url) or url.strip()
     user = await get_current_user(request)
     if not user:
-        dest = "/save-popup?" + urlencode({"url": url, "title": title})
+        dest = "/save-popup?" + urlencode({"url": clean_url, "title": title})
         return RedirectResponse(
             url="/auth/login?" + urlencode({"next": dest}), status_code=303
         )
@@ -610,7 +611,7 @@ async def save_popup_get(request: Request, url: str = "", title: str = ""):
     db = get_db(request)
     recent_tags = [r["name"] for r in await suggest_tags(db, user["id"], "", limit=5)]
     html = template.render(
-        url=url, title=title, success=False, source="", recent_tags=recent_tags
+        url=clean_url, title=title, success=False, source="", recent_tags=recent_tags
     )
     return HTMLResponse(content=html)
 
@@ -626,10 +627,14 @@ async def save_popup_post(
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
+    clean_url = extract_url(url)
+    if not clean_url:
+        logger.warning(f"Save popup validation failed: invalid URL '{url}'")
+        raise HTTPException(status_code=400, detail="Invalid URL")
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    await save_item(db, env, user["id"], url, tag_list)
+    await save_item(db, env, user["id"], clean_url, tag_list)
     template = jinja_env.get_template("save_popup.html")
-    html = template.render(url=url, title=title, success=True, source=source)
+    html = template.render(url=clean_url, title=title, success=True, source=source)
     return HTMLResponse(content=html)
 
 
@@ -853,11 +858,8 @@ async def share_target(
         return RedirectResponse(
             url="/auth/login?" + urlencode({"next": dest}), status_code=303
         )
-    # Android often puts the link in text instead of url.
-    target = url.strip()
-    if not target:
-        match = re.search(r"https?://\S+", text)
-        target = match.group(0).rstrip(").,!?") if match else ""
+    # Android/iOS often puts the link in text instead of url or shares mixed text.
+    target = extract_url(url) or extract_url(text)
     if not target:
         return RedirectResponse(url="/", status_code=303)
     template = jinja_env.get_template("save_popup.html")
@@ -1401,8 +1403,11 @@ async def api_save_item(request: Request, body: SaveItemRequest):
     user = await require_user(request)
     db = get_db(request)
     env = get_env_from_request(request)
-    # body is already validated by Pydantic
-    item, is_new = await save_item(db, env, user["id"], str(body.url), body.tags)
+    clean_url = extract_url(str(body.url))
+    if not clean_url:
+        logger.warning(f"API save validation failed: invalid URL '{body.url}'")
+        raise HTTPException(status_code=400, detail="Invalid URL")
+    item, is_new = await save_item(db, env, user["id"], clean_url, body.tags)
     status_code = 202 if is_new else 200
     return JSONResponse(content={**item, "is_new": is_new}, status_code=status_code)
 

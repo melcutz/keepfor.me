@@ -250,6 +250,50 @@ async def test_save_url_missing_url(client, db, auth_headers):
 
 
 @pytest.mark.asyncio
+async def test_save_url_via_form_mixed_text(client, db, auth_headers):
+    """Test saving URL from iOS/app mixed text via form."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    MockEnv()
+
+    response = client.post(
+        "/save",
+        data={
+            "url": "Interesting piece: https://example.com/app-share via Twitter",
+            "tags": "mobile",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code in [303, 307, 308]
+
+
+@pytest.mark.asyncio
+async def test_save_url_via_form_no_scheme(client, db, auth_headers):
+    """Test saving a domain without scheme (default web convenience)."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    MockEnv()
+
+    response = client.post(
+        "/save",
+        data={"url": "example.com/article-no-scheme", "tags": ""},
+        follow_redirects=False,
+    )
+    assert response.status_code in [303, 307, 308]
+
+
+@pytest.mark.asyncio
+async def test_save_url_invalid_text(client, db, auth_headers):
+    """Test save fails with 400 when text contains no valid URL."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    response = client.post(
+        "/save",
+        data={"url": "Not a valid url at all", "tags": ""},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_get_item_not_found(client, db, auth_headers):
     """Test retrieving non-existent item returns 404."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
@@ -317,6 +361,45 @@ async def test_api_save_missing_auth(client):
     """Test API save requires authentication."""
     response = client.post("/api/save", json={"url": "https://example.com/test"})
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_api_save_mixed_text(client, db, auth_headers):
+    """Test API save extracts URL from mixed text payload."""
+    from src.auth.service import create_pat
+
+    user = auth_headers["admin_user"]
+    pat_data = await create_pat(db, user["id"], "Test Token Mixed")
+    headers = {"Authorization": f"Bearer {pat_data['token']}"}
+
+    response = client.post(
+        "/api/save",
+        json={
+            "url": "Shared via Reddit app: https://example.com/from-reddit-share.",
+            "tags": ["mobile"],
+        },
+        headers=headers,
+    )
+    assert response.status_code in [200, 201, 202]
+    data = response.json()
+    assert data["url"] == "https://example.com/from-reddit-share"
+
+
+@pytest.mark.asyncio
+async def test_api_save_invalid_url(client, db, auth_headers):
+    """Test API save rejects invalid strings with 400."""
+    from src.auth.service import create_pat
+
+    user = auth_headers["admin_user"]
+    pat_data = await create_pat(db, user["id"], "Test Token Invalid")
+    headers = {"Authorization": f"Bearer {pat_data['token']}"}
+
+    response = client.post(
+        "/api/save",
+        json={"url": "Not a valid url"},
+        headers=headers,
+    )
+    assert response.status_code == 400
 
 
 @pytest.mark.asyncio
