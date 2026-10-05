@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import datetime
 import hashlib
@@ -401,14 +402,12 @@ async def library_page(
             status=clean_status,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
-    tags = await list_user_tags(db, user["id"])
-    tag_styles = tag_styles_for([t["name"] for t in tags])
-    # True library size: the feed is capped at 30, so len(items) lies.
-    total_row = await db.query_first(
-        "SELECT COUNT(*) as count FROM items WHERE user_id = ?;", (user["id"],)
+    tags, status_counts = await asyncio.gather(
+        list_user_tags(db, user["id"]),
+        get_status_counts(db, user["id"]),
     )
-    total_count = total_row["count"] if total_row else 0
-    status_counts = await get_status_counts(db, user["id"])
+    tag_styles = tag_styles_for([t["name"] for t in tags])
+    total_count = status_counts.get("all", 0)
 
     pager_qs = urlencode(
         {

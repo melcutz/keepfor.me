@@ -76,45 +76,71 @@ async def save_item(
 async def add_tags_to_item(
     db: Database, user_id: str, item_id: str, tags: list[str]
 ) -> None:
-    for tag_name in tags:
-        clean_tag = tag_name.strip().lower()
-        if not clean_tag:
-            continue
-        # Ensure tag exists in tags table
-        tag_row = await db.query_first(
-            "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, clean_tag)
-        )
-        if not tag_row:
-            tag_id = str(uuid.uuid4())
-            await db.execute(
-                "INSERT OR IGNORE INTO tags (id, user_id, name) VALUES (?, ?, ?);",
-                (tag_id, user_id, clean_tag),
-            )
-            tag_row = await db.query_first(
-                "SELECT id FROM tags WHERE user_id = ? AND name = ?;",
-                (user_id, clean_tag),
-            )
+    clean_tags = list(dict.fromkeys(t.strip().lower() for t in tags if t.strip()))
+    if not clean_tags:
+        return
 
-        if tag_row:
-            await db.execute(
-                "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?);",
-                (item_id, tag_row["id"]),
+    placeholders = ",".join("?" for _ in clean_tags)
+    existing_rows = await db.query_all(
+        f"SELECT id, name FROM tags WHERE user_id = ? AND name IN ({placeholders});",
+        (user_id, *clean_tags),
+    )
+    tag_map = {r["name"]: r["id"] for r in existing_rows}
+
+    missing = [t for t in clean_tags if t not in tag_map]
+    if missing:
+        insert_stmts = []
+        for t in missing:
+            new_id = str(uuid.uuid4())
+            tag_map[t] = new_id
+            insert_stmts.append(
+                (
+                    "INSERT OR IGNORE INTO tags (id, user_id, name) VALUES (?, ?, ?);",
+                    (new_id, user_id, t),
+                )
             )
+        await db.execute_batch(insert_stmts)
+
+        # In case of concurrent conflict where our generated uuid was ignored,
+        # re-fetch missing tags to ensure accurate IDs
+        missing_ph = ",".join("?" for _ in missing)
+        check_rows = await db.query_all(
+            f"SELECT id, name FROM tags WHERE user_id = ? AND name IN ({missing_ph});",
+            (user_id, *missing),
+        )
+        for r in check_rows:
+            tag_map[r["name"]] = r["id"]
+
+    link_stmts = [
+        (
+            "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?);",
+            (item_id, tag_map[t]),
+        )
+        for t in clean_tags
+        if t in tag_map
+    ]
+    if link_stmts:
+        await db.execute_batch(link_stmts)
 
 
 async def remove_tags_from_item(
     db: Database, user_id: str, item_id: str, tags: list[str]
 ) -> None:
-    for tag_name in tags:
-        clean_tag = tag_name.strip().lower()
-        tag_row = await db.query_first(
-            "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, clean_tag)
+    clean_tags = list(dict.fromkeys(t.strip().lower() for t in tags if t.strip()))
+    if not clean_tags:
+        return
+    placeholders = ",".join("?" for _ in clean_tags)
+    rows = await db.query_all(
+        f"SELECT id FROM tags WHERE user_id = ? AND name IN ({placeholders});",
+        (user_id, *clean_tags),
+    )
+    if rows:
+        tag_ids = [r["id"] for r in rows]
+        id_ph = ",".join("?" for _ in tag_ids)
+        await db.execute(
+            f"DELETE FROM item_tags WHERE item_id = ? AND tag_id IN ({id_ph});",
+            (item_id, *tag_ids),
         )
-        if tag_row:
-            await db.execute(
-                "DELETE FROM item_tags WHERE item_id = ? AND tag_id = ?;",
-                (item_id, tag_row["id"]),
-            )
 
 
 async def get_item_tags(db: Database, item_id: str) -> list[str]:
@@ -206,9 +232,11 @@ async def delete_item(db: Database, env: Any, user_id: str, item_id: str) -> boo
             pass
 
     # 3. Delete from D1 (triggers cascade deletions on chunks, item_tags)
-    await db.execute("DELETE FROM items_fts WHERE item_id = ?;", (item_id,))
-    await db.execute(
-        "DELETE FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+    await db.execute_batch(
+        [
+            ("DELETE FROM items_fts WHERE item_id = ?;", (item_id,)),
+            ("DELETE FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)),
+        ]
     )
     return True
 

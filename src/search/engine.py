@@ -179,19 +179,21 @@ async def hybrid_search(
         :MAX_TAG_FILTERS
     ]
     if not query:
-        # Return recent items
-        items = await get_recent_items(
-            db,
-            user_id,
-            tag=tag,
-            tags=tag_list,
-            untagged=untagged,
-            limit=limit,
-            offset=offset,
-            status=status,
-        )
-        total = await count_recent_items(
-            db, user_id, tag=tag, tags=tag_list, untagged=untagged, status=status
+        # Fetch recent items and total count concurrently
+        items, total = await asyncio.gather(
+            get_recent_items(
+                db,
+                user_id,
+                tag=tag,
+                tags=tag_list,
+                untagged=untagged,
+                limit=limit,
+                offset=offset,
+                status=status,
+            ),
+            count_recent_items(
+                db, user_id, tag=tag, tags=tag_list, untagged=untagged, status=status
+            ),
         )
         return items, total
 
