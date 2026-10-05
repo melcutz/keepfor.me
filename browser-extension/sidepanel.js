@@ -103,3 +103,20 @@ $("c-go").addEventListener("click", async () => {
       `<div class="item"><span><a href="${it.url}" target="_blank">${String(it.title || it.url).replace(/</g, "&lt;")}</a><br><span class="u">${it.url}</span></span></div>`).join("");
   } catch (e) { $("c-list").innerHTML = `<div class="item err">${String(e.message || e)}</div>`; }
 });
+if (window.LanguageModel || window.ai?.canCreateTextSession) {
+  const b = document.createElement("button");
+  b.textContent = "Suggest tags (on-device)";
+  b.className = "btn"; b.style.background = "#334155";
+  b.addEventListener("click", async () => {
+    try {
+      const titles = tabRows.slice(0, 5).map((r) => r.title).join("; ");
+      let out = "";
+      if (window.LanguageModel) {
+        const s = await window.LanguageModel.create();
+        out = await s.prompt(`Suggest 5 comma-separated lowercase tags for these tabs: ${titles}`);
+      } else { const s = await window.ai.createTextSession(); out = await s.prompt(`Suggest tags: ${titles}`); }
+      $("tabs-tags").value = out.split(/[,\n]/).map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 8).join(", ");
+    } catch (e) { $("tabs-err").textContent = `On-device AI unavailable: ${e.message}`; }
+  });
+  $("tab-tabs").appendChild(b);
+}
