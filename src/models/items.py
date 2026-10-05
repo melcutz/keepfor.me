@@ -330,6 +330,40 @@ async def prune_unused_tags(db: Database, user_id: str) -> int:
     return len(rows)
 
 
+async def suggest_tags(
+    db: Database,
+    user_id: str,
+    q: str = "",
+    exclude: list[str] | None = None,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    """Tags ranked most-used then most-recently-used, prefix-filtered.
+
+    Empty `q` returns the recents list. `exclude` skips attached tags.
+    """
+    prefix = (q or "").strip().lower()
+    excluded = {e.strip().lower() for e in (exclude or []) if e.strip()}
+    rows = await db.query_all(
+        """
+        SELECT t.name, COUNT(it.item_id) AS count, MAX(i.created_at) AS recent
+        FROM tags t
+        LEFT JOIN item_tags it ON t.id = it.tag_id
+        LEFT JOIN items i ON i.id = it.item_id
+        WHERE t.user_id = ? AND LOWER(t.name) LIKE ?
+        GROUP BY t.id, t.name
+        ORDER BY count DESC, recent DESC
+        LIMIT ?;
+        """,
+        (user_id, prefix + "%", limit + len(excluded)),
+    )
+    out = [
+        {"name": r["name"], "count": r["count"]}
+        for r in rows
+        if r["name"].lower() not in excluded
+    ]
+    return out[:limit]
+
+
 async def add_suggestions(
     db: Database,
     user_id: str,

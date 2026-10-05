@@ -51,6 +51,7 @@ from src.models.items import (
     remove_tags_from_item,
     rename_tag,
     save_item,
+    suggest_tags,
 )
 from src.schemas import (
     CreatePATRequest,
@@ -687,6 +688,17 @@ async def tags_delete(request: Request, name: str = Form("")):
     if request.headers.get("hx-request"):
         return HTMLResponse(content=await _render_tags_list(db, user["id"]))
     return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.get("/tags/suggest")
+async def tags_suggest(request: Request, q: str = "", exclude: str = ""):
+    user = await get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required")
+    db = get_db(request)
+    return await suggest_tags(
+        db, user["id"], q, [e for e in exclude.split(",") if e.strip()]
+    )
 
 
 @app.post("/tags/merge")
