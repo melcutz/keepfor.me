@@ -47,52 +47,111 @@
   </section>
   {% endif %}
 
-  <!-- Tag table -->
-  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-    <h3 class="text-base font-semibold text-slate-900 mb-4">All tags ({{ tags|length }})</h3>
-    {% if tags %}
-    <div class="border border-slate-200 rounded-lg overflow-x-auto">
-      <table class="w-full min-w-[560px] text-left text-xs">
-        <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase">
-          <tr>
-            <th class="px-4 py-2.5">Tag</th>
-            <th class="px-4 py-2.5">Items</th>
-            <th class="px-4 py-2.5">Rename</th>
-            <th class="px-4 py-2.5 text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-100">
-          {% for t in tags %}
-          {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-          <tr>
-            <td class="px-4 py-3 font-medium text-slate-800">
-              <span class="w-2 h-2 rounded-full {{ ts[1] }} inline-block mr-1.5"></span>#{{ t.name }}
-            </td>
-            <td class="px-4 py-3 text-slate-500">
-              <a href="/?tag={{ t.name }}" class="hover:underline">{{ t.count }}</a>
-            </td>
-            <td class="px-4 py-3">
-              <form action="/tags/rename" method="POST" class="flex items-center gap-2">
-                <input type="hidden" name="old_name" value="{{ t.name }}">
-                <input type="text" name="new_name" required placeholder="New name"
-                       class="w-32 px-2 py-1 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-slate-900">
-                <button type="submit" class="px-2.5 py-1 border border-slate-200 text-slate-600 rounded-md font-medium hover:bg-slate-50">Rename</button>
-              </form>
-            </td>
-            <td class="px-4 py-3 text-right">
-              <form action="/tags/delete" method="POST" onsubmit="return confirm('Delete tag #{{ t.name }}? Items stay in your library, untagged.');">
-                <input type="hidden" name="name" value="{{ t.name }}">
-                <button type="submit" class="px-2.5 py-1 text-red-600 hover:bg-red-50 rounded-md font-medium">Delete</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="text-xs text-slate-500">No tags yet. Create one above, or add tags when saving a link.</p>
-    {% endif %}
-  </section>
+  <!-- All tags -->
+<section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+  <h3 class="text-base font-semibold text-slate-900 mb-4">All tags ({{ tags|length }})</h3>
+  {% if tags %}
+  <div class="flex flex-wrap items-center gap-2 mb-3">
+    <input type="search" id="tag-search" placeholder="Filter tags…"
+           class="flex-1 min-w-40 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
+    <select id="tag-sort" aria-label="Sort tags"
+            class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
+      <option value="count">Most used</option>
+      <option value="name">Name A–Z</option>
+    </select>
+  </div>
+  <div id="merge-bar" class="hidden flex-wrap items-center gap-2 mb-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
+    <span id="merge-count" class="text-xs text-slate-600"></span>
+    <span class="text-xs text-slate-500">into</span>
+    <input type="text" id="merge-target" placeholder="target name"
+           class="w-32 px-2 py-1 border border-slate-300 rounded-md text-xs">
+    <button type="button" id="merge-go"
+            class="px-2.5 py-1 bg-slate-900 text-white rounded-md text-xs font-medium">Merge</button>
+  </div>
+  <div class="border border-slate-200 rounded-lg overflow-hidden">
+    {% include "partials/tag_list.html" %}
+  </div>
+  {% set unused = tags|selectattr('count', 'equalto', 0)|list %}
+  {% if unused %}
+  <div class="mt-4 flex items-center gap-2 text-xs text-slate-500">
+    <span>{{ unused|length }} unused tag{{ 's' if unused|length != 1 }}: {{ unused|map(attribute='name')|join(', ') }}</span>
+    <form hx-post="/tags/prune" hx-target="#tag-list" hx-swap="outerHTML" class="inline">
+      <button type="submit" class="px-2.5 py-1 border border-slate-200 rounded-md font-medium hover:bg-slate-50">Prune all unused</button>
+    </form>
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="text-xs text-slate-500">No tags yet. Create one above, or add tags when saving a link.</p>
+  {% endif %}
+</section>
+<script>
+(function () {
+  // NOTE: listeners are delegated from `document` (not #tag-list) and the
+  // list node is re-queried per event, because hx-swap="outerHTML" replaces
+  // #tag-list on every rename/delete/merge/prune. Listeners attached to the
+  // old node would detach after the first swap, and a cached reference would
+  // go stale; the script block itself runs once on page load and is NOT
+  // re-executed after a swap.
+  function tagList() { return document.getElementById('tag-list'); }
+  // Rename toggle (delegated so htmx swaps keep working).
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-rename]');
+    if (!btn || !btn.closest('#tag-list')) return;
+    var row = btn.closest('[data-name]');
+    var form = row.querySelector('.tag-rename-form');
+    form.classList.toggle('hidden');
+    form.classList.toggle('flex');
+    btn.classList.toggle('hidden');
+    var input = form.querySelector('input[name="new_name"]');
+    if (input) { input.focus(); input.select(); }
+  });
+  // Client-side search filter.
+  var search = document.getElementById('tag-search');
+  if (search) search.addEventListener('input', function () {
+    var list = tagList();
+    if (!list) return;
+    var q = search.value.trim().toLowerCase();
+    list.querySelectorAll('[data-name]').forEach(function (row) {
+      row.style.display = row.getAttribute('data-name').includes(q) ? '' : 'none';
+    });
+  });
+  // Client-side sort.
+  var sort = document.getElementById('tag-sort');
+  if (sort) sort.addEventListener('change', function () {
+    var list = tagList();
+    if (!list) return;
+    var rows = Array.from(list.querySelectorAll('[data-name]'));
+    rows.sort(function (a, b) {
+      if (sort.value === 'name') return a.getAttribute('data-name').localeCompare(b.getAttribute('data-name'));
+      return (+b.getAttribute('data-count')) - (+a.getAttribute('data-count'));
+    });
+    rows.forEach(function (r) { list.appendChild(r); });
+  });
+  // Merge bar visibility + submit.
+  var bar = document.getElementById('merge-bar');
+  var count = document.getElementById('merge-count');
+  var target = document.getElementById('merge-target');
+  function selected() {
+    var list = tagList();
+    if (!list) return [];
+    return Array.from(list.querySelectorAll('.tag-select:checked')).map(function (c) { return c.value; });
+  }
+  document.addEventListener('change', function (e) {
+    if (!e.target.closest('#tag-list')) return;
+    var sel = selected();
+    if (!bar) return;
+    bar.classList.toggle('hidden', sel.length < 2);
+    bar.classList.toggle('flex', sel.length >= 2);
+    if (count) count.textContent = 'Merge ' + sel.length + ' tags';
+  });
+  var go = document.getElementById('merge-go');
+  if (go) go.addEventListener('click', function () {
+    var sel = selected();
+    if (sel.length < 2 || !target.value.trim()) return;
+    htmx.ajax('POST', '/tags/merge', {target: '#tag-list', swap: 'outerHTML',
+      values: {old_names: sel.join(', '), new_name: target.value.trim()}});
+  });
+})();
+</script>
 </div>
 {% endblock %}

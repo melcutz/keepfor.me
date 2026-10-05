@@ -1,0 +1,24 @@
+<div id="tag-list" class="divide-y divide-slate-100">
+  {% for t in tags %}
+  {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
+  <div class="tag-row flex items-center gap-2.5 px-3 py-2.5" data-name="{{ t.name }}" data-count="{{ t.count }}">
+    <input type="checkbox" value="{{ t.name }}" class="tag-select w-4 h-4 accent-slate-900 shrink-0" aria-label="Select tag {{ t.name }}">
+    <span class="w-2 h-2 rounded-full {{ ts[1] }} shrink-0"></span>
+    <a href="/?tag={{ t.name }}" class="font-medium text-slate-800 hover:underline truncate">#{{ t.name }}</a>
+    <a href="/?tag={{ t.name }}" class="text-xs text-slate-400 hover:underline shrink-0">{{ t.count }}</a>
+    <button type="button" class="tag-rename-btn px-2 py-1 text-xs text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md shrink-0" data-rename="{{ t.name }}">Rename</button>
+    <form class="tag-rename-form hidden items-center gap-1.5" hx-post="/tags/rename" hx-target="#tag-list" hx-swap="outerHTML">
+      <input type="hidden" name="old_name" value="{{ t.name }}">
+      <input type="text" name="new_name" value="{{ t.name }}" required aria-label="New name for {{ t.name }}"
+             class="w-32 px-2 py-1 border border-slate-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-slate-900">
+      <button type="submit" class="px-2 py-1 bg-slate-900 text-white rounded-md text-xs font-medium">Save</button>
+    </form>
+    <form class="ml-auto shrink-0" hx-post="/tags/delete" hx-target="#tag-list" hx-swap="outerHTML"
+          hx-confirm="Delete tag #{{ t.name }}? Items stay in your library, untagged.">
+      <input type="hidden" name="name" value="{{ t.name }}">
+      <button type="submit" aria-label="Delete tag {{ t.name }}"
+              class="w-8 h-8 text-lg leading-none text-slate-300 hover:text-red-600 hover:bg-red-50 rounded-full">&times;</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
