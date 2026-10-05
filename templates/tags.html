@@ -73,8 +73,8 @@
   </div>
   {% set unused = tags|selectattr('count', 'equalto', 0)|list %}
   {% if unused %}
-  <div class="mt-4 flex items-center gap-2 text-xs text-slate-500">
-    <span>{{ unused|length }} unused tag{{ 's' if unused|length != 1 }}: {{ unused|map(attribute='name')|join(', ') }}</span>
+  <div id="unused-banner" class="mt-4 flex items-center gap-2 text-xs text-slate-500">
+    <span id="unused-text">{{ unused|length }} unused tag{{ 's' if unused|length != 1 }}: {{ unused|map(attribute='name')|join(', ') }}</span>
     <form hx-post="/tags/prune" hx-target="#tag-list" hx-swap="outerHTML" class="inline">
       <button type="submit" class="px-2.5 py-1 border border-slate-200 rounded-md font-medium hover:bg-slate-50">Prune all unused</button>
     </form>
@@ -93,40 +93,69 @@
   // go stale; the script block itself runs once on page load and is NOT
   // re-executed after a swap.
   function tagList() { return document.getElementById('tag-list'); }
-  // Rename toggle (delegated so htmx swaps keep working).
+  function isTagListSwap(e) {
+    var t = (e.detail && e.detail.target) || e.target;
+    if (!t || !t.closest) return false;
+    if (t.id === 'tag-list') return true;
+    if (t.closest('#tag-list')) return true;
+    if (t.querySelector && t.querySelector('#tag-list')) return true;
+    return false;
+  }
+  // Rename open/close (delegated so htmx swaps keep working).
+  function closeRename(row) {
+    if (!row) return;
+    var form = row.querySelector('.tag-rename-form');
+    var btn = row.querySelector('[data-rename]');
+    if (form) { form.classList.add('hidden'); form.classList.remove('flex'); }
+    if (btn) { btn.classList.remove('hidden'); btn.setAttribute('aria-expanded', 'false'); btn.focus(); }
+  }
   document.addEventListener('click', function (e) {
+    var cancel = e.target.closest('[data-cancel]');
+    if (cancel && cancel.closest('#tag-list')) {
+      closeRename(cancel.closest('[data-name]'));
+      return;
+    }
     var btn = e.target.closest('[data-rename]');
     if (!btn || !btn.closest('#tag-list')) return;
     var row = btn.closest('[data-name]');
     var form = row.querySelector('.tag-rename-form');
-    form.classList.toggle('hidden');
-    form.classList.toggle('flex');
-    btn.classList.toggle('hidden');
+    form.classList.remove('hidden');
+    form.classList.add('flex');
+    btn.classList.add('hidden');
+    btn.setAttribute('aria-expanded', 'true');
     var input = form.querySelector('input[name="new_name"]');
     if (input) { input.focus(); input.select(); }
   });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var form = e.target.closest ? e.target.closest('.tag-rename-form') : null;
+    if (!form || !form.closest('#tag-list')) return;
+    closeRename(form.closest('[data-name]'));
+  });
   // Client-side search filter.
   var search = document.getElementById('tag-search');
-  if (search) search.addEventListener('input', function () {
+  function applyFilter() {
     var list = tagList();
-    if (!list) return;
+    if (!list || !search) return;
     var q = search.value.trim().toLowerCase();
     list.querySelectorAll('[data-name]').forEach(function (row) {
       row.style.display = row.getAttribute('data-name').includes(q) ? '' : 'none';
     });
-  });
+  }
+  if (search) search.addEventListener('input', applyFilter);
   // Client-side sort.
   var sort = document.getElementById('tag-sort');
-  if (sort) sort.addEventListener('change', function () {
+  function applySort() {
     var list = tagList();
-    if (!list) return;
+    if (!list || !sort) return;
     var rows = Array.from(list.querySelectorAll('[data-name]'));
     rows.sort(function (a, b) {
       if (sort.value === 'name') return a.getAttribute('data-name').localeCompare(b.getAttribute('data-name'));
       return (+b.getAttribute('data-count')) - (+a.getAttribute('data-count'));
     });
     rows.forEach(function (r) { list.appendChild(r); });
-  });
+  }
+  if (sort) sort.addEventListener('change', applySort);
   // Merge bar visibility + submit.
   var bar = document.getElementById('merge-bar');
   var count = document.getElementById('merge-count');
@@ -136,13 +165,16 @@
     if (!list) return [];
     return Array.from(list.querySelectorAll('.tag-select:checked')).map(function (c) { return c.value; });
   }
-  document.addEventListener('change', function (e) {
-    if (!e.target.closest('#tag-list')) return;
-    var sel = selected();
+  function resyncMergeBar() {
     if (!bar) return;
+    var sel = selected();
     bar.classList.toggle('hidden', sel.length < 2);
     bar.classList.toggle('flex', sel.length >= 2);
     if (count) count.textContent = 'Merge ' + sel.length + ' tags';
+  }
+  document.addEventListener('change', function (e) {
+    if (!e.target.closest('#tag-list')) return;
+    resyncMergeBar();
   });
   var go = document.getElementById('merge-go');
   if (go) go.addEventListener('click', function () {
@@ -150,6 +182,55 @@
     if (sel.length < 2 || !target.value.trim()) return;
     htmx.ajax('POST', '/tags/merge', {target: '#tag-list', swap: 'outerHTML',
       values: {old_names: sel.join(', '), new_name: target.value.trim()}});
+  });
+  // Unused banner: server-rendered at page load only, so recompute from the
+  // fresh rows' data-count attributes after every swap.
+  function resyncUnusedBanner() {
+    var banner = document.getElementById('unused-banner');
+    if (!banner) return;
+    var list = tagList();
+    var names = [];
+    if (list) list.querySelectorAll('[data-name]').forEach(function (row) {
+      if (row.getAttribute('data-count') === '0') names.push(row.getAttribute('data-name'));
+    });
+    var text = document.getElementById('unused-text');
+    if (!names.length) {
+      banner.style.display = 'none';
+      return;
+    }
+    banner.style.display = '';
+    if (text) text.textContent = names.length + ' unused tag' + (names.length === 1 ? '' : 's') + ': ' + names.join(', ');
+  }
+  // Focus tracking across swaps: record the focused row before the request,
+  // restore to its Rename button (or the list region) after the swap.
+  var pendingFocusName = null;
+  document.addEventListener('htmx:beforeRequest', function (e) {
+    if (!isTagListSwap(e)) return;
+    var ae = document.activeElement;
+    var row = ae && ae.closest ? ae.closest('[data-name]') : null;
+    pendingFocusName = (row && row.closest('#tag-list')) ? row.getAttribute('data-name') : null;
+  });
+  document.addEventListener('htmx:afterSwap', function (e) {
+    if (!isTagListSwap(e)) return;
+    resyncMergeBar();
+    applyFilter();
+    applySort();
+    resyncUnusedBanner();
+    var list = tagList();
+    if (!list) { pendingFocusName = null; return; }
+    if (pendingFocusName) {
+      var match = null;
+      list.querySelectorAll('[data-name]').forEach(function (row) {
+        if (row.getAttribute('data-name') === pendingFocusName) match = row;
+      });
+      if (match) {
+        var btn = match.querySelector('[data-rename]');
+        if (btn) { btn.focus(); pendingFocusName = null; return; }
+      }
+    }
+    if (!list.hasAttribute('tabindex')) list.setAttribute('tabindex', '-1');
+    list.focus({preventScroll: true});
+    pendingFocusName = null;
   });
 })();
 </script>
