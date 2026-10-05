@@ -175,7 +175,7 @@ async def hybrid_search(
     the ranked-candidate count (~100 max) for text queries.
     """
     query = query.strip()
-    tag_list = list(tags) if tags else ([tag] if tag else [])
+    tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))]
     if not query:
         # Return recent items
         items = await get_recent_items(
@@ -312,7 +312,7 @@ async def get_recent_items(
     if status_values:
         status_clause = f" AND i.status IN ({','.join('?' for _ in status_values)})"
         status_params = tuple(status_values)
-    tag_list = list(tags) if tags else ([tag] if tag else [])
+    tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))]
     if tag_list:
         exists = " ".join(
             "AND EXISTS (SELECT 1 FROM item_tags it%d JOIN tags t%d"
@@ -395,7 +395,7 @@ async def count_recent_items(
     if status_values:
         status_clause = f" AND status IN ({','.join('?' for _ in status_values)})"
         status_params = tuple(status_values)
-    tag_list = list(tags) if tags else ([tag] if tag else [])
+    tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))]
     if tag_list:
         tag_clause = status_clause.replace("status", "i.status")
         exists = " ".join(

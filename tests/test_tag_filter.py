@@ -62,3 +62,19 @@ async def test_legacy_single_tag_still_works(db):
     assert [i["id"] for i in items] == ["f1"]
     items, total = await hybrid_search(db, None, user["id"], "", tag="tech")
     assert total == 1
+
+
+@pytest.mark.asyncio
+async def test_mixed_case_tag_matches_text_query_path(db):
+    user = await register_user(db, "flt4@keepfor.me", "password123")
+    await _seed(db, user["id"], "f1", "https://example.com/1", ["Tech"])
+    await db.execute(
+        "INSERT INTO items_fts (item_id, user_id, title, content_text)"
+        " VALUES (?, ?, ?, ?);",
+        ("f1", user["id"], "Example article", "Example content about example things"),
+    )
+    items, total = await hybrid_search(
+        db, None, user["id"], "example", mode="keyword", tag="Tech"
+    )
+    assert total == 1
+    assert [i["id"] for i in items] == ["f1"]
