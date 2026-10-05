@@ -295,6 +295,41 @@ async def delete_tag(db: Database, user_id: str, raw_name: str) -> bool:
     return True
 
 
+async def merge_tags(
+    db: Database, user_id: str, old_names: list[str], new_name: str
+) -> str:
+    """Merges several tags into one via rename-onto-existing.
+
+    Returns 'merged', 'unchanged', 'not_found' or 'invalid'.
+    """
+    from src.utils.tagger import validate_tag_name
+
+    if not validate_tag_name(new_name or ""):
+        return "invalid"
+    seen = "not_found"
+    for raw in old_names or []:
+        res = await rename_tag(db, user_id, raw, new_name)
+        if res in ("merged", "unchanged"):
+            seen = "merged"
+    return seen
+
+
+async def prune_unused_tags(db: Database, user_id: str) -> int:
+    """Deletes zero-item tags for the user; returns the deleted count."""
+    rows = await db.query_all(
+        """
+        SELECT t.id
+        FROM tags t
+        LEFT JOIN item_tags it ON t.id = it.tag_id
+        WHERE t.user_id = ? AND it.item_id IS NULL;
+        """,
+        (user_id,),
+    )
+    for row in rows:
+        await db.execute("DELETE FROM tags WHERE id = ?;", (row["id"],))
+    return len(rows)
+
+
 async def add_suggestions(
     db: Database,
     user_id: str,
