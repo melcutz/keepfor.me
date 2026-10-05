@@ -1,32 +1,22 @@
 {
   "manifest_version": 3,
   "name": "Keepfor.me",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Save pages and articles to your Keepfor.me personal library",
-  "icons": {
-    "16": "icon16.png",
-    "48": "icon48.png",
-    "128": "icon128.png"
-  },
-  "permissions": [
-    "activeTab",
-    "storage"
-  ],
+  "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
+  "permissions": ["activeTab", "storage", "tabs", "history", "contextMenus", "sidePanel"],
   "host_permissions": [
     "https://app.keepfor.me/*",
     "https://keepfor.me/*",
-    "https://*.workers.dev/*"
+    "https://*.workers.dev/*",
+    "http://localhost/*"
   ],
-  "action": {
-    "default_popup": "popup.html",
-    "default_title": "Save to Keepfor.me"
-  },
+  "action": { "default_popup": "popup.html", "default_title": "Save to Keepfor.me" },
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "sidepanel.html" },
   "commands": {
     "_execute_action": {
-      "suggested_key": {
-        "default": "Alt+S",
-        "mac": "Alt+S"
-      },
+      "suggested_key": { "default": "Alt+S", "mac": "Alt+S" },
       "description": "Open Keepfor.me Save Dialog"
     }
   }

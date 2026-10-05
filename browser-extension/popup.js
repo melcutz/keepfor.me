@@ -95,6 +95,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         const data = await response.json();
         statusDiv.textContent = data.is_new ? "Saved & Queued!" : "Updated tags!";
         statusDiv.className = "status success";
+        if (!data.is_new) {
+          const dupe = document.getElementById("dupe");
+          if (dupe) dupe.textContent = "Already in library — open it from the library link above.";
+        }
         setTimeout(() => window.close(), 1200);
       } catch (err) {
         statusDiv.textContent = err.message;
@@ -102,5 +106,33 @@ document.addEventListener("DOMContentLoaded", async () => {
         saveBtn.disabled = false;
       }
     });
+  });
+
+  // Library link + panel launcher.
+  document.getElementById("open-library").addEventListener("click", (e) => {
+    e.preventDefault();
+    chrome.storage.sync.get(["workerUrl"], (res) => {
+      const base = (res.workerUrl || "https://app.keepfor.me").trim().replace(/\/+$/, "");
+      chrome.tabs.create({ url: base });
+    });
+  });
+  document.getElementById("open-panel").addEventListener("click", async (e) => {
+    e.preventDefault();
+    try { await chrome.sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT }); }
+    catch { chrome.runtime.sendMessage({ type: "kfm-open-panel" }); }
+  });
+
+  // Surface context-menu result stored by background.js.
+  chrome.storage.local.get(["kfmLast"], (r) => {
+    const last = r && r.kfmLast;
+    if (last && Date.now() - last.at < 60000) {
+      if (last.ok) {
+        statusDiv.textContent = last.is_new === false ? "Updated tags!" : "Saved & Queued!";
+        statusDiv.className = "status success";
+      } else {
+        statusDiv.textContent = last.error || "Save failed";
+        statusDiv.className = "status error";
+      }
+    }
   });
 });
