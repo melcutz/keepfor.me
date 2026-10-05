@@ -77,7 +77,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       };
 
       try {
-        const response = await fetch(`${res.workerUrl}/api/save`, {
+        const base = res.workerUrl.trim().replace(/\/+$/, "");
+        const response = await fetch(`${base}/api/save`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
