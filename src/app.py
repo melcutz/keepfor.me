@@ -760,7 +760,7 @@ async def tag_rule_delete(request: Request, rule_id: str = Form("")):
 async def tag_rule_suggestion_dismiss(request: Request, key: str = Form("")):
     user = await require_user(request)
     db = get_db(request)
-    clean = (key or "").strip()[:128]
+    clean = (key or "").strip()
     if clean:
         await db.execute(
             "INSERT OR IGNORE INTO rule_suggestion_dismissals (user_id, key)"

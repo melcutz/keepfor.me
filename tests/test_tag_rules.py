@@ -79,3 +79,59 @@ async def test_miner_proposes_high_precision_domain(db):
     assert {"domain": "arxiv.org", "tag": "research"} == {
         k: got[0][k] for k in ("domain", "tag")
     }
+
+
+@pytest.mark.asyncio
+async def test_miner_ignores_untagged_same_host_items(db):
+    from src.models.items import add_tags_to_item, suggest_rules
+
+    user = await register_user(db, "mn2@keepfor.me", "password123")
+    for i in range(5):
+        url = f"https://arxiv.org/abs/{i}"
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, status)"
+            " VALUES (?, ?, ?, ?, 'ok');",
+            (f"mx{i}", user["id"], url, url),
+        )
+        await add_tags_to_item(db, user["id"], f"mx{i}", ["research"])
+    for i in range(95):
+        url = f"https://arxiv.org/other/{i}"
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, status)"
+            " VALUES (?, ?, ?, ?, 'ok');",
+            (f"mu{i}", user["id"], url, url),
+        )
+    got = await suggest_rules(db, user["id"])
+    assert got == []
+
+
+@pytest.mark.asyncio
+async def test_dismiss_roundtrip_hides_suggestion(db):
+    from src.models.items import add_tags_to_item, suggest_rules
+
+    user = await register_user(db, "mn3@keepfor.me", "password123")
+    for i in range(5):
+        url = f"https://example.org/p/{i}"
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, status)"
+            " VALUES (?, ?, ?, ?, 'ok');",
+            (f"md{i}", user["id"], url, url),
+        )
+        await add_tags_to_item(db, user["id"], f"md{i}", ["reads"])
+    before = await suggest_rules(db, user["id"])
+    assert len(before) == 1
+    await db.execute(
+        "INSERT INTO rule_suggestion_dismissals (user_id, key) VALUES (?, ?);",
+        (user["id"], before[0]["key"]),
+    )
+    assert await suggest_rules(db, user["id"]) == []
+
+
+@pytest.mark.asyncio
+async def test_duplicate_create_returns_existing_id(db):
+    from src.models.items import create_rule
+
+    user = await register_user(db, "mn4@keepfor.me", "password123")
+    first = await create_rule(db, user["id"], "domain", "arxiv.org", "research")
+    second = await create_rule(db, user["id"], "domain", "arxiv.org", "research")
+    assert first is not None and first == second

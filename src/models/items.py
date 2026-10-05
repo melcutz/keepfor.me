@@ -423,6 +423,13 @@ async def create_rule(
     )
     if len(existing) >= RULES_PER_USER_MAX:
         return None
+    dup = await db.query_first(
+        "SELECT id FROM tag_rules"
+        " WHERE user_id = ? AND field = ? AND substr = ? AND tag = ?;",
+        (user_id, field, clean_sub, clean_tag),
+    )
+    if dup:
+        return dup["id"]
     rule_id = str(uuid.uuid4())
     await db.execute(
         "INSERT OR IGNORE INTO tag_rules (id, user_id, field, substr, tag)"
@@ -482,6 +489,11 @@ async def suggest_rules(
 ) -> list[dict[str, Any]]:
     """Mine domain->tag pairs worth turning into rules.
 
+    Precision denominator counts ALL of the user's items per host (tagged
+    and untagged); support counts only tagged items. No input LIMIT is
+    applied so support counts stay exact (correctness over scan cost at
+    current scale). Output is bounded to the top 20, ordered by (host, tag).
+
     Skips existing rules and dismissed keys (`domain:<d>:<t>`).
     """
     rows = await db.query_all(
@@ -491,12 +503,23 @@ async def suggest_rules(
         " WHERE i.user_id = ?;",
         (user_id,),
     )
+    url_rows = await db.query_all(
+        "SELECT canonical_url FROM items WHERE user_id = ?;", (user_id,)
+    )
     from collections import Counter
     from urllib.parse import urlparse
 
     pair: Counter[tuple[str, str]] = Counter()
     pair_urls: dict[tuple[str, str], set[str]] = {}
     per_host_urls: dict[str, set[str]] = {}
+    for url_row in url_rows:
+        try:
+            host = urlparse(url_row["canonical_url"] or "").netloc.lower()
+        except Exception:
+            continue
+        if not host or not url_row["canonical_url"]:
+            continue
+        per_host_urls.setdefault(host, set()).add(url_row["canonical_url"])
     for row in rows:
         try:
             host = urlparse(row["canonical_url"] or "").netloc.lower()
@@ -504,7 +527,6 @@ async def suggest_rules(
             continue
         if not host or not row["canonical_url"]:
             continue
-        per_host_urls.setdefault(host, set()).add(row["canonical_url"])
         key = (host, row["name"])
         if row["canonical_url"] not in pair_urls.setdefault(key, set()):
             pair_urls[key].add(row["canonical_url"])
@@ -521,6 +543,8 @@ async def suggest_rules(
     }
     out = []
     for (host, tag), support in sorted(pair.items()):
+        if not (2 <= len(host) <= 64):
+            continue
         total = len(per_host_urls.get(host, set()))
         precision = (support / total) if total else 0.0
         key = f"domain:{host}:{tag}"
@@ -539,7 +563,7 @@ async def suggest_rules(
                     "key": key,
                 }
             )
-    return out
+    return out[:20]
 
 
 async def add_suggestions(
