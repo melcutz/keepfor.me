@@ -548,6 +548,8 @@ def test_parse_tag_filter_splits_and_caps():
     assert untagged is False
     tags, untagged = parse_tag_filter("__untagged__")
     assert (tags, untagged) == ([], True)
+    tags, untagged = parse_tag_filter("tech, __untagged__")
+    assert (tags, untagged) == ([], True)
     assert parse_tag_filter("") == ([], False)
     assert parse_tag_filter(None) == ([], False)
 
@@ -600,18 +602,18 @@ def parse_tag_filter(raw: str | None) -> tuple[list[str], bool]:
     """Split a comma-joined `?tag=` value into (tags, untagged).
 
     Lowercases, drops empties and duplicates, caps at MAX_TAG_FILTERS.
-    The sentinel selects tagless items and is never a real tag name
-    (validate_tag_name rejects its leading underscore).
+    The sentinel selects tagless items and is mutually exclusive with tags.
     """
     if not raw:
         return [], False
     parts = [p.strip().lower() for p in raw.split(",") if p.strip()]
-    untagged = UNTAGGED_SENTINEL in parts
+    if UNTAGGED_SENTINEL in parts:
+        return [], True
     seen: list[str] = []
     for p in parts:
-        if p != UNTAGGED_SENTINEL and p not in seen:
+        if p not in seen:
             seen.append(p)
-    return seen[:MAX_TAG_FILTERS], untagged
+    return seen[:MAX_TAG_FILTERS], False
 ```
 
 Change the `tag:`-bearing signatures to accept the new filters while keeping
@@ -726,10 +728,15 @@ Render `active_tags=tag_list, active_untagged=untagged_only` and keep
 lets old partials keep working). Update `pager_qs` to use the raw `tag`
 string unchanged (comma-joined value round-trips as-is).
 
-- [ ] **Step 2: Rewrite the sidebar/chip tag links as toggles**
+In `templates/library.html`, keep the htmx search/status input in sync:
+```html
+<input type="hidden" id="active-tag-input" name="tag" value="{{ active_tags|join(',') if active_tags else (active_tag or '') }}">
+```
+
+- [ ] **Step 2: Rewrite the sidebar/chip tag links as toggles and add active filter bar**
 
 Sidebar row (desktop): replace the `href="/?tag={{ t.name }}"` links with
-toggle links computed from `active_tags`:
+toggle links computed from `active_tags` (clicking a tag clears `__untagged__`, and clicking Untagged clears other tags):
 
 ```html
 {% for t in tags %}
@@ -737,13 +744,13 @@ toggle links computed from `active_tags`:
 {% if t.name in active_tags %}
 <a href="/?tag={{ active_tags|reject('equalto', t.name)|join(',') }}" ...>#{{ t.name }} ×</a>
 {% else %}
-<a href="/?tag={{ (active_tags + [t.name])|join(',') }}" ...>#{{ t.name }}</a>
+<a href="/?tag={{ (active_tags + [t.name])|reject('equalto', '__untagged__')|join(',') }}" ...>#{{ t.name }}</a>
 {% endif %}
 {% endfor %}
 {% if active_untagged %}
-<a href="/?tag={{ active_tags|join(',') }}">Untagged ×</a>
+<a href="/">Untagged ×</a>
 {% else %}
-<a href="/?tag={{ (active_tags + ['__untagged__'])|join(',') }}">Untagged</a>
+<a href="/?tag=__untagged__">Untagged</a>
 {% endif %}
 ```
 
@@ -751,6 +758,29 @@ Apply the same toggle shape to the mobile `#mobile-tags` chips. Empty-query
 `tag=` (all removed) renders as `href="/"`. Active pills use the filled
 `bg-slate-900 text-white` style already in the file. Keep `draggable`,
 `data-tag-source`, tag-mode and DnD handlers untouched.
+
+Add an Active Filters bar directly above the item feed (`#items-list`) in `templates/library.html`:
+
+```html
+{% if active_tags or active_untagged %}
+<div id="active-filters-bar" class="flex flex-wrap items-center gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-3">
+  <span class="text-slate-500 font-medium mr-1">Filtered by:</span>
+  {% for at in active_tags %}
+  <a href="/?tag={{ active_tags|reject('equalto', at)|join(',') }}"
+     class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-900 text-white rounded-full font-medium hover:bg-slate-800">
+    #{{ at }} <span class="text-slate-400 hover:text-white">&times;</span>
+  </a>
+  {% endfor %}
+  {% if active_untagged %}
+  <a href="/"
+     class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-900 text-white rounded-full font-medium hover:bg-slate-800">
+    Untagged <span class="text-slate-400 hover:text-white">&times;</span>
+  </a>
+  {% endif %}
+  <a href="/" class="ml-auto text-slate-500 hover:text-slate-800 underline text-xs">Clear all</a>
+</div>
+{% endif %}
+```
 
 - [ ] **Step 3: Empty-state for filtered-out results**
 
@@ -967,25 +997,30 @@ Replace the tags input block with:
 </script>
 ```
 
-- [ ] **Step 3: Per-card add input in `partials/item_card.html`**
+- [ ] **Step 3: Per-card add input in `partials/item_card.html` and datalist in `library.html`**
 
-Inside the tags `<div class="flex flex-wrap gap-1.5 mt-3">` (after the pills
+In `templates/library.html`, define the global datalist populated with the user's tags:
+
+```html
+<datalist id="tag-suggest-all">
+  {% for t in tags %}<option value="{{ t.name }}"></option>{% endfor %}
+</datalist>
+```
+
+In `templates/partials/item_card.html`, inside the tags `<div class="flex flex-wrap gap-1.5 mt-3">` (after the pills
 loop, still inside the `{% if item.tags %}` block) plus an `{% else %}` branch
 so untagged cards also get the input:
 
 ```html
 <form hx-post="/items/{{ item.id }}/tags" hx-target="#item-card-{{ item.id }}" hx-swap="outerHTML"
       class="inline-flex items-center gap-1">
-  <input type="text" name="add" placeholder="+ add tag" list="ts-{{ item.id }}" autocomplete="off" aria-label="Add tag"
+  <input type="text" name="add" placeholder="+ add tag" list="tag-suggest-all" autocomplete="off" aria-label="Add tag"
          class="w-24 px-2 py-1 border border-dashed border-slate-300 rounded-full text-xs focus:outline-none focus:border-slate-500">
-  <datalist id="ts-{{ item.id }}">
-    {% for tag in item.tags %}<option value="{{ tag }}"></option>{% endfor %}
-  </datalist>
 </form>
 ```
 
 Note: `hx-post` with an `add` field reuses `item_tags_update` unchanged
-(comma-split already handled server-side).
+(comma-split already handled server-side). Using `list="tag-suggest-all"` leverages the user's tag vocabulary rather than duplicating datalists per card.
 
 - [ ] **Step 4: Run the suite for regressions**
 
