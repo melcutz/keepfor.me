@@ -26,6 +26,28 @@ def _status_values(status: str | None) -> tuple[str, ...] | None:
     return STATUS_GROUPS.get(status)
 
 
+UNTAGGED_SENTINEL = "__untagged__"
+MAX_TAG_FILTERS = 10
+
+
+def parse_tag_filter(raw: str | None) -> tuple[list[str], bool]:
+    """Split a comma-joined `?tag=` value into (tags, untagged).
+
+    Lowercases, drops empties and duplicates, caps at MAX_TAG_FILTERS.
+    The sentinel selects tagless items and is mutually exclusive with tags.
+    """
+    if not raw:
+        return [], False
+    parts = [p.strip().lower() for p in raw.split(",") if p.strip()]
+    if UNTAGGED_SENTINEL in parts:
+        return [], True
+    seen: list[str] = []
+    for p in parts:
+        if p not in seen:
+            seen.append(p)
+    return seen[:MAX_TAG_FILTERS], False
+
+
 async def get_status_counts(db: Database, user_id: str) -> dict[str, int]:
     """Per-group item counts for the library status pills (single query)."""
     rows = await db.query_all(
@@ -141,6 +163,8 @@ async def hybrid_search(
     query: str,
     mode: str = "hybrid",
     tag: str | None = None,
+    tags: list[str] | None = None,
+    untagged: bool = False,
     limit: int = 20,
     offset: int = 0,
     status: str | None = None,
@@ -151,12 +175,22 @@ async def hybrid_search(
     the ranked-candidate count (~100 max) for text queries.
     """
     query = query.strip()
+    tag_list = list(tags) if tags else ([tag] if tag else [])
     if not query:
         # Return recent items
         items = await get_recent_items(
-            db, user_id, tag=tag, limit=limit, offset=offset, status=status
+            db,
+            user_id,
+            tag=tag,
+            tags=tag_list,
+            untagged=untagged,
+            limit=limit,
+            offset=offset,
+            status=status,
         )
-        total = await count_recent_items(db, user_id, tag=tag, status=status)
+        total = await count_recent_items(
+            db, user_id, tag=tag, tags=tag_list, untagged=untagged, status=status
+        )
         return items, total
 
     fts_results: list[dict[str, Any]] = []
@@ -247,7 +281,11 @@ async def hybrid_search(
         if item_id in item_map:
             item = dict(item_map[item_id])
             item_tags = item_tags_map.get(item_id, [])
-            if tag and tag.lower() not in [t.lower() for t in item_tags]:
+            if tag_list:
+                lower = {t.lower() for t in item_tags}
+                if any(t not in lower for t in tag_list):
+                    continue
+            elif untagged and item_tags:
                 continue
             item["tags"] = item_tags
             item["rrf_score"] = round(rrf_scores[item_id], 4)
@@ -261,6 +299,8 @@ async def get_recent_items(
     db: Database,
     user_id: str,
     tag: str | None = None,
+    tags: list[str] | None = None,
+    untagged: bool = False,
     limit: int = 20,
     offset: int = 0,
     status: str | None = None,
@@ -272,19 +312,38 @@ async def get_recent_items(
     if status_values:
         status_clause = f" AND i.status IN ({','.join('?' for _ in status_values)})"
         status_params = tuple(status_values)
-    if tag:
+    tag_list = list(tags) if tags else ([tag] if tag else [])
+    if tag_list:
+        exists = " ".join(
+            "AND EXISTS (SELECT 1 FROM item_tags it%d JOIN tags t%d"
+            " ON it%d.tag_id = t%d.id WHERE it%d.item_id = i.id"
+            " AND LOWER(t%d.name) = LOWER(?))" % ((i,) * 6)
+            for i in range(len(tag_list))
+        )
         sql = f"""
         SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
                i.published_date, i.excerpt, i.status, i.fail_reason, i.is_fallback,
                i.word_count, i.created_at
         FROM items i
-        JOIN item_tags it ON i.id = it.item_id
-        JOIN tags t ON it.tag_id = t.id
-        WHERE i.user_id = ? AND LOWER(t.name) = LOWER(?){status_clause}
+        WHERE i.user_id = ?{status_clause} {exists}
         ORDER BY i.created_at DESC
         LIMIT ? OFFSET ?;
     """
-        rows = await db.query_all(sql, (user_id, tag, *status_params, limit, offset))
+        rows = await db.query_all(
+            sql, (user_id, *status_params, *tag_list, limit, offset)
+        )
+    elif untagged:
+        sql = f"""
+            SELECT id, url, canonical_url, title, byline, site_name,
+                   published_date, excerpt, status, fail_reason, is_fallback,
+                   word_count, created_at
+            FROM items
+            WHERE user_id = ?{status_clause.replace("i.status", "status")}
+              AND NOT EXISTS (SELECT 1 FROM item_tags itx WHERE itx.item_id = items.id)
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?;
+        """
+        rows = await db.query_all(sql, (user_id, *status_params, limit, offset))
     else:
         sql = f"""
             SELECT id, url, canonical_url, title, byline, site_name,
@@ -325,6 +384,8 @@ async def count_recent_items(
     db: Database,
     user_id: str,
     tag: str | None = None,
+    tags: list[str] | None = None,
+    untagged: bool = False,
     status: str | None = None,
 ) -> int:
     """Count items matching the browse filters (same WHERE as get_recent_items)."""
@@ -334,14 +395,27 @@ async def count_recent_items(
     if status_values:
         status_clause = f" AND status IN ({','.join('?' for _ in status_values)})"
         status_params = tuple(status_values)
-    if tag:
+    tag_list = list(tags) if tags else ([tag] if tag else [])
+    if tag_list:
         tag_clause = status_clause.replace("status", "i.status")
+        exists = " ".join(
+            "AND EXISTS (SELECT 1 FROM item_tags it%d JOIN tags t%d"
+            " ON it%d.tag_id = t%d.id WHERE it%d.item_id = i.id"
+            " AND LOWER(t%d.name) = LOWER(?))" % ((i,) * 6)
+            for i in range(len(tag_list))
+        )
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items i "
-            "JOIN item_tags it ON i.id = it.item_id "
-            "JOIN tags t ON it.tag_id = t.id "
-            f"WHERE i.user_id = ? AND LOWER(t.name) = LOWER(?){tag_clause};",
-            (user_id, tag, *status_params),
+            f"WHERE i.user_id = ?{tag_clause} {exists};",
+            (user_id, *status_params, *tag_list),
+        )
+    elif untagged:
+        rows = await db.query_all(
+            "SELECT COUNT(*) as count FROM items "
+            f"WHERE user_id = ?{status_clause} "
+            "AND NOT EXISTS (SELECT 1 FROM item_tags itx "
+            "WHERE itx.item_id = items.id);",
+            (user_id, *status_params),
         )
     else:
         rows = await db.query_all(
