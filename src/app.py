@@ -59,7 +59,12 @@ from src.schemas import (
     SaveItemRequest,
     SearchRequest,
 )
-from src.search.engine import get_recent_items, get_status_counts, hybrid_search
+from src.search.engine import (
+    get_recent_items,
+    get_status_counts,
+    hybrid_search,
+    parse_tag_filter,
+)
 from src.utils.importer import (
     export_library_html,
     export_library_json,
@@ -364,12 +369,14 @@ async def library_page(
     env = get_env_from_request(request)
     clean_status = status.strip() if status and status.strip() else None
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
+    tag_list, untagged_only = parse_tag_filter(tag)
     items, total = await hybrid_search(
         db,
         env,
         user["id"],
         query=q or "",
-        tag=tag,
+        tags=tag_list,
+        untagged=untagged_only,
         limit=limit,
         offset=(max(page, 1) - 1) * limit,
         status=clean_status,
@@ -381,7 +388,8 @@ async def library_page(
             env,
             user["id"],
             query=q or "",
-            tag=tag,
+            tags=tag_list,
+            untagged=untagged_only,
             limit=pager["per_page"],
             offset=(pager["page"] - 1) * pager["per_page"],
             status=clean_status,
@@ -414,6 +422,8 @@ async def library_page(
         items=items,
         tags=tags,
         active_tag=tag,
+        active_tags=tag_list,
+        active_untagged=untagged_only,
         query=q or "",
         tag_styles=tag_styles,
         total_count=total_count,
@@ -448,13 +458,15 @@ async def search_htmx(
     clean_status = status.strip() if status.strip() else None
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
+    tag_list, untagged_only = parse_tag_filter(clean_tag)
     items, total = await hybrid_search(
         db,
         env,
         user["id"],
         query=query,
         mode="hybrid",
-        tag=clean_tag,
+        tags=tag_list,
+        untagged=untagged_only,
         limit=per_page if per_page in PER_PAGE_OPTIONS else 20,
         offset=(max(page, 1) - 1) * (per_page if per_page in PER_PAGE_OPTIONS else 20),
         status=clean_status,
@@ -467,7 +479,8 @@ async def search_htmx(
             user["id"],
             query=query,
             mode="hybrid",
-            tag=clean_tag,
+            tags=tag_list,
+            untagged=untagged_only,
             limit=pager["per_page"],
             offset=(pager["page"] - 1) * pager["per_page"],
             status=clean_status,
@@ -492,9 +505,22 @@ async def search_htmx(
     )
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
+        msg = (
+            "No saves match these tags."
+            if (tag_list or untagged_only)
+            else "No matching articles found."
+        )
+        clear = (
+            ' <a href="/" class="underline">Clear filters</a>'
+            if (tag_list or untagged_only)
+            else ""
+        )
         return HTMLResponse(
             '<div class="text-center py-12 text-slate-400 text-xs">'
-            "No matching articles found.</div>" + pager_html
+            + msg
+            + clear
+            + "</div>"
+            + pager_html
         )
 
     cards = [template.render(item=it, tag_styles=tag_styles) for it in items]
