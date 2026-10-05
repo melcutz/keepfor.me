@@ -31,6 +31,8 @@ BROWSER_HEADERS = {
 JINA_READER_BASE = "https://r.jina.ai/"
 MAX_HTML_BYTES = 5 * 1024 * 1024  # 5MB
 FETCH_TIMEOUT = 20
+SUMMARY_TIMEOUT = 4.0
+SUMMARY_MODEL = "@cf/meta/llama-3.2-3b-instruct"
 
 
 class OriginHttpError(RuntimeError):
@@ -85,6 +87,35 @@ async def fetch_jina_reader(url: str) -> str:
     )
 
 
+async def generate_triage_summary(env: Any, plain_text: str) -> str | None:
+    """Generate a 2-bullet triage summary with Workers AI (fail-open).
+
+    Returns None when AI is unavailable, text is too short, or inference
+    fails/times out — extraction must never fail because of summarization.
+    """
+    try:
+        if env is None or getattr(env, "AI", None) is None:
+            return None
+        text = (plain_text or "").strip()
+        if len(text) < 300:
+            return None
+        prompt = (
+            "Extract the core thesis and 2 key takeaways from this text"
+            " in under 40 words total:\n\n" + text[:2000]
+        )
+        res = await asyncio.wait_for(
+            env.AI.run(SUMMARY_MODEL, {"prompt": prompt, "max_tokens": 80}),
+            timeout=SUMMARY_TIMEOUT,
+        )
+        if isinstance(res, dict):
+            summary = str(res.get("response", "")).strip()
+        else:
+            summary = str(getattr(res, "response", "") or "").strip()
+        return summary or None
+    except Exception:
+        return None
+
+
 async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> None:
     """Fetch, extract, upload snapshots to R2, and update D1 and Vectorize.
 
@@ -137,12 +168,18 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
                 {"httpMetadata": {"contentType": "text/html; charset=utf-8"}},
             )
 
-        # 4. Update items in D1
+        # 4. Triage summary via Workers AI (fail-open, bounded).
+        summary = await generate_triage_summary(
+            env, extracted.get("content_text") or ""
+        )
+
+        # 4b. Update items in D1
         await db.execute(
             """
             UPDATE items
             SET title = ?, byline = ?, site_name = ?, published_date = ?,
                 excerpt = ?, content_text = ?, word_count = ?, is_fallback = ?,
+                image_url = ?, summary = ?,
                 status = 'ok', fail_reason = NULL, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?;
             """,
@@ -155,6 +192,8 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
                 extracted["content_text"],
                 extracted["word_count"],
                 extracted["is_fallback"],
+                extracted.get("image_url"),
+                summary,
                 item_id,
             ),
         )

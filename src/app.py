@@ -38,6 +38,7 @@ from src.models.db import Database
 from src.models.items import (
     accept_suggestion,
     add_tags_to_item,
+    archive_item,
     bulk_update_tags,
     create_rule,
     create_tag,
@@ -47,6 +48,7 @@ from src.models.items import (
     dismiss_suggestion,
     get_item,
     get_item_clean_html,
+    get_pinned_items,
     list_pending_suggestions,
     list_rules,
     list_user_tags,
@@ -55,8 +57,12 @@ from src.models.items import (
     remove_tags_from_item,
     rename_tag,
     save_item,
+    save_note,
     suggest_rules,
     suggest_tags,
+    toggle_pin_item,
+    unarchive_item,
+    update_user_notes,
 )
 from src.schemas import (
     CreatePATRequest,
@@ -363,6 +369,8 @@ async def library_page(
     status: str | None = None,
     page: int = 1,
     per_page: int = 20,
+    category: str | None = None,
+    quick: bool = False,
 ):
     db = get_db(request)
     user = await get_current_user(request)
@@ -375,6 +383,7 @@ async def library_page(
 
     env = get_env_from_request(request)
     clean_status = status.strip() if status and status.strip() else None
+    clean_category = category.strip() if category and category.strip() else None
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
     items, total = await hybrid_search(
@@ -387,6 +396,8 @@ async def library_page(
         limit=limit,
         offset=(max(page, 1) - 1) * limit,
         status=clean_status,
+        category=clean_category,
+        quick=bool(quick),
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -400,11 +411,14 @@ async def library_page(
             limit=pager["per_page"],
             offset=(pager["page"] - 1) * pager["per_page"],
             status=clean_status,
+            category=clean_category,
+            quick=bool(quick),
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
-    tags, status_counts = await asyncio.gather(
+    tags, status_counts, pinned_items = await asyncio.gather(
         list_user_tags(db, user["id"]),
         get_status_counts(db, user["id"]),
+        get_pinned_items(db, user["id"]),
     )
     tag_styles = tag_styles_for([t["name"] for t in tags])
     total_count = status_counts.get("all", 0)
@@ -416,6 +430,7 @@ async def library_page(
                 "q": q or "",
                 "tag": tag or "",
                 "status": clean_status or "",
+                "category": clean_category or "",
             }.items()
             if v
         }
@@ -438,6 +453,9 @@ async def library_page(
         total=total,
         per_page_options=PER_PAGE_OPTIONS,
         push_base=push_base,
+        pinned_items=pinned_items,
+        active_category=clean_category or "all",
+        active_quick=bool(quick),
         **pager,
     )
     return HTMLResponse(content=html)
@@ -452,6 +470,8 @@ async def search_htmx(
     status: str = Form(""),
     page: int = Form(1),
     per_page: int = Form(20),
+    category: str = Form(""),
+    quick: str = Form(""),
 ):
     user = await get_current_user(request)
     if not user:
@@ -461,6 +481,8 @@ async def search_htmx(
     env = get_env_from_request(request)
     clean_tag = tag.strip() if tag.strip() else None
     clean_status = status.strip() if status.strip() else None
+    clean_category = category.strip() if category.strip() else None
+    quick_flag = str(quick).strip().lower() in ("1", "true", "on", "yes")
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
     tag_list, untagged_only = parse_tag_filter(clean_tag)
@@ -475,6 +497,8 @@ async def search_htmx(
         limit=per_page if per_page in PER_PAGE_OPTIONS else 20,
         offset=(max(page, 1) - 1) * (per_page if per_page in PER_PAGE_OPTIONS else 20),
         status=clean_status,
+        category=clean_category,
+        quick=quick_flag,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -489,6 +513,8 @@ async def search_htmx(
             limit=pager["per_page"],
             offset=(pager["page"] - 1) * pager["per_page"],
             status=clean_status,
+            category=clean_category,
+            quick=quick_flag,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
     tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
@@ -500,6 +526,7 @@ async def search_htmx(
                 "q": query or "",
                 "tag": clean_tag or "",
                 "status": clean_status or "",
+                "category": clean_category or "",
             }.items()
             if v
         }
@@ -579,6 +606,113 @@ async def item_card(request: Request, item_id: str):
     tag_styles = tag_styles_for(item.get("tags") or [])
     template = jinja_env.get_template("partials/item_card.html")
     return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
+
+
+def build_ai_markdown(item: dict) -> str:
+    """Prompt-ready Markdown payload for the Copy-for-AI action."""
+    title = item.get("title") or item.get("url") or "Untitled"
+    url = item.get("url") or ""
+    source = url if not str(url).startswith("urn:note:") else "Personal Knowledge Note"
+    created = str(item.get("created_at") or "")[:10]
+    tags = item.get("tags") or []
+    tag_str = " ".join(f"#{t}" for t in tags)
+    notes = (item.get("user_notes") or "").strip()
+    body = (item.get("content_text") or item.get("excerpt") or "").strip()
+    lines = [f"# {title}", f"Source: {source}"]
+    if created:
+        lines.append(f"Date: {created}")
+    if tag_str:
+        lines.append(f"Tags: {tag_str}")
+    if notes:
+        lines.append(f"Notes: {notes}")
+    lines.append("")
+    lines.append(body)
+    return "\n".join(lines)
+
+
+@app.post("/notes")
+async def create_note_form(
+    request: Request,
+    title: str = Form(""),
+    content: str = Form(...),
+    tags: str = Form(""),
+):
+    user = await require_user(request)
+    db = get_db(request)
+    env = get_env_from_request(request)
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    note = await save_note(db, env, user["id"], title, content, tag_list)
+    return RedirectResponse(url=f"/items/{note['id']}", status_code=303)
+
+
+@app.post("/items/{item_id}/pin", response_class=HTMLResponse)
+async def toggle_pin_route(request: Request, item_id: str):
+    user = await require_user(request)
+    db = get_db(request)
+    new_state = await toggle_pin_item(db, user["id"], item_id)
+    if new_state is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if request.headers.get("hx-request"):
+        item = await get_item(db, user["id"], item_id)
+        tag_styles = tag_styles_for(item.get("tags") or [])
+        template = jinja_env.get_template("partials/item_card.html")
+        return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
+    referer = request.headers.get("referer")
+    return RedirectResponse(url=referer or f"/items/{item_id}", status_code=303)
+
+
+@app.post("/items/{item_id}/notes", response_class=HTMLResponse)
+async def update_notes_route(
+    request: Request, item_id: str, user_notes: str = Form(""), next: str = Form("")
+):
+    user = await require_user(request)
+    db = get_db(request)
+    ok = await update_user_notes(db, user["id"], item_id, user_notes)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if request.headers.get("hx-request"):
+        item = await get_item(db, user["id"], item_id)
+        tag_styles = tag_styles_for(item.get("tags") or [])
+        template = jinja_env.get_template("partials/item_card.html")
+        return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
+    return RedirectResponse(url=next or f"/items/{item_id}", status_code=303)
+
+
+@app.post("/items/{item_id}/archive", response_class=HTMLResponse)
+async def archive_route(request: Request, item_id: str):
+    user = await require_user(request)
+    db = get_db(request)
+    ok = await archive_item(db, user["id"], item_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content="")
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.post("/items/{item_id}/unarchive", response_class=HTMLResponse)
+async def unarchive_route(request: Request, item_id: str):
+    user = await require_user(request)
+    db = get_db(request)
+    ok = await unarchive_item(db, user["id"], item_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if request.headers.get("hx-request"):
+        item = await get_item(db, user["id"], item_id)
+        tag_styles = tag_styles_for(item.get("tags") or [])
+        template = jinja_env.get_template("partials/item_card.html")
+        return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
+    return RedirectResponse(url="/", status_code=303)
+
+
+@app.get("/items/{item_id}/markdown")
+async def item_markdown(request: Request, item_id: str):
+    user = await require_user(request)
+    db = get_db(request)
+    item = await get_item(db, user["id"], item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return Response(content=build_ai_markdown(item), media_type="text/markdown")
 
 
 @app.post("/save")

@@ -113,13 +113,18 @@
 
   <!-- Quick Save: centered modal on desktop, bottom sheet on mobile -->
   {% if current_user %}
+  <div id="ai-toast" class="hidden fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-medium shadow-xl">✓ Copied clean Markdown for AI prompt</div>
   <div id="save-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onclick="if(event.target===this)closeSaveModal()">
     <div class="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-slate-200 w-full sm:max-w-md p-6 relative" style="padding-bottom: max(1.5rem, env(safe-area-inset-bottom));">
       <button onclick="closeSaveModal()"
               class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg" aria-label="Close">&times;</button>
-      <h3 class="text-base font-semibold text-slate-900 mb-4">Save Link to Library</h3>
+      <div class="flex gap-1 mb-4 bg-slate-100 p-0.5 rounded-lg border border-slate-200 w-max">
+        <button type="button" onclick="saveTab('link')" id="savetab-link" class="px-3 py-1 text-xs font-semibold rounded bg-white text-slate-900 shadow-sm">🔗 Link</button>
+        <button type="button" onclick="saveTab('note')" id="savetab-note" class="px-3 py-1 text-xs font-semibold rounded text-slate-500">📝 Note</button>
+      </div>
 
-      <form action="/save" method="POST" class="space-y-4">
+      <form id="save-link-form" action="/save" method="POST" class="space-y-4">
+      <h3 class="text-base font-semibold text-slate-900 mb-4">Save Link to Library</h3>
         <div>
           <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Webpage URL</label>
           <input type="url" id="save-url-input" name="url" required placeholder="https://example.com/article"
@@ -135,6 +140,31 @@
                   class="px-4 py-2.5 sm:py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
           <button type="submit"
                   class="px-4 py-2.5 sm:py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800">Save Link</button>
+        </div>
+      </form>
+
+      <form id="save-note-form" action="/notes" method="POST" class="space-y-4 hidden">
+        <h3 class="text-base font-semibold text-slate-900 mb-4">Quick Note</h3>
+        <div>
+          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Title</label>
+          <input type="text" name="title" placeholder="Note title or first line"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
+        </div>
+        <div>
+          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Markdown</label>
+          <textarea name="content" required rows="5" placeholder="# Idea&#10;&#10;Markdown text, code snippets, prompts…"
+                    class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900"></textarea>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
+          <input type="text" name="tags" placeholder="notes, ideas"
+                 class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
+        </div>
+        <div class="flex justify-end space-x-2 pt-2">
+          <button type="button" onclick="closeSaveModal()"
+                  class="px-4 py-2.5 sm:py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">Cancel</button>
+          <button type="submit"
+                  class="px-4 py-2.5 sm:py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800">Save Note</button>
         </div>
       </form>
     </div>
@@ -161,6 +191,36 @@
   {% endif %}
 
   <script>
+    // 1-Click "Copy for AI": fetch prompt-ready Markdown, copy, toast.
+    async function copyForAI(itemId, btn) {
+      try {
+        const r = await fetch('/items/' + itemId + '/markdown', { credentials: 'same-origin' });
+        if (!r.ok) throw new Error('fetch failed');
+        const text = await r.text();
+        await navigator.clipboard.writeText(text);
+        const toast = document.getElementById('ai-toast');
+        if (toast) {
+          toast.classList.remove('hidden');
+          setTimeout(() => toast.classList.add('hidden'), 2200);
+        }
+      } catch (_) {
+        if (btn) { btn.textContent = 'Failed'; setTimeout(() => { btn.innerHTML = '<span aria-hidden="true">📋</span>'; }, 1500); }
+      }
+    }
+    function saveTab(which) {
+      const link = document.getElementById('save-link-form');
+      const note = document.getElementById('save-note-form');
+      const tl = document.getElementById('savetab-link');
+      const tn = document.getElementById('savetab-note');
+      if (!link || !note) return;
+      const isLink = which === 'link';
+      link.classList.toggle('hidden', !isLink);
+      note.classList.toggle('hidden', isLink);
+      const on = 'px-3 py-1 text-xs font-semibold rounded bg-white text-slate-900 shadow-sm';
+      const off = 'px-3 py-1 text-xs font-semibold rounded text-slate-500';
+      if (tl) tl.className = isLink ? on : off;
+      if (tn) tn.className = isLink ? off : on;
+    }
     // Save sheet helpers (shared by header button, mobile quick-save, shortcuts)
     function openSaveModal() {
       const modal = document.getElementById('save-modal');

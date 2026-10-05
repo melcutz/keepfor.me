@@ -8,6 +8,8 @@ from src.models.items import (
     get_item,
     remove_tags_from_item,
     save_item,
+    save_note,
+    toggle_pin_item,
 )
 from src.search.engine import get_recent_items, hybrid_search
 
@@ -159,6 +161,48 @@ MCP_TOOLS = [
             "required": ["item_id"],
         },
     },
+    {
+        "name": "save_note",
+        "description": "Saves a personal note, code snippet, prompt template, "
+        "or idea to the user's personal knowledge vault and indexes it "
+        "for hybrid search.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Title of the note",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Markdown body content",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional tags",
+                },
+                "is_pinned": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Pin note to top",
+                },
+            },
+            "required": ["title", "content"],
+        },
+    },
+    {
+        "name": "pin_item",
+        "description": "Pins or unpins an item to/from the top shelf of the library.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {"type": "string"},
+                "pinned": {"type": "boolean"},
+            },
+            "required": ["item_id"],
+        },
+    },
 ]
 
 
@@ -202,6 +246,9 @@ async def handle_tool_call(
                 "tags": it.get("tags", []),
                 "status": it.get("status"),
                 "rrf_score": it.get("rrf_score"),
+                "item_type": it.get("item_type", "url"),
+                "is_pinned": bool(it.get("is_pinned", 0)),
+                "user_notes": it.get("user_notes"),
             }
             for it in items
         ]
@@ -221,6 +268,12 @@ async def handle_tool_call(
             "word_count": item.get("word_count"),
             "tags": item.get("tags", []),
             "content_text": item.get("content_text") or item.get("excerpt") or "",
+            "item_type": item.get("item_type", "url"),
+            "is_pinned": bool(item.get("is_pinned", 0)),
+            "user_notes": item.get("user_notes"),
+            "summary": item.get("summary"),
+            "image_url": item.get("image_url"),
+            "read_state": item.get("read_state", "unread"),
         }
 
     elif tool_name == "list_items":
@@ -236,6 +289,8 @@ async def handle_tool_call(
                 "excerpt": it.get("excerpt"),
                 "tags": it.get("tags", []),
                 "status": it.get("status"),
+                "item_type": it.get("item_type", "url"),
+                "is_pinned": bool(it.get("is_pinned", 0)),
             }
             for it in items
         ]
@@ -255,6 +310,38 @@ async def handle_tool_call(
         item_id = arguments.get("item_id")
         success = await delete_item(db, env, user_id, item_id)
         return {"id": item_id, "deleted": success}
+
+    elif tool_name == "save_note":
+        title = arguments.get("title", "")
+        content = arguments.get("content", "")
+        tags = arguments.get("tags", [])
+        is_pinned = bool(arguments.get("is_pinned", False))
+        if not (title or "").strip() and not (content or "").strip():
+            raise ValueError("save_note requires a title or content")
+        note = await save_note(db, env, user_id, title, content, tags, is_pinned)
+        return {
+            "id": note["id"],
+            "title": note["title"],
+            "status": note["status"],
+            "item_type": "note",
+            "message": "Note saved and indexed for hybrid search.",
+        }
+
+    elif tool_name == "pin_item":
+        item_id = arguments.get("item_id")
+        pinned = arguments.get("pinned")
+        if pinned is None:
+            new_state = await toggle_pin_item(db, user_id, item_id)
+            if new_state is None:
+                raise ValueError(f"Item not found with id: {item_id}")
+            return {"id": item_id, "is_pinned": new_state}
+        item = await get_item(db, user_id, item_id)
+        if not item:
+            raise ValueError(f"Item not found with id: {item_id}")
+        want = bool(pinned)
+        if bool(item.get("is_pinned", 0)) != want:
+            await toggle_pin_item(db, user_id, item_id)
+        return {"id": item_id, "is_pinned": want}
 
     else:
         raise ValueError(f"Unknown tool: {tool_name}")

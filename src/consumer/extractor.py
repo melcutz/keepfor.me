@@ -100,6 +100,30 @@ def sanitize_clean_html(html_str: str) -> str:
     return str(soup)
 
 
+def extract_image_url(html: str, metadata: Any = None) -> str | None:
+    """Extract cover image URL from trafilatura metadata or OpenGraph tags.
+
+    Lazy-parses with BeautifulSoup (already cached via _load_parsers) so the
+    heavy parsing stack is never imported at module scope.
+    """
+    if metadata is not None:
+        img = getattr(metadata, "image", None)
+        if img and isinstance(img, str) and img.strip():
+            return img.strip()
+    try:
+        soup_cls, _ = _load_parsers()
+        soup = soup_cls(html or "", "html.parser")
+        og_img = soup.find("meta", property="og:image") or soup.find(
+            "meta", attrs={"name": "twitter:image"}
+        )
+        if og_img and og_img.get("content"):
+            content = str(og_img["content"]).strip()
+            return content or None
+    except Exception:
+        return None
+    return None
+
+
 def extract_article(html: str, url: str) -> dict[str, Any]:
     """Extract article content and reader HTML with Trafilatura and OG fallback."""
     title = None
@@ -112,8 +136,10 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
 
     # 1. Attempt Trafilatura extraction if available
     soup_cls, trafilatura = _load_parsers()
+    _metadata = None
     if trafilatura is not None:
         metadata = trafilatura.extract_metadata(html, default_url=url)
+        _metadata = metadata
         clean_html_raw = trafilatura.extract(
             html,
             url=url,
@@ -177,6 +203,7 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
 
     clean_html = sanitize_clean_html(clean_html_raw or "")
     word_count = len(plain_text.split())
+    image_url = extract_image_url(html, _metadata)
 
     return {
         "title": title or url,
@@ -188,6 +215,7 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
         "clean_html": clean_html,
         "is_fallback": 1 if is_fallback else 0,
         "word_count": word_count,
+        "image_url": image_url,
     }
 
 
@@ -241,4 +269,5 @@ def article_from_reader_markdown(url: str, reader_text: str) -> dict[str, Any]:
         "clean_html": clean_html,
         "is_fallback": 0,
         "word_count": word_count,
+        "image_url": None,
     }
