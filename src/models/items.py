@@ -372,6 +372,35 @@ async def suggest_tags(
     return out[:limit]
 
 
+BULK_TAG_LIMIT = 100
+
+
+async def bulk_update_tags(
+    db: Database,
+    user_id: str,
+    item_ids: list[str],
+    add: list[str] | None = None,
+    remove: list[str] | None = None,
+) -> int:
+    """Adds/removes tags across owned items; skips foreign and missing ids."""
+    add = [t for t in (add or []) if t.strip()]
+    remove = [t for t in (remove or []) if t.strip()]
+    done = 0
+    for item_id in (item_ids or [])[:BULK_TAG_LIMIT]:
+        row = await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (item_id, user_id),
+        )
+        if not row:
+            continue
+        if add:
+            await add_tags_to_item(db, user_id, item_id, add)
+        if remove:
+            await remove_tags_from_item(db, user_id, item_id, remove)
+        done += 1
+    return done
+
+
 async def add_suggestions(
     db: Database,
     user_id: str,

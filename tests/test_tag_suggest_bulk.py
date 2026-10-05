@@ -55,3 +55,30 @@ async def test_suggest_caps_fetch_on_huge_exclude(db):
     huge = [f"nope{i}" for i in range(5000)]
     got = await suggest_tags(db, user["id"], "", exclude=huge)
     assert [r["name"] for r in got] == ["tech"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_add_and_remove_roundtrip(db):
+    from src.models.items import bulk_update_tags, get_item
+
+    user = await register_user(db, "blk@keepfor.me", "password123")
+    await _seed(db, user["id"], "b1", "https://example.com/1", ["old"])
+    await _seed(db, user["id"], "b2", "https://example.com/2", ["old"])
+    done = await bulk_update_tags(db, user["id"], ["b1", "b2"], ["new"], ["old"])
+    assert done == 2
+    assert (await get_item(db, user["id"], "b1"))["tags"] == ["new"]
+    assert (await get_item(db, user["id"], "b2"))["tags"] == ["new"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_ignores_foreign_items_and_caps_ids(db):
+    from src.models.items import bulk_update_tags, get_item_tags
+
+    user = await register_user(db, "blk2@keepfor.me", "password123")
+    other = await register_user(
+        db, "blk3@keepfor.me", "password123", allow_public_signups=True
+    )
+    await _seed(db, other["id"], "bx", "https://example.com/x", [])
+    ids = ["bx"] + ["missing-%d" % i for i in range(150)]
+    assert await bulk_update_tags(db, user["id"], ids, ["hi"], []) == 0
+    assert await get_item_tags(db, "bx") == []

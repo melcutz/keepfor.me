@@ -38,6 +38,7 @@ from src.models.db import Database
 from src.models.items import (
     accept_suggestion,
     add_tags_to_item,
+    bulk_update_tags,
     create_tag,
     delete_item,
     delete_tag,
@@ -726,6 +727,26 @@ async def tags_prune(request: Request):
     if request.headers.get("hx-request"):
         return HTMLResponse(content=await _render_tags_list(db, user["id"]))
     return RedirectResponse(url="/tags", status_code=303)
+
+
+@app.post("/items/bulk-tags")
+async def items_bulk_tags(
+    request: Request,
+    item_ids: list[str] = Form([]),
+    add: str = Form(""),
+    remove: str = Form(""),
+    next: str = Form("/"),
+):
+    user = await require_user(request)
+    db = get_db(request)
+    await bulk_update_tags(
+        db,
+        user["id"],
+        item_ids,
+        [t for t in add.split(",") if t.strip()],
+        [t for t in remove.split(",") if t.strip()],
+    )
+    return RedirectResponse(url=_safe_next(next), status_code=303)
 
 
 @app.post("/items/{item_id}/tags", response_class=HTMLResponse)

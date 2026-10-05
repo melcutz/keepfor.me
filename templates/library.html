@@ -120,6 +120,55 @@
           class="shrink-0 px-3 py-2 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">🏷 Tag</button>
   <p id="tag-mode-hint" class="hidden text-xs text-slate-500">Tap a tag, then tap articles to add it. Tap again to stop.</p>
 </div>
+<div class="flex items-center gap-2">
+  <button id="bulk-toggle" aria-pressed="false" type="button"
+          class="shrink-0 px-3 py-2 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">☑ Select</button>
+</div>
+<form id="bulk-bar" action="/items/bulk-tags" method="POST" class="hidden sticky bottom-4 z-40 items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-lg">
+  <input type="hidden" name="next" value="/">
+  <span id="bulk-count" class="text-xs text-slate-600 whitespace-nowrap"></span>
+  <input type="text" name="add" placeholder="Add tags…" autocomplete="off" list="tag-suggest-all"
+         class="flex-1 min-w-24 px-2 py-1.5 border border-slate-200 rounded-lg text-xs">
+  <input type="text" name="remove" placeholder="Remove tags…" autocomplete="off" list="tag-suggest-all"
+         class="flex-1 min-w-24 px-2 py-1.5 border border-slate-200 rounded-lg text-xs">
+  <button type="submit" class="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-medium shrink-0">Apply</button>
+  <div id="bulk-items"></div>
+</form>
+<script>
+(function () {
+  var toggle = document.getElementById('bulk-toggle');
+  var bar = document.getElementById('bulk-bar');
+  var holder = document.getElementById('bulk-items');
+  var count = document.getElementById('bulk-count');
+  if (!toggle || !bar) return;
+  var on = false;
+  function refresh() {
+    var boxes = document.querySelectorAll('#items-list .bulk-select');
+    var checked = Array.from(boxes).filter(function (b) { return b.checked; });
+    holder.innerHTML = '';
+    checked.forEach(function (b) {
+      var h = document.createElement('input');
+      h.type = 'hidden'; h.name = 'item_ids'; h.value = b.value;
+      holder.appendChild(h);
+    });
+    count.textContent = checked.length + ' selected';
+  }
+  toggle.addEventListener('click', function () {
+    on = !on;
+    toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+    document.querySelectorAll('#items-list .bulk-select').forEach(function (b) {
+      b.classList.toggle('hidden', !on);
+      if (!on) b.checked = false;
+    });
+    bar.classList.toggle('hidden', !on);
+    bar.classList.toggle('flex', on);
+    refresh();
+  });
+  document.getElementById('items-list').addEventListener('change', function (e) {
+    if (e.target.classList && e.target.classList.contains('bulk-select')) refresh();
+  });
+})();
+</script>
 
       <!-- Status Filter Pills -->
       <div id="status-filters" class="flex flex-wrap gap-1.5">

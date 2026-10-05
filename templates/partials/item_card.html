@@ -4,6 +4,8 @@
 {% else %}
 <div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative">
 {% endif %}
+  <input type="checkbox" value="{{ item.id }}" aria-label="Select item"
+         class="bulk-select hidden absolute top-3 right-3 w-4 h-4 accent-slate-900">
   <div class="flex items-start gap-3">
   {% set raw = item.canonical_url or item.url or '' %}
   {% set parts = raw.split('/') %}
