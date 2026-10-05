@@ -685,3 +685,204 @@ async def list_user_tags(db: Database, user_id: str) -> list[dict[str, Any]]:
         """,
         (user_id,),
     )
+
+
+async def _refresh_fts_for_item(db: Database, user_id: str, item_id: str) -> None:
+    """Rebuild the FTS5 row for an item, folding user_notes into the index."""
+    row = await db.query_first(
+        "SELECT title, content_text, user_notes FROM items"
+        " WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    if not row:
+        return
+    combined = " ".join(
+        p for p in [row["content_text"] or "", row["user_notes"] or ""] if p
+    )
+    await db.execute("DELETE FROM items_fts WHERE item_id = ?;", (item_id,))
+    await db.execute(
+        "INSERT INTO items_fts (item_id, user_id, title, content_text)"
+        " VALUES (?, ?, ?, ?);",
+        (item_id, user_id, row["title"] or "", combined),
+    )
+
+
+async def toggle_pin_item(db: Database, user_id: str, item_id: str) -> bool | None:
+    """Toggle is_pinned; returns new pinned state, or None if not owned."""
+    row = await db.query_first(
+        "SELECT is_pinned FROM items WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    if not row:
+        return None
+    new_val = 0 if (row["is_pinned"] or 0) else 1
+    await db.execute(
+        "UPDATE items SET is_pinned = ?, updated_at = CURRENT_TIMESTAMP"
+        " WHERE id = ? AND user_id = ?;",
+        (new_val, item_id, user_id),
+    )
+    return bool(new_val)
+
+
+async def get_pinned_items(db: Database, user_id: str) -> list[dict[str, Any]]:
+    """Pinned shelf items, newest first, with tags attached."""
+    rows = await db.query_all(
+        "SELECT * FROM items WHERE user_id = ? AND is_pinned = 1"
+        " ORDER BY created_at DESC;",
+        (user_id,),
+    )
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        item = dict(r)
+        item["tags"] = await get_item_tags(db, r["id"])
+        out.append(item)
+    return out
+
+
+async def update_user_notes(
+    db: Database, user_id: str, item_id: str, user_notes: str | None
+) -> bool:
+    """Persist 'why I kept this' notes; re-indexes FTS. Returns owned."""
+    row = await db.query_first(
+        "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    if not row:
+        return False
+    clean = (user_notes or "").strip() or None
+    await db.execute(
+        "UPDATE items SET user_notes = ?, updated_at = CURRENT_TIMESTAMP"
+        " WHERE id = ? AND user_id = ?;",
+        (clean, item_id, user_id),
+    )
+    await _refresh_fts_for_item(db, user_id, item_id)
+    return True
+
+
+async def save_note(
+    db: Database,
+    env: Any,
+    user_id: str,
+    title: str,
+    content_text: str,
+    tags: list[str] | None = None,
+    is_pinned: bool = False,
+) -> dict[str, Any]:
+    """Save a Markdown quick note sharing the unified FTS + vector pipeline."""
+    first_line = (content_text or "").strip().split("\n")[0][:120]
+    clean_title = (title or "").strip() or first_line or "Untitled note"
+    body = (content_text or "").strip()
+    item_id = str(uuid.uuid4())
+    urn = f"urn:note:{item_id}"
+    word_count = len(body.split()) if body else 0
+    await db.execute(
+        """
+        INSERT INTO items (id, user_id, url, canonical_url, title, content_text,
+            word_count, status, item_type, is_pinned, read_state)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'saved', 'note', ?, 'unread');
+        """,
+        (
+            item_id,
+            user_id,
+            urn,
+            urn,
+            clean_title,
+            body,
+            word_count,
+            1 if is_pinned else 0,
+        ),
+    )
+    clean_tags = [t.strip().lower() for t in (tags or []) if t.strip()]
+    if clean_tags:
+        await add_tags_to_item(db, user_id, item_id, clean_tags)
+    await db.execute(
+        "INSERT INTO items_fts (item_id, user_id, title, content_text)"
+        " VALUES (?, ?, ?, ?);",
+        (item_id, user_id, clean_title, body),
+    )
+    # Best-effort single-chunk Vectorize embedding (fail-open; no AI in tests).
+    try:
+        if (
+            env is not None
+            and getattr(env, "AI", None) is not None
+            and getattr(env, "VECTORIZE", None) is not None
+            and body
+        ):
+            from src.utils.chunker import recursive_character_split
+
+            chunks = recursive_character_split(
+                body, target_tokens=400, overlap_tokens=50
+            )[:1]
+            if chunks:
+                ai_res = await env.AI.run(
+                    "@cf/baai/bge-base-en-v1.5",
+                    {"text": [chunks[0].text]},
+                )
+                raw = getattr(ai_res, "data", ai_res)
+                if hasattr(raw, "to_py"):
+                    raw = raw.to_py()
+                vecs = raw.get("data", raw) if isinstance(raw, dict) else raw
+                if vecs:
+                    chunk_id = f"item_{item_id}_chunk_0"
+                    await env.VECTORIZE.upsert(
+                        [
+                            {
+                                "id": chunk_id,
+                                "values": vecs[0],
+                                "metadata": {
+                                    "item_id": item_id,
+                                    "user_id": user_id,
+                                    "chunk_index": 0,
+                                },
+                            }
+                        ]
+                    )
+                    await db.execute(
+                        "INSERT INTO chunks (id, item_id, user_id, chunk_index,"
+                        " token_count) VALUES (?, ?, ?, ?, ?);",
+                        (chunk_id, item_id, user_id, 0, chunks[0].token_count),
+                    )
+    except Exception:
+        pass
+    return {
+        "id": item_id,
+        "url": urn,
+        "canonical_url": urn,
+        "title": clean_title,
+        "status": "saved",
+        "item_type": "note",
+        "is_pinned": bool(is_pinned),
+        "tags": clean_tags,
+    }
+
+
+async def archive_item(db: Database, user_id: str, item_id: str) -> bool:
+    """Move a reading-queue item to the archive. Returns owned."""
+    row = await db.query_first(
+        "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    if not row:
+        return False
+    await db.execute(
+        "UPDATE items SET read_state = 'archived',"
+        " updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    return True
+
+
+async def unarchive_item(db: Database, user_id: str, item_id: str) -> bool:
+    """Return an archived item to the unread inbox. Returns owned."""
+    row = await db.query_first(
+        "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    if not row:
+        return False
+    await db.execute(
+        "UPDATE items SET read_state = 'unread',"
+        " updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    return True

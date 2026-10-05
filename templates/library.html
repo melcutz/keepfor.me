@@ -60,10 +60,41 @@
 
     <!-- Main Content Area -->
     <div class="flex-1 min-w-0 space-y-6">
-      <div class="mb-5">
-        <h1 class="text-[28px] font-bold tracking-[-0.025em] text-slate-900">Library</h1>
-        <p class="text-xs text-slate-500 mt-1">{{ total_count or items|length }} saves · search by keyword or meaning</p>
+      <div class="mb-5 flex items-start justify-between gap-3">
+        <div>
+          <h1 class="text-[28px] font-bold tracking-[-0.025em] text-slate-900">Library</h1>
+          <p class="text-xs text-slate-500 mt-1">{{ total_count or items|length }} saves · search by keyword or meaning</p>
+        </div>
+        <div class="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 shrink-0" role="group" aria-label="Layout view">
+          <button type="button" data-view-btn="cards" title="Cards grid" class="px-2.5 py-1.5 text-xs font-semibold rounded">⊞ Cards</button>
+          <button type="button" data-view-btn="list" title="List" class="px-2.5 py-1.5 text-xs font-semibold rounded">≡ List</button>
+          <button type="button" data-view-btn="compact" title="Compact headlines" class="px-2.5 py-1.5 text-xs font-semibold rounded">☷ Compact</button>
+        </div>
       </div>
+
+      <!-- Category triage tabs -->
+      <div id="category-tabs" class="flex flex-wrap gap-1.5">
+        {% set _cat = active_category or 'all' %}
+        <a href="/" class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'all' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">All Saves</a>
+        <a href="/?category=inbox" class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'inbox' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">📖 Reading Inbox</a>
+        <a href="/?category=reference" class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'reference' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">🛠 Reference &amp; Tools</a>
+        <a href="/?category=notes" class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'notes' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">📝 Notes</a>
+        <a href="/?category=archive" class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'archive' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">✅ Archive</a>
+        <a href="{% if _cat and _cat != 'all' %}/?category={{ _cat }}&quick=1{% else %}/?quick=1{% endif %}" class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if active_quick %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">⚡ Quick Reads (&lt; 5 min)</a>
+      </div>
+
+      <style>
+        #items-list.view-cards { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+        @media (min-width: 640px) { #items-list.view-cards { grid-template-columns: repeat(2, 1fr); } }
+        @media (min-width: 1024px) { #items-list.view-cards { grid-template-columns: repeat(3, 1fr); } }
+        #items-list.view-cards > * { margin: 0; }
+        #items-list.view-list { display: flex; flex-direction: column; gap: 1rem; }
+        #items-list.view-compact { display: flex; flex-direction: column; gap: 0.25rem; }
+        #items-list.view-compact .item-card { padding: 0.5rem 0.75rem; }
+        #items-list.view-compact .card-cover,
+        #items-list.view-compact .card-excerpt,
+        #items-list.view-compact .card-actions { display: none; }
+      </style>
 
       <!-- Mobile tag strip: horizontal chips instead of the sidebar -->
       <div id="mobile-tags" class="md:hidden -mx-4 px-4 overflow-x-auto">
@@ -100,7 +131,7 @@
                   hx-post="/search"
                   hx-trigger="keyup changed delay:300ms, search"
                   hx-target="#items-list"
-                   hx-include="#active-tag-input, #active-status-input, #active-page-input, #active-perpage-input"
+                   hx-include="#active-tag-input, #active-status-input, #active-page-input, #active-perpage-input, #active-category-input, #active-quick-input"
                   hx-indicator="#search-spinner"
                   class="w-full pl-9 pr-10 py-2 border border-slate-200 rounded-lg text-base focus:outline-none">
           <span id="search-spinner" class="htmx-indicator absolute inset-y-0 right-3 items-center text-blue-600" aria-hidden="true">
@@ -114,6 +145,8 @@
         <input type="hidden" id="active-status-input" name="status" value="{{ active_status or '' }}">
         <input type="hidden" id="active-page-input" name="page" value="{{ page }}">
         <input type="hidden" id="active-perpage-input" name="per_page" value="{{ per_page }}">
+        <input type="hidden" id="active-category-input" name="category" value="{{ active_category or '' }}">
+        <input type="hidden" id="active-quick-input" name="quick" value="{{ '1' if active_quick else '' }}">
       </div>
 <div class="flex items-center gap-2">
   <button id="tag-mode-toggle" aria-pressed="false"
@@ -176,25 +209,25 @@
         <button data-status=""
                 hx-post="/search"
                 hx-target="#items-list"
-                hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input"
+                hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input, #active-category-input, #active-quick-input"
                 onclick="document.getElementById('active-page-input').value='1';document.getElementById('active-status-input').value='';document.querySelectorAll('#status-filters button').forEach(b=>b.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300');this.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 text-white';"
                 class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if not active_status %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">All · {{ sc.all }}</button>
         <button data-status="saved"
                 hx-post="/search"
                 hx-target="#items-list"
-                hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input"
+                hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input, #active-category-input, #active-quick-input"
                 onclick="document.getElementById('active-page-input').value='1';document.getElementById('active-status-input').value='saved';document.querySelectorAll('#status-filters button').forEach(b=>b.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300');this.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 text-white';"
                 class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if active_status == 'saved' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">📚 Saved · {{ sc.saved }}</button>
         <button data-status="extracting"
                 hx-post="/search"
                 hx-target="#items-list"
-                hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input"
+                hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input, #active-category-input, #active-quick-input"
                 onclick="document.getElementById('active-page-input').value='1';document.getElementById('active-status-input').value='extracting';document.querySelectorAll('#status-filters button').forEach(b=>b.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300');this.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 text-white';"
                 class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if active_status == 'extracting' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">⏳ Extracting · {{ sc.extracting }}</button>
         <button data-status="failed"
                 hx-post="/search"
                 hx-target="#items-list"
-                hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input"
+                hx-include="#search-input, #active-tag-input, #active-status-input, #active-page-input, #active-perpage-input, #active-category-input, #active-quick-input"
                 onclick="document.getElementById('active-page-input').value='1';document.getElementById('active-status-input').value='failed';document.querySelectorAll('#status-filters button').forEach(b=>b.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300');this.className='shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-slate-900 text-white';"
                 class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium {% if active_status == 'failed' %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">⚠️ Failed · {{ sc.failed }}</button>
       </div>
@@ -219,8 +252,22 @@
       </div>
       {% endif %}
 
+      <!-- Pinned shelf -->
+      {% if pinned_items %}
+      <div id="pinned-shelf" class="mb-6 pb-6 border-b border-slate-200">
+        <div class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">
+          <span>📌 Pinned References &amp; Notes</span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {% for item in pinned_items %}
+            {% include "partials/item_card.html" %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
       <!-- Items Feed -->
-      <div id="items-list" class="space-y-4">
+      <div id="items-list" class="space-y-4 view-list">
         {% if items %}
           {% for item in items %}
             {% include "partials/item_card.html" %}
@@ -356,6 +403,39 @@
   var searchInput = document.getElementById('search-input');
   if (searchInput) searchInput.addEventListener('input', function () {
     document.getElementById('active-page-input').value = '1';
+  });
+  // 3-way layout switcher, persisted in localStorage.
+  var itemsList = document.getElementById('items-list');
+  function applyView(v) {
+    if (!itemsList) return;
+    itemsList.classList.remove('view-cards', 'view-list', 'view-compact', 'space-y-4', 'space-y-1');
+    itemsList.classList.add('view-' + v);
+    if (v === 'compact') itemsList.classList.add('space-y-1');
+    document.querySelectorAll('[data-view-btn]').forEach(function (b) {
+      var active = b.getAttribute('data-view-btn') === v;
+      b.className = 'px-2.5 py-1.5 text-xs font-semibold rounded ' + (active ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500');
+    });
+  }
+  var savedView = 'list';
+  try { savedView = localStorage.getItem('kfm_view') || 'list'; } catch (_) {}
+  if (['cards', 'list', 'compact'].indexOf(savedView) === -1) savedView = 'list';
+  applyView(savedView);
+  document.querySelectorAll('[data-view-btn]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var v = b.getAttribute('data-view-btn');
+      try { localStorage.setItem('kfm_view', v); } catch (_) {}
+      applyView(v);
+    });
+  });
+  // 1-click archive with the `e` key (reading triage).
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'e' && e.key !== 'E') return;
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    var card = document.querySelector('#items-list [data-item-id]:hover') || document.querySelector('#items-list [data-item-id]');
+    if (!card) return;
+    var id = card.getAttribute('data-item-id');
+    htmx.ajax('POST', '/items/' + id + '/archive', { target: '#' + card.id, swap: 'outerHTML' });
   });
 })();
 </script>

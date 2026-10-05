@@ -28,6 +28,49 @@ def _status_values(status: str | None) -> tuple[str, ...] | None:
 
 UNTAGGED_SENTINEL = "__untagged__"
 MAX_TAG_FILTERS = 10
+REFERENCE_TAGS = ("tools", "docs", "reference")
+
+
+def _category_clause(category: str | None, alias: str = "i") -> tuple[str, tuple]:
+    """Map a triage category tab to a SQL fragment (with params)."""
+    if not category or category == "all":
+        return "", ()
+    a = alias
+    if category == "notes":
+        return f" AND {a}.item_type = 'note'", ()
+    if category == "archive":
+        return f" AND {a}.read_state = 'archived'", ()
+    if category == "inbox":
+        return (
+            f" AND {a}.item_type = 'url' AND {a}.read_state = 'unread'",
+            (),
+        )
+    if category == "reference":
+        placeholders = ",".join("?" for _ in REFERENCE_TAGS)
+        return (
+            f" AND (EXISTS (SELECT 1 FROM item_tags it_ref JOIN tags t_ref"
+            f" ON it_ref.tag_id = t_ref.id WHERE it_ref.item_id = {a}.id"
+            f" AND LOWER(t_ref.name) IN ({placeholders}))"
+            f" OR LOWER({a}.canonical_url) LIKE '%github.com%'"
+            f" OR LOWER({a}.canonical_url) LIKE '%docs.%'"
+            f" OR LOWER({a}.canonical_url) LIKE '%api.%')",
+            tuple(t for t in REFERENCE_TAGS),
+        )
+    return "", ()
+
+
+RECENT_COLUMNS = (
+    "i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,"
+    " i.published_date, i.excerpt, i.status, i.fail_reason, i.is_fallback,"
+    " i.word_count, i.created_at, i.item_type, i.is_pinned, i.user_notes,"
+    " i.image_url, i.summary, i.read_state"
+)
+RECENT_COLUMNS_BARE = (
+    "id, url, canonical_url, title, byline, site_name,"
+    " published_date, excerpt, status, fail_reason, is_fallback,"
+    " word_count, created_at, item_type, is_pinned, user_notes,"
+    " image_url, summary, read_state"
+)
 
 
 def parse_tag_filter(raw: str | None) -> tuple[list[str], bool]:
@@ -168,6 +211,8 @@ async def hybrid_search(
     limit: int = 20,
     offset: int = 0,
     status: str | None = None,
+    category: str | None = None,
+    quick: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """Execute hybrid search with RRF fusion, filters, and pagination.
 
@@ -190,9 +235,18 @@ async def hybrid_search(
                 limit=limit,
                 offset=offset,
                 status=status,
+                category=category,
+                quick=quick,
             ),
             count_recent_items(
-                db, user_id, tag=tag, tags=tag_list, untagged=untagged, status=status
+                db,
+                user_id,
+                tag=tag,
+                tags=tag_list,
+                untagged=untagged,
+                status=status,
+                category=category,
+                quick=quick,
             ),
         )
         return items, total
@@ -257,14 +311,15 @@ async def hybrid_search(
     if status_values:
         status_clause = f" AND i.status IN ({','.join('?' for _ in status_values)})"
         status_params = tuple(status_values)
+    cat_clause, cat_params = _category_clause(category, "i")
+    quick_clause = " AND i.word_count < 1000" if quick else ""
     sql = f"""
-        SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
-               i.published_date, i.excerpt, i.status, i.fail_reason, i.is_fallback,
-               i.word_count, i.created_at
+        SELECT {RECENT_COLUMNS}
         FROM items i
-        WHERE i.id IN ({placeholders}) AND i.user_id = ?{status_clause};
+        WHERE i.id IN ({placeholders})
+          AND i.user_id = ?{status_clause}{cat_clause}{quick_clause};
     """
-    rows = await db.query_all(sql, (*top_ids, user_id, *status_params))
+    rows = await db.query_all(sql, (*top_ids, user_id, *status_params, *cat_params))
     item_map = {row["id"]: row for row in rows}
 
     # Fetch tags for these items
@@ -308,6 +363,8 @@ async def get_recent_items(
     limit: int = 20,
     offset: int = 0,
     status: str | None = None,
+    category: str | None = None,
+    quick: bool = False,
 ) -> list[dict[str, Any]]:
     """Retrieves recent items for user with pagination and optional filters."""
     status_values = _status_values(status)
@@ -316,6 +373,12 @@ async def get_recent_items(
     if status_values:
         status_clause = f" AND i.status IN ({','.join('?' for _ in status_values)})"
         status_params = tuple(status_values)
+    cat_clause, cat_params = _category_clause(category, "i")
+    quick_clause = " AND i.word_count < 1000" if quick else ""
+    bare_status = status_clause.replace("i.status", "status")
+    bare_cat, _ = _category_clause(category, "items")
+    bare_cat_params = cat_params
+    bare_quick = " AND word_count < 1000" if quick else ""
     tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))][
         :MAX_TAG_FILTERS
     ]
@@ -327,40 +390,38 @@ async def get_recent_items(
             for i in range(len(tag_list))
         )
         sql = f"""
-        SELECT i.id, i.url, i.canonical_url, i.title, i.byline, i.site_name,
-               i.published_date, i.excerpt, i.status, i.fail_reason, i.is_fallback,
-               i.word_count, i.created_at
+        SELECT {RECENT_COLUMNS}
         FROM items i
-        WHERE i.user_id = ?{status_clause} {exists}
+        WHERE i.user_id = ?{status_clause}{cat_clause}{quick_clause} {exists}
         ORDER BY i.created_at DESC
         LIMIT ? OFFSET ?;
     """
         rows = await db.query_all(
-            sql, (user_id, *status_params, *tag_list, limit, offset)
+            sql, (user_id, *status_params, *cat_params, *tag_list, limit, offset)
         )
     elif untagged:
         sql = f"""
-            SELECT id, url, canonical_url, title, byline, site_name,
-                   published_date, excerpt, status, fail_reason, is_fallback,
-                   word_count, created_at
+            SELECT {RECENT_COLUMNS_BARE}
             FROM items
-            WHERE user_id = ?{status_clause.replace("i.status", "status")}
+            WHERE user_id = ?{bare_status}{bare_cat}{bare_quick}
               AND NOT EXISTS (SELECT 1 FROM item_tags itx WHERE itx.item_id = items.id)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?;
         """
-        rows = await db.query_all(sql, (user_id, *status_params, limit, offset))
+        rows = await db.query_all(
+            sql, (user_id, *status_params, *bare_cat_params, limit, offset)
+        )
     else:
         sql = f"""
-            SELECT id, url, canonical_url, title, byline, site_name,
-                   published_date, excerpt, status, fail_reason, is_fallback,
-                   word_count, created_at
+            SELECT {RECENT_COLUMNS_BARE}
             FROM items
-            WHERE user_id = ?{status_clause.replace("i.status", "status")}
+            WHERE user_id = ?{bare_status}{bare_cat}{bare_quick}
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?;
         """
-        rows = await db.query_all(sql, (user_id, *status_params, limit, offset))
+        rows = await db.query_all(
+            sql, (user_id, *status_params, *bare_cat_params, limit, offset)
+        )
 
     if not rows:
         return []
@@ -393,6 +454,8 @@ async def count_recent_items(
     tags: list[str] | None = None,
     untagged: bool = False,
     status: str | None = None,
+    category: str | None = None,
+    quick: bool = False,
 ) -> int:
     """Count items matching the browse filters (same WHERE as get_recent_items)."""
     status_values = _status_values(status)
@@ -401,6 +464,10 @@ async def count_recent_items(
     if status_values:
         status_clause = f" AND status IN ({','.join('?' for _ in status_values)})"
         status_params = tuple(status_values)
+    cat_clause, cat_params = _category_clause(category, "items")
+    cat_clause_i, _ = _category_clause(category, "i")
+    quick_clause = " AND word_count < 1000" if quick else ""
+    quick_clause_i = " AND i.word_count < 1000" if quick else ""
     tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))][
         :MAX_TAG_FILTERS
     ]
@@ -414,20 +481,21 @@ async def count_recent_items(
         )
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items i "
-            f"WHERE i.user_id = ?{tag_clause} {exists};",
-            (user_id, *status_params, *tag_list),
+            f"WHERE i.user_id = ?{tag_clause}{cat_clause_i}{quick_clause_i} {exists};",
+            (user_id, *status_params, *cat_params, *tag_list),
         )
     elif untagged:
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items "
-            f"WHERE user_id = ?{status_clause} "
+            f"WHERE user_id = ?{status_clause}{cat_clause}{quick_clause} "
             "AND NOT EXISTS (SELECT 1 FROM item_tags itx "
             "WHERE itx.item_id = items.id);",
-            (user_id, *status_params),
+            (user_id, *status_params, *cat_params),
         )
     else:
         rows = await db.query_all(
-            f"SELECT COUNT(*) as count FROM items WHERE user_id = ?{status_clause};",
-            (user_id, *status_params),
+            f"SELECT COUNT(*) as count FROM items"
+            f" WHERE user_id = ?{status_clause}{cat_clause}{quick_clause};",
+            (user_id, *status_params, *cat_params),
         )
     return rows[0]["count"] if rows else 0

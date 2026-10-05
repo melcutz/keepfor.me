@@ -1,11 +1,18 @@
 {% if item.status == 'queued' or item.status == 'fetching' %}
-<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative"
+<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="item-card bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative"
      hx-get="/items/{{ item.id }}/card" hx-trigger="every 4s" hx-swap="outerHTML">
 {% else %}
-<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative">
+<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="item-card bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative">
 {% endif %}
   <input type="checkbox" value="{{ item.id }}" aria-label="Select item"
          class="bulk-select hidden absolute top-3 right-3 w-4 h-4 accent-slate-900">
+  {% if item.image_url %}
+  <div class="card-cover mb-3 -mx-5 -mt-5 overflow-hidden rounded-t-xl">
+    <img src="{{ item.image_url }}" alt="" loading="lazy"
+         class="w-full aspect-video object-cover bg-slate-100"
+         onerror="this.closest('.card-cover').remove()">
+  </div>
+  {% endif %}
   <div class="flex items-start gap-3">
   {% set raw = item.canonical_url or item.url or '' %}
   {% set parts = raw.split('/') %}
@@ -32,7 +39,15 @@
         {% elif item.status == 'failed' %}
         <span class="px-2 py-0.5 bg-red-50 text-red-700 border border-red-200 rounded-full font-medium" title="{{ item.fail_reason }}">Failed: {{ (item.fail_reason or 'unknown error') | truncate(100) }}</span>
         {% elif item.is_fallback %}
-        <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium">Link Only</span>
+        <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium">🔗 Link Only</span>
+        {% elif item.status == 'saved' or item.status == 'ok' %}
+        <span class="px-2 py-0.5 bg-violet-50 text-violet-700 border border-violet-200 rounded-full font-medium" title="Vector embeddings + clean text + full-text indexed">✨ AI Indexed</span>
+        {% endif %}
+        {% if item.item_type == 'note' %}
+        <span class="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-full font-medium">📝 Note</span>
+        {% endif %}
+        {% if item.is_pinned %}
+        <span class="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium">📌 Pinned</span>
         {% endif %}
 
         {% if item.rrf_score %}
@@ -51,8 +66,21 @@
       {% endif %}
 
       {% if item.snippet or item.excerpt %}
-      <p class="text-sm sm:text-[15px] text-slate-600 mt-2 line-clamp-2 leading-relaxed">
+      <p class="card-excerpt text-sm sm:text-[15px] text-slate-600 mt-2 line-clamp-2 leading-relaxed">
         {{ (item.snippet or item.excerpt) | safe }}
+      </p>
+      {% endif %}
+
+      {% if item.summary %}
+      <details class="mt-2 text-xs bg-violet-50/60 border border-violet-100 rounded-lg px-2.5 py-1.5">
+        <summary class="cursor-pointer font-semibold text-violet-700">✨ Key Takeaway</summary>
+        <p class="mt-1 text-slate-600 leading-relaxed">{{ item.summary }}</p>
+      </details>
+      {% endif %}
+
+      {% if item.user_notes %}
+      <p class="mt-2 text-xs text-slate-600 bg-amber-50/70 border border-amber-100 rounded-lg px-2.5 py-1.5">
+        <span class="font-semibold text-amber-800">Note:</span> {{ item.user_notes }}
       </p>
       {% endif %}
 
@@ -86,7 +114,24 @@
     </div>
 
     <!-- Actions (always visible on touch: no hover there) -->
-    <div class="flex items-center shrink-0 -mr-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
+    <div class="card-actions flex items-center shrink-0 -mr-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
+      <button hx-post="/items/{{ item.id }}/pin"
+              hx-target="#item-card-{{ item.id }}" hx-swap="outerHTML"
+              class="p-3 md:p-1.5 rounded hover:bg-slate-100 flex items-center {% if item.is_pinned %}text-amber-500{% else %}text-slate-400 hover:text-slate-700{% endif %}"
+              title="{% if item.is_pinned %}Unpin{% else %}Pin to top{% endif %}">
+        <span aria-hidden="true">📌</span><span class="sr-only">{% if item.is_pinned %}Unpin{% else %}Pin{% endif %}</span>
+      </button>
+      <button onclick="copyForAI('{{ item.id }}', this)"
+              class="p-3 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Copy clean Markdown for AI">
+        <span aria-hidden="true">📋</span><span class="sr-only">Copy for AI</span>
+      </button>
+      {% if item.read_state != 'archived' and item.item_type != 'note' %}
+      <button hx-post="/items/{{ item.id }}/archive"
+              hx-target="#item-card-{{ item.id }}" hx-swap="outerHTML"
+              class="p-3 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Archive (e)">
+        <span aria-hidden="true">✓</span><span class="sr-only">Archive</span>
+      </button>
+      {% endif %}
       <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" 
          class="p-3 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Visit original link">
         <span aria-hidden="true">↗</span><span class="sr-only">Visit original link</span>
