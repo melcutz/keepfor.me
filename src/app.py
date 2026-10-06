@@ -574,7 +574,7 @@ async def search_htmx(
             else ""
         )
         return HTMLResponse(
-            '<div class="text-center py-12 text-slate-400 text-xs">'
+            '<div class="col-span-all text-center py-12 text-slate-400 text-xs">'
             + msg
             + clear
             + "</div>"
