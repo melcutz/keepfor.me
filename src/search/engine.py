@@ -91,12 +91,50 @@ def parse_tag_filter(raw: str | None) -> tuple[list[str], bool]:
     return seen[:MAX_TAG_FILTERS], False
 
 
-async def get_status_counts(db: Database, user_id: str) -> dict[str, int]:
-    """Per-group item counts for the library status pills (single query)."""
+async def get_status_counts(
+    db: Database,
+    user_id: str,
+    category: str | None = None,
+    tags: list[str] | None = None,
+    untagged: bool = False,
+    quick: bool = False,
+) -> dict[str, int]:
+    """Per-group item counts for the library status pills (single query).
+
+    Optional category/tags/quick scope the counts to the active library
+    filter so the pills re-count within the current view. Deliberately
+    NOT scoped by search text: that would multiply FTS/vector work per
+    status group on every keystroke (query matches surface via the pager
+    totals instead).
+    """
+    cat_clause, cat_params = _category_clause(category, "items")
+    quick_clause = " AND word_count < 1000" if quick else ""
+    tag_list = [t.lower() for t in (tags or [])][:MAX_TAG_FILTERS]
+    if tag_list:
+        exists = " ".join(
+            "AND EXISTS (SELECT 1 FROM item_tags it%d JOIN tags t%d"
+            " ON it%d.tag_id = t%d.id WHERE it%d.item_id = items.id"
+            " AND LOWER(t%d.name) = LOWER(?))" % ((i,) * 6)
+            for i in range(len(tag_list))
+        )
+        scope = f" AND user_id = ?{cat_clause}{quick_clause} {exists}"
+        params: tuple = (user_id, *cat_params, *tag_list)
+    elif untagged:
+        scope = (
+            " AND user_id = ?"
+            f"{cat_clause}{quick_clause}"
+            " AND NOT EXISTS (SELECT 1 FROM item_tags itx"
+            " WHERE itx.item_id = items.id)"
+        )
+        params = (user_id, *cat_params)
+    else:
+        scope = f" AND user_id = ?{cat_clause}{quick_clause}"
+        params = (user_id, *cat_params)
+    # NOTE: no "WHERE" in scope fragments: GROUP BY query below supplies it.
+    where = scope.replace(" AND user_id", "user_id", 1)
     rows = await db.query_all(
-        "SELECT status, COUNT(*) as count FROM items WHERE user_id = ?"
-        " GROUP BY status;",
-        (user_id,),
+        f"SELECT status, COUNT(*) as count FROM items WHERE {where} GROUP BY status;",
+        params,
     )
     raw = {r["status"]: r["count"] for r in rows}
     counts = {"all": 0, "saved": 0, "extracting": 0, "failed": 0}

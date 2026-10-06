@@ -186,11 +186,14 @@ async def get_item_clean_html(
         except Exception:
             pass
 
-    # Fallback to plain text / excerpt formatted into HTML paragraphs
+    # Fallback to plain text / excerpt formatted into HTML paragraphs.
+    # NOTE: title is NULL (not absent) until extraction completes, so
+    # .get('title', url) would render a literal "None" heading — use or.
+    heading = item.get("title") or item["url"]
     if item.get("status") == "failed":
         reason = item.get("fail_reason") or "unknown error"
         return (
-            f"<h1>{item.get('title', item['url'])}</h1>"
+            f"<h1>{heading}</h1>"
             f"<p>Content extraction failed: {reason}</p>"
             f"<p><a href='{item['url']}' target='_blank'>Visit original link</a></p>"
         )
@@ -200,7 +203,7 @@ async def get_item_clean_html(
         or "Content extraction in progress..."
     )
     paragraphs = "".join(f"<p>{p.strip()}</p>" for p in text.split("\n\n") if p.strip())
-    return f"<h1>{item.get('title', item['url'])}</h1>{paragraphs}"
+    return f"<h1>{heading}</h1>{paragraphs}"
 
 
 async def delete_item(db: Database, env: Any, user_id: str, item_id: str) -> bool:

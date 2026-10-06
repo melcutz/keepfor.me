@@ -417,7 +417,14 @@ async def library_page(
         pager = _pager_context(pager["page"], pager["per_page"], total)
     tags, status_counts, pinned_items = await asyncio.gather(
         list_user_tags(db, user["id"]),
-        get_status_counts(db, user["id"]),
+        get_status_counts(
+            db,
+            user["id"],
+            category=clean_category,
+            tags=tag_list,
+            untagged=untagged_only,
+            quick=bool(quick),
+        ),
         get_pinned_items(db, user["id"]),
     )
     tag_styles = tag_styles_for([t["name"] for t in tags])
@@ -535,6 +542,25 @@ async def search_htmx(
     pager_html = jinja_env.get_template("partials/pager.html").render(
         total=total, per_page_options=PER_PAGE_OPTIONS, push_base=push_base, **pager
     )
+    # Status pills re-count within the active category/tags scope (not the
+    # text query: that would multiply FTS/vector work per group). OOB swap
+    # keeps them live across htmx interactions without a full reload.
+    scoped_counts = await get_status_counts(
+        db,
+        user["id"],
+        category=clean_category,
+        tags=tag_list,
+        untagged=untagged_only,
+        quick=quick_flag,
+    )
+    pills_html = (
+        '<div id="status-filters" hx-swap-oob="true">'
+        + jinja_env.get_template("partials/status_pills.html").render(
+            status_counts=scoped_counts, active_status=clean_status
+        )
+        + "</div>"
+        + f'<span id="library-total" hx-swap-oob="true">{scoped_counts["all"]}</span>'
+    )
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
         msg = (
@@ -553,10 +579,11 @@ async def search_htmx(
             + clear
             + "</div>"
             + pager_html
+            + pills_html
         )
 
     cards = [template.render(item=it, tag_styles=tag_styles) for it in items]
-    return HTMLResponse(content="".join(cards) + pager_html)
+    return HTMLResponse(content="".join(cards) + pager_html + pills_html)
 
 
 @app.get("/items/{item_id}", response_class=HTMLResponse)
@@ -1551,7 +1578,9 @@ async def api_list_items(
 ):
     user = await require_user(request)
     db = get_db(request)
-    items = await get_recent_items(db, user["id"], tag=tag, limit=limit, offset=offset)
+    items = await get_recent_items(
+        db, user["id"], tag=tag, limit=min(max(limit, 1), 100), offset=max(offset, 0)
+    )
     return JSONResponse(content=items)
 
 
