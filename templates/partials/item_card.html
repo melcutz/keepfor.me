@@ -32,8 +32,8 @@
     {% endif %}
   </span>
     <div class="flex-1 min-w-0 pr-4">
-      <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mb-1.5">
-        <span class="font-medium text-slate-700 whitespace-nowrap">{{ item.site_name or item.canonical_url.split('/')[2] }}</span>
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mb-1.5 min-w-0">
+        <span class="font-medium text-slate-700 whitespace-nowrap truncate max-w-full">{{ item.site_name or item.canonical_url.split('/')[2] }}</span>
         <span>•</span>
         {% if item.word_count %}
         <span class="whitespace-nowrap px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium">{{ (item.word_count // 200) + 1 }} min read</span>
@@ -68,7 +68,7 @@
       </h3>
       {% else %}
       <h3 class="text-base font-medium text-slate-600 leading-snug transition break-words">
-        <a href="/items/{{ item.id }}" class="block truncate" title="{{ raw }}">{{ short_url }}</a>
+        <a href="/items/{{ item.id }}" class="block truncate break-all" title="{{ raw }}">{{ short_url }}</a>
       </h3>
       {% endif %}
 
@@ -121,29 +121,29 @@
     </div>
 
     <!-- Actions (always visible on touch: no hover there) -->
-    <div class="card-actions flex items-center shrink-0 -mr-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
+    <div class="card-actions flex items-center gap-0.5 shrink-0 -mr-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
       <button hx-post="/items/{{ item.id }}/pin"
               hx-target="#item-card-{{ item.id }}" hx-swap="outerHTML"
-              class="p-3 md:p-1.5 rounded hover:bg-slate-100 flex items-center {% if item.is_pinned %}text-amber-500{% else %}text-slate-400 hover:text-slate-700{% endif %}"
+              class="p-2 md:p-1.5 rounded hover:bg-slate-100 flex items-center {% if item.is_pinned %}text-amber-500{% else %}text-slate-400 hover:text-slate-700{% endif %}"
               title="{% if item.is_pinned %}Unpin{% else %}Pin to top{% endif %}">
         {% if item.is_pinned %}{{ icon("pin-filled", class="w-3.5 h-3.5") }}{% else %}{{ icon("pin", class="w-3.5 h-3.5") }}{% endif %}
         <span class="sr-only">{% if item.is_pinned %}Unpin{% else %}Pin{% endif %}</span>
       </button>
       <button onclick="copyForAI('{{ item.id }}', this)"
-              class="p-3 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Copy clean Markdown for AI">
+              class="p-2 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Copy clean Markdown for AI">
         {{ icon("clipboard", class="w-3.5 h-3.5") }}
         <span class="sr-only">Copy for AI</span>
       </button>
       {% if item.read_state != 'archived' and item.item_type != 'note' %}
       <button hx-post="/items/{{ item.id }}/archive"
               hx-target="#item-card-{{ item.id }}" hx-swap="outerHTML"
-              class="p-3 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Archive (e)">
+              class="p-2 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Archive (e)">
         {{ icon("check", class="w-3.5 h-3.5") }}
         <span class="sr-only">Archive</span>
       </button>
       {% endif %}
       <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" 
-         class="p-3 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Visit original link">
+         class="p-2 md:p-1.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 flex items-center" title="Visit original link">
         {{ icon("external", class="w-3.5 h-3.5") }}
         <span class="sr-only">Visit original link</span>
       </a>
@@ -151,7 +151,7 @@
               hx-confirm="Delete this item from your library?"
               hx-target="#item-card-{{ item.id }}" 
               hx-swap="outerHTML"
-              class="p-3 md:p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition flex items-center" title="Delete item">
+              class="p-2 md:p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition flex items-center" title="Delete item">
         {{ icon("trash", class="w-3.5 h-3.5") }}
         <span class="sr-only">Delete item</span>
       </button>
