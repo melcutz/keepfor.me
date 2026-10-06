@@ -9,7 +9,8 @@
     "https://app.keepfor.me/*",
     "https://keepfor.me/*",
     "https://*.workers.dev/*",
-    "http://localhost/*"
+    "http://localhost:*/*",
+    "http://127.0.0.1:*/*"
   ],
   "action": { "default_popup": "popup.html", "default_title": "Save to Keepfor.me" },
   "background": { "service_worker": "background.js" },

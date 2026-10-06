@@ -47,13 +47,30 @@ document.addEventListener("DOMContentLoaded", async () => {
   toggleConfig.addEventListener("click", (e) => { e.preventDefault(); showConfig(); });
   closeConfig.addEventListener("click", (e) => { e.preventDefault(); showMain(); });
 
-  saveConfigBtn.addEventListener("click", () => {
+  saveConfigBtn.addEventListener("click", async () => {
     const workerUrl = workerUrlInput.value.trim().replace(/\/+$/, "");
     const patToken = patTokenInput.value.trim();
+    if (!workerUrl || !patToken) {
+      configStatus.textContent = "Enter both Worker URL and PAT.";
+      configStatus.className = "status error";
+      return;
+    }
+    configStatus.textContent = "Checking connection…";
+    configStatus.className = "status";
+    try {
+      const r = await fetch(`${workerUrl}/api/items?limit=1`, {
+        headers: { Authorization: `Bearer ${patToken}` },
+      });
+      if (!r.ok) throw new Error(`Error ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    } catch (e) {
+      configStatus.textContent = `Connection failed: ${e.message}`;
+      configStatus.className = "status error";
+      return;
+    }
     chrome.storage.sync.set({ workerUrl, patToken }, () => {
-      configStatus.textContent = "Settings saved!";
+      configStatus.textContent = "Settings saved! ✓";
       configStatus.className = "status success";
-      setTimeout(showMain, 600);
+      setTimeout(showMain, 800);
     });
   });
 
@@ -99,7 +116,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           const dupe = document.getElementById("dupe");
           if (dupe) dupe.textContent = "Already in library — open it from the library link above.";
         }
-        setTimeout(() => window.close(), 1200);
+        setTimeout(() => window.close(), 2500);
       } catch (err) {
         statusDiv.textContent = err.message;
         statusDiv.className = "status error";

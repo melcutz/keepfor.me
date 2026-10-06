@@ -40,25 +40,19 @@ export async function saveMany(base, pat, items, { concurrency = 5, onProgress }
   return results;
 }
 
-export const searchLib = (base, pat, query, limit = 20) =>
-  req(base, "/api/search", { method: "POST", body: { query, mode: "hybrid", limit }, pat });
-
-export function mcpCall(base, pat, method, params = {}, id = 1) {
-  return req(base, "/api/mcp", {
+export const searchLib = (base, pat, query, limit = 20) => {
+  if (!base || !pat) throw new Error("Configure Worker URL + PAT first");
+  return req(base, "/api/search", {
     method: "POST",
+    body: { query, mode: "hybrid", limit },
     pat,
-    body: { jsonrpc: "2.0", id, method, params },
   });
-}
-
-export const mcpSearch = (base, pat, query, limit = 10) =>
-  mcpCall(base, pat, "tools/call", {
-    name: "search_library",
-    arguments: { query, mode: "hybrid", limit },
-  });
+};
 
 export function isSkippableUrl(url) {
-  return /^(chrome|edge|about|chrome-extension|brave|opera):\/\//i.test(url || "");
+  return /^(chrome|edge|about|chrome-extension|brave|opera|file|view-source|data|javascript|blob):/i.test(
+    url || ""
+  );
 }
 
 export function dedupeByUrl(rows) {
