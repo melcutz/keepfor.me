@@ -889,3 +889,13 @@ async def unarchive_item(db: Database, user_id: str, item_id: str) -> bool:
         (item_id, user_id),
     )
     return True
+
+
+async def record_open(db: Database, user_id: str, item_id: str) -> None:
+    """Log a reader visit. Lets errors propagate; callers must wrap in
+    try/except or BackgroundTasks so a logging failure never breaks
+    the reader."""
+    await db.execute(
+        "INSERT INTO item_opens (user_id, item_id) VALUES (?, ?);",
+        (user_id, item_id),
+    )
