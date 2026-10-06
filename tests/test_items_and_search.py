@@ -330,3 +330,82 @@ async def test_urllib_http_error_maps_to_origin_error(monkeypatch):
         raise AssertionError("expected OriginHttpError")
     except OriginHttpError as exc:
         assert exc.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_rate_limited_falls_back_to_reader_proxy(user_with_env, monkeypatch):
+    """A 429 direct fetch recovers via the reader proxy."""
+    from src.consumer.processor import OriginHttpError
+
+    user, env, db = user_with_env
+    env.QUEUE = None
+    calls = []
+
+    async def fake_fetch(url: str, headers=None) -> str:
+        calls.append(url)
+        raise OriginHttpError(429, url)
+
+    async def fake_jina(url: str) -> str:
+        calls.append("jina:" + url)
+        return JINA_SAMPLE
+
+    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    item, _ = await save_item(
+        db, env, user["id"], "https://ratelimited.example.com/a", []
+    )
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "ok"
+    assert fetched["title"] == "Proxied Article"
+    assert calls == [
+        "https://ratelimited.example.com/a",
+        "jina:https://ratelimited.example.com/a",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_530_falls_back_to_reader_proxy(user_with_env, monkeypatch):
+    """A 530 Cloudflare origin error recovers via the reader proxy."""
+    from src.consumer.processor import OriginHttpError
+
+    user, env, db = user_with_env
+    env.QUEUE = None
+
+    async def fake_fetch(url: str, headers=None) -> str:
+        raise OriginHttpError(530, url)
+
+    async def fake_jina(url: str) -> str:
+        return JINA_SAMPLE
+
+    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    item, _ = await save_item(
+        db, env, user["id"], "https://cf-blocked.example.com/a", []
+    )
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "ok"
+    assert fetched["title"] == "Proxied Article"
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_522_falls_back_to_reader_proxy(user_with_env, monkeypatch):
+    """A 522 Cloudflare timeout recovers via the reader proxy."""
+    from src.consumer.processor import OriginHttpError
+
+    user, env, db = user_with_env
+    env.QUEUE = None
+
+    async def fake_fetch(url: str, headers=None) -> str:
+        raise OriginHttpError(522, url)
+
+    async def fake_jina(url: str) -> str:
+        return JINA_SAMPLE
+
+    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    item, _ = await save_item(
+        db, env, user["id"], "https://cf-timeout.example.com/a", []
+    )
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "ok"
+    assert fetched["title"] == "Proxied Article"

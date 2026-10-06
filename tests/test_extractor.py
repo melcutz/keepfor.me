@@ -285,3 +285,164 @@ def test_sanitize_keeps_article_prose_intact():
         "<td>v</td>",
     ):
         assert needle in clean, needle
+
+
+def test_youtube_extracts_title_and_description():
+    """YouTube pages are JS-rendered; meta tags carry the real content."""
+    html = (
+        "<html><head><title>We Bought the World's Cheapest Car - YouTube</title>"
+        '<meta property="og:title" content="We Bought the World\'s Cheapest Car">'
+        '<meta property="og:description"'
+        ' content="We traveled to China to buy the cheapest car possible.'
+        " Here's what we got.\">"
+        '<meta property="og:image"'
+        ' content="https://i.ytimg.com/vi/abc123/maxresdefault.jpg">'
+        '<meta name="author" content="Car Adventures">'
+        '<meta itemprop="datePublished" content="2024-03-15">'
+        "</head><body></body></html>"
+    )
+    out = extract_article(html, "https://www.youtube.com/watch?v=abc123")
+    assert out["title"] == "We Bought the World's Cheapest Car"
+    assert "cheapest car" in out["content_text"]
+    assert out["byline"] == "Car Adventures"
+    assert out["published_date"] == "2024-03-15"
+    assert out["image_url"] == "https://i.ytimg.com/vi/abc123/maxresdefault.jpg"
+    assert out["word_count"] > 15
+    assert "About" not in out["content_text"]
+    assert "Press" not in out["content_text"]
+
+
+def test_youtube_uses_full_short_description():
+    """Full description lives in the embedded player response, not og:description."""
+    html = (
+        "<html><head><title>Video - YouTube</title>"
+        '<meta property="og:description" content="Short truncated blurb.">'
+        "</head><body><script>var x = {"
+        '"shortDescription":"This is the full video description. '
+        "It has multiple sentences and much more detail than the "
+        'truncated OpenGraph description that YouTube also emits."'
+        "};</script></body></html>"
+    )
+    out = extract_article(html, "https://www.youtube.com/watch?v=abc")
+    assert "full video description" in out["content_text"]
+    assert "multiple sentences" in out["content_text"]
+    assert out["is_fallback"] == 0
+
+
+def test_github_extracts_readme_not_session_banner():
+    """GitHub HTML has session banners that trafilatura picks up instead of README."""
+    html = (
+        "<html><head><title>awesome-selfhosted: A list of Free Software"
+        " · GitHub</title>"
+        '<meta property="og:title"'
+        ' content="awesome-selfhosted: A list of Free Software">'
+        '<meta property="og:description"'
+        ' content="A list of Free Software network services and web applications.">'
+        '</head><body><div class="js-session-flash">'
+        "You signed in with another tab or window. "
+        "Reload to refresh your session.</div>"
+        '<article class="markdown-body"><h1>Awesome Selfhosted</h1>'
+        "<p>A list of Free Software network services and web applications"
+        " which can be hosted on your own servers.</p>"
+        "<p>This is a curated list of open source alternatives to"
+        " popular SaaS products.</p>"
+        "<p>All entries are free to use and modify under their"
+        " respective licenses.</p>"
+        "</article></body></html>"
+    )
+    out = extract_article(
+        html, "https://github.com/awesome-selfhosted/awesome-selfhosted"
+    )
+    assert "You signed in with another tab" not in out["content_text"]
+    assert "Free Software network services" in out["content_text"]
+    assert "curated list" in out["content_text"]
+    assert out["is_fallback"] == 0
+
+
+def test_fallback_uses_readability_for_content_pages():
+    """When trafilatura fails, readability finds content in common containers."""
+    html = """
+    <html><head><title>My Blog Post</title></head>
+    <body>
+    <nav>Home | About | Contact</nav>
+    <article>
+    <h1>My Blog Post</h1>
+    <p>This is the first paragraph of a real article with enough content
+    to be useful for extraction testing purposes.</p>
+    <p>This is the second paragraph with more substance and detail about
+    the topic being discussed here today.</p>
+    <p>A third paragraph ensures we have enough text to pass the
+    readability threshold for fallback extraction.</p>
+    </article>
+    <footer>Copyright 2024</footer>
+    </body></html>
+    """
+    out = extract_article(html, "https://blog.example.com/post")
+    assert out["is_fallback"] == 1
+    assert "first paragraph" in out["content_text"]
+    assert "second paragraph" in out["content_text"]
+    assert "Copyright" not in out["content_text"]
+
+
+def test_substantial_readability_recovery_clears_fallback():
+    """A large readability recovery is a real article, not a link-only stub."""
+    paras = "".join(
+        f"<p>Paragraph {i} of a long recovered article. " + ("word " * 60) + "</p>"
+        for i in range(4)
+    )
+    html = f"<html><head><title>Recovered</title></head><body>{paras}</body></html>"
+    out = extract_article(html, "https://example.com/recovered")
+    assert out["word_count"] >= 200
+    assert out["is_fallback"] == 0
+
+
+def test_fallback_falls_back_to_url_when_nothing_found():
+    """When no content can be extracted, title falls back to URL."""
+    html = """
+    <html><head><title>Empty Page</title></head>
+    <body><div id="app"></div></body></html>
+    """
+    out = extract_article(html, "https://example.com/empty")
+    assert out["title"] == "Empty Page"
+    assert out["is_fallback"] == 1
+
+
+def test_nav_junk_marked_as_fallback():
+    """Content that is mostly navigation words should be marked as fallback."""
+    html = """
+    <html><head><title>Some Page</title></head>
+    <body><article>
+    <p>Sign In Log In Cart Menu Home About Contact Copyright Privacy Terms
+    Search Register Login Logout Subscribe Newsletter Policy</p>
+    </article></body></html>
+    """
+    out = extract_article(html, "https://example.com/page")
+    assert out["is_fallback"] == 1
+
+
+def test_genuine_content_not_flagged_as_nav_junk():
+    """Normal article content should not be flagged as nav junk."""
+    from src.consumer.extractor import _is_nav_junk
+
+    text = (
+        "The quick brown fox jumps over the lazy dog near the river bank"
+        " on a sunny afternoon. "
+        "Machine learning models require large amounts of training data to"
+        " achieve good performance "
+        "across many different tasks and domains. Cloudflare Workers provide"
+        " a serverless execution "
+        "environment for edge computing applications that need low latency."
+    )
+    assert _is_nav_junk(text) is False
+
+
+def test_soft_404_with_error_body():
+    """Pages with 'ERROR 404' body text should be detected as blocked."""
+    from src.consumer.extractor import detect_blocked_page
+
+    reason = detect_blocked_page(
+        "Videolectures",
+        "ERROR 404\nUnfortunately, the page you are trying to reach"
+        " has been moved or does not exist.",
+    )
+    assert reason

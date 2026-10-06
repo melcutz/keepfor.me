@@ -1,4 +1,5 @@
 import html as html_module
+import json
 import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -205,7 +206,9 @@ _BLOCK_TITLE_RE = re.compile(
     r"404|403|429|not\s+found|error|too\s+many\s+requests|"
     r"we\s+are\s+sorry|sorry|verifying|"
     r"just\s+a\s+moment|attention\s+required|checking\s+your\s+browser|"
-    r"one\s+moment|security\s+check|ddos|bot\s+detection)",
+    r"one\s+moment|security\s+check|ddos|bot\s+detection|"
+    r"content\s+not\s+available|this\s+page\s+doesn'?t\s+exist|gone|removed|"
+    r"deleted|not\s+available)",
     re.IGNORECASE,
 )
 _BLOCK_BODY_MARKERS = (
@@ -226,6 +229,13 @@ _BLOCK_BODY_MARKERS = (
     "verify you are human",
     "session expired",
     "authentication required",
+    "this page doesn't exist",
+    "content not available",
+    "page has been moved",
+    "page has been removed",
+    "this content is no longer available",
+    "the page you are looking for",
+    "error 404",
 )
 
 
@@ -309,8 +319,279 @@ def detect_redirect_url(html: str, url: str) -> str | None:
     return None
 
 
+def _is_youtube_url(url: str) -> bool:
+    """Check if URL is a YouTube video page."""
+    try:
+        host = (urlparse(url).netloc or "").lower()
+    except Exception:
+        return False
+    return host.endswith("youtube.com") or host.endswith("youtu.be")
+
+
+def _is_github_url(url: str) -> bool:
+    """Check if URL is a GitHub page (not github.io)."""
+    try:
+        host = (urlparse(url).netloc or "").lower()
+    except Exception:
+        return False
+    return host == "github.com" or host.endswith(".github.com")
+
+
+# YouTube embeds the full video description in `ytInitialPlayerResponse`.
+# og:description is truncated to ~160 chars; this is the whole thing.
+_YT_SHORT_DESC_RE = re.compile(r'"shortDescription":"((?:[^"\\]|\\.)*)"')
+
+
+def _youtube_short_description(html: str) -> str | None:
+    """Pull the full description from YouTube's embedded player response."""
+    match = _YT_SHORT_DESC_RE.search(html or "")
+    if not match:
+        return None
+    try:
+        text = json.loads(f'"{match.group(1)}"')
+    except (ValueError, TypeError):
+        return None
+    return text.strip() or None
+
+
+def extract_youtube_article(html: str, url: str) -> dict[str, Any]:
+    """Extract YouTube video metadata from initial HTML (JS-rendered pages)."""
+    soup_cls, _ = _load_parsers()
+    soup = soup_cls(html or "", "html.parser")
+
+    title = None
+    og_title = soup.find("meta", property="og:title")
+    if og_title and og_title.get("content"):
+        title = og_title["content"].strip()
+    if not title and soup.title and soup.title.string:
+        title = soup.title.string.strip()
+        if title.endswith(" - YouTube"):
+            title = title[: -len(" - YouTube")].strip()
+    if not title:
+        title = url
+
+    description = _youtube_short_description(html)
+    if not description:
+        og_desc = soup.find("meta", property="og:description")
+        if og_desc and og_desc.get("content"):
+            description = og_desc["content"].strip()
+    if not description:
+        meta_desc = soup.find("meta", attrs={"name": "description"})
+        if meta_desc and meta_desc.get("content"):
+            description = meta_desc["content"].strip()
+
+    byline = None
+    og_author = soup.find("meta", attrs={"name": "author"})
+    if og_author and og_author.get("content"):
+        byline = og_author["content"].strip()
+    if not byline:
+        for link in soup.find_all("link", attrs={"itemprop": "name"}):
+            if link.get("content"):
+                byline = link["content"].strip()
+                break
+
+    published_date = None
+    og_date = soup.find("meta", attrs={"itemprop": "datePublished"})
+    if og_date and og_date.get("content"):
+        published_date = og_date["content"].strip()
+
+    image_url = None
+    og_img = soup.find("meta", property="og:image")
+    if og_img and og_img.get("content"):
+        image_url = og_img["content"].strip()
+
+    site_name = "YouTube"
+
+    parts = [p for p in [title, description] if p]
+    plain_text = "\n\n".join(parts) if parts else title
+    clean_html = sanitize_clean_html(
+        f"<h1>{title}</h1>" + (f"<p>{description}</p>" if description else "")
+    )
+    plain_text = _clean_plain_text(plain_text)
+    word_count = len(plain_text.split())
+
+    return {
+        "title": title,
+        "byline": byline,
+        "site_name": site_name,
+        "published_date": published_date,
+        "excerpt": description[:300] if description else None,
+        "content_text": plain_text,
+        "clean_html": clean_html,
+        "is_fallback": 0,
+        "word_count": word_count,
+        "image_url": image_url,
+        "blocked_reason": detect_blocked_page(title, plain_text, None),
+        "redirect_url": None,
+    }
+
+
+def extract_github_article(html: str, url: str) -> dict[str, Any]:
+    """Extract GitHub README content, skipping session banners and nav chrome."""
+    soup_cls, _ = _load_parsers()
+    soup = soup_cls(html or "", "html.parser")
+
+    for banner in soup.find_all("div", class_="js-session-flash"):
+        banner.decompose()
+    for banner in soup.find_all("div", class_="flash-banner"):
+        banner.decompose()
+
+    readme = (
+        soup.find("article")
+        or soup.find("div", id="readme")
+        or soup.find("div", class_="markdown-body")
+    )
+
+    title = None
+    og_title = soup.find("meta", property="og:title")
+    if og_title and og_title.get("content"):
+        title = og_title["content"].strip()
+    if not title and soup.title and soup.title.string:
+        title = soup.title.string.strip()
+        for suffix in (" · GitHub", " · GitHub Pages"):
+            if title.endswith(suffix):
+                title = title[: -len(suffix)].strip()
+                break
+    if not title:
+        title = url
+
+    description = None
+    og_desc = soup.find("meta", property="og:description")
+    if og_desc and og_desc.get("content"):
+        description = og_desc["content"].strip()
+
+    plain_text = ""
+    if readme:
+        for p in readme.find_all("p"):
+            text = p.get_text(strip=True)
+            if text:
+                plain_text += text + "\n\n"
+        plain_text = plain_text.strip()
+
+    if not plain_text or len(plain_text) < 50:
+        plain_text = description or title
+
+    clean_html = sanitize_clean_html(
+        f"<h1>{title}</h1>" + (f"<p>{description}</p>" if description else "")
+    )
+    plain_text = _clean_plain_text(plain_text)
+    word_count = len(plain_text.split())
+
+    return {
+        "title": title,
+        "byline": None,
+        "site_name": "GitHub",
+        "published_date": None,
+        "excerpt": description[:300] if description else None,
+        "content_text": plain_text,
+        "clean_html": clean_html,
+        "is_fallback": 0 if len(plain_text) >= 50 else 1,
+        "word_count": word_count,
+        "image_url": None,
+        "blocked_reason": detect_blocked_page(title, plain_text, None),
+        "redirect_url": None,
+    }
+
+
+def _extract_with_readability(html: str, url: str) -> str | None:
+    """Simple readability-like extraction using BeautifulSoup.
+
+    Scores content containers and extracts paragraph text from the best one.
+    Returns None if no substantial content found.
+    """
+    soup_cls, _ = _load_parsers()
+    soup = soup_cls(html or "", "html.parser")
+
+    for tag in soup.find_all(
+        ["script", "style", "nav", "aside", "footer", "header", "form", "button"]
+    ):
+        tag.decompose()
+
+    candidates: list[tuple[int, Any]] = []
+
+    for article in soup.find_all("article"):
+        candidates.append((100, article))
+    for main in soup.find_all("main"):
+        candidates.append((80, main))
+    for role_main in soup.find_all(attrs={"role": "main"}):
+        candidates.append((80, role_main))
+    for cls in ["content", "post", "entry", "article-body", "post-content"]:
+        for div in soup.find_all("div", class_=cls):
+            candidates.append((60, div))
+    for div_id in ["content", "main-content", "post-content"]:
+        for div in soup.find_all("div", id=div_id):
+            candidates.append((60, div))
+
+    if not candidates:
+        for div in soup.find_all("div"):
+            p_count = len(div.find_all("p"))
+            if p_count >= 2:
+                candidates.append((p_count * 10, div))
+
+    if not candidates:
+        # Last resort: paragraphs that sit directly under <body> with no
+        # wrapping container (common on simple blog/CMS pages).
+        body = soup.body or soup
+        if len(body.find_all("p")) >= 2:
+            candidates.append((10, body))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    best = candidates[0][1]
+
+    paragraphs = []
+    for p in best.find_all("p"):
+        text = p.get_text(strip=True)
+        if text and len(text) > 1:
+            paragraphs.append(text)
+
+    if not paragraphs:
+        return None
+
+    result = "\n\n".join(paragraphs)
+    return result if len(result.strip()) >= 50 else None
+
+
+_NAV_WORDS = frozenset(
+    """
+    about advertise all rights reserved cart contact copyright developers follow us
+    home log in login logout menu newsletter policy privacy register search
+    sign in sign up subscribe terms
+    """.split()
+)
+# Nav/UI chrome is always short. Validated against 454 prod items: without
+# this cap, a repeated-trigram heuristic flagged 82/252 long articles as
+# junk (e.g. a 15k-word Wikiversity page). Chrome never exceeds this size.
+_NAV_JUNK_MAX_WORDS = 200
+# Readability fallback word count above which the result is treated as a
+# genuine article (clears is_fallback) rather than a link-only stub.
+_READABILITY_REAL_ARTICLE_WORDS = 200
+
+
+def _is_nav_junk(text: str) -> bool:
+    """Detect if extracted text is mostly navigation/UI chrome.
+
+    Only fires on short text (>30% nav words, <=200 words). Long content is
+    never chrome, so it is never reclassified.
+    """
+    words = (text or "").lower().split()
+    n = len(words)
+    if n < 10 or n > _NAV_JUNK_MAX_WORDS:
+        return False
+
+    nav_count = sum(1 for w in words if w in _NAV_WORDS)
+    return nav_count / n > 0.30
+
+
 def extract_article(html: str, url: str) -> dict[str, Any]:
     """Extract article content and reader HTML with Trafilatura and OG fallback."""
+    if _is_youtube_url(url):
+        return extract_youtube_article(html, url)
+    if _is_github_url(url):
+        return extract_github_article(html, url)
+
     title = None
     byline = None
     site_name = None
@@ -380,15 +661,28 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
                 else None
             )
 
-        plain_text = excerpt or title or "No readable text extracted."
-        clean_html_raw = (
-            f"<h1>{title}</h1><p>{excerpt or ''}</p>"
-            f"<p><a href='{url}' target='_blank'>Visit original link</a></p>"
-        )
+        readable = _extract_with_readability(html, url)
+        if readable and len(readable.strip()) >= 50:
+            plain_text = readable
+            clean_html_raw = f"<h1>{title}</h1><p>{readable}</p>"
+            # A substantial paragraph recovery is a real article, not a
+            # link-only stub: don't show the "Link Only" badge for it.
+            if len(readable.split()) >= _READABILITY_REAL_ARTICLE_WORDS:
+                is_fallback = False
+        else:
+            plain_text = excerpt or title or "No readable text extracted."
+            clean_html_raw = (
+                f"<h1>{title}</h1><p>{excerpt or ''}</p>"
+                f"<p><a href='{url}' target='_blank'>Visit original link</a></p>"
+            )
 
     clean_html = sanitize_clean_html(clean_html_raw or "")
     plain_text = _clean_plain_text(plain_text or "")
     word_count = len(plain_text.split())
+
+    if not is_fallback and _is_nav_junk(plain_text):
+        is_fallback = True
+
     image_url = extract_image_url(html, _metadata)
     blocked_reason = detect_blocked_page(title, plain_text, html)
     redirect_url = detect_redirect_url(html, url)

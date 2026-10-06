@@ -126,6 +126,7 @@ async def generate_triage_summary(env: Any, plain_text: str) -> str | None:
 
 
 MAX_REDIRECT_HOPS = 2
+PROXY_FALLBACK_STATUSES = frozenset({403, 429, 530, 522, 520})
 
 
 async def _fetch_and_extract(url: str, item_id: str) -> tuple[dict, str | None]:
@@ -141,9 +142,12 @@ async def _fetch_and_extract(url: str, item_id: str) -> tuple[dict, str | None]:
             raw_html = await fetch_page_html(current_url)
             extracted = extract_article(raw_html, current_url)
         except OriginHttpError as direct_err:
-            if direct_err.status_code != 403:
+            if direct_err.status_code not in PROXY_FALLBACK_STATUSES:
                 raise
-            logger.info(f"Direct fetch forbidden, trying reader proxy: item={item_id}")
+            logger.info(
+                f"Direct fetch got {direct_err.status_code}, "
+                f"trying reader proxy: item={item_id}"
+            )
             try:
                 proxy_md = await fetch_jina_reader(current_url)
             except Exception:
