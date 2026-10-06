@@ -145,6 +145,23 @@
       </header>
 
       <!-- Clean HTML Content Body -->
+      <style>
+        /* Extracted web content is hostile to narrow screens: bare URLs,
+           wide tables, fixed-width embeds. Contain them so the reader
+           column never forces page-level horizontal scrolling. */
+        #article-body { overflow-wrap: break-word; min-width: 0; }
+        #article-body a { overflow-wrap: anywhere; }
+        #article-body table {
+          display: block;
+          max-width: 100%;
+          overflow-x: auto;
+        }
+        #article-body pre { max-width: 100%; overflow-x: auto; }
+        #article-body img, #article-body video, #article-body iframe {
+          max-width: 100%;
+          height: auto;
+        }
+      </style>
       <div id="article-body" class="prose prose-slate max-w-none leading-[1.75] text-base">
         {{ clean_html | safe }}
       </div>
