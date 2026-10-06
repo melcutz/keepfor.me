@@ -155,7 +155,10 @@ if (window.LanguageModel || window.ai?.canCreateTextSession) {
       const titles = tabRows.slice(0, 5).map((r) => r.title).join("; ");
       let out = "";
       if (window.LanguageModel) {
-        const s = await window.LanguageModel.create();
+        const s = await window.LanguageModel.create({
+          expectedInputs: [{ type: "text", languages: ["en"] }],
+          expectedOutputs: [{ type: "text", languages: ["en"] }],
+        });
         out = await s.prompt(`Suggest 5 comma-separated lowercase tags for these tabs: ${titles}`);
       } else { const s = await window.ai.createTextSession(); out = await s.prompt(`Suggest tags: ${titles}`); }
       $("tabs-tags").value = out.split(/[,\n]/).map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 8).join(", ");
