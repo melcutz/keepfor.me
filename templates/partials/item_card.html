@@ -14,7 +14,7 @@
          onerror="this.closest('.card-cover').remove()">
   </div>
   {% endif %}
-  <div class="flex items-start gap-3">
+  <div class="card-main flex items-start gap-3">
   {% set raw = item.canonical_url or item.url or '' %}
   {% set parts = raw.split('/') %}
   {% set domain = parts[2] if parts|length > 2 else raw %}
@@ -31,7 +31,7 @@
     <img src="https://www.google.com/s2/favicons?domain={{ domain }}&sz=64" alt="" loading="lazy" onerror="if(!this.dataset.fbk){this.dataset.fbk=1;this.src='https://icons.duckduckgo.com/ip3/{{ domain }}.ico';}else{this.remove();}" class="absolute inset-0 w-6 h-6 rounded-md bg-white object-cover">
     {% endif %}
   </span>
-    <div class="flex-1 min-w-0 pr-4">
+    <div class="card-body flex-1 min-w-0 pr-4">
       <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mb-1.5 min-w-0">
         <span class="font-medium text-slate-700 whitespace-nowrap truncate max-w-full">{{ item.site_name or item.canonical_url.split('/')[2] }}</span>
         <span>•</span>

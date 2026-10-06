@@ -98,6 +98,23 @@
         @media (min-width: 2000px) { #items-list.view-cards { columns: 20rem 5; } }
         #items-list.view-cards > * { break-inside: avoid; margin: 0 0 1rem !important; min-width: 0; }
         #items-list.view-cards > .col-span-all { column-span: all; }
+        /* Cards: content uses the full card width; actions become a
+           bottom footer bar instead of a side icon column. List/compact
+           keep the roomy side-action layout untouched. */
+        #items-list.view-cards .card-main,
+        #pinned-shelf .card-main { flex-wrap: wrap; gap: 0.75rem; }
+        #items-list.view-cards .card-body,
+        #pinned-shelf .card-body { flex: 1 1 0%; padding-right: 0; }
+        #items-list.view-cards .card-actions,
+        #pinned-shelf .card-actions {
+          flex: 1 1 100%;
+          justify-content: flex-end;
+          gap: 0;
+          margin: 0.25rem 0 0 !important;
+          padding-top: 0.5rem;
+          border-top: 1px solid #f0eee6;
+          opacity: 1;
+        }
         #items-list.view-list > * { min-width: 0; }
         #items-list .item-card { min-width: 0; overflow: hidden; }
         /* Non-cards views: capped whole column (toolbar + pills + rows).
