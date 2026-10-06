@@ -25,6 +25,10 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+# Every test here drives a real browser. CI installs only ruff/pytest/httpx,
+# so skip the whole module there instead of erroring on the import.
+pytest.importorskip("playwright.sync_api")
+
 BASE_URL = os.environ.get("KFM_BASE_URL", "https://app.keepfor.me").rstrip("/")
 EMAIL = os.environ.get("KFM_EMAIL", "m@m.com")
 PASSWORD = os.environ.get("KFM_PASSWORD")  # never commit this

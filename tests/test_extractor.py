@@ -359,7 +359,22 @@ def test_github_extracts_readme_not_session_banner():
     assert out["is_fallback"] == 0
 
 
-def test_fallback_uses_readability_for_content_pages():
+@pytest.fixture
+def force_bs4_fallback(monkeypatch):
+    """Force extract_article down the BeautifulSoup fallback path.
+
+    Trafilatura's minimum-length threshold varies by version, so tests of
+    the fallback must not depend on it failing on their fixture.
+    """
+    from src.consumer import extractor
+
+    extractor._load_parsers()  # ensure _soup_cls is populated
+    monkeypatch.setattr(extractor, "_trafilatura", None)
+    monkeypatch.setattr(extractor, "_parsers_loaded", True)
+    return extractor
+
+
+def test_fallback_uses_readability_for_content_pages(force_bs4_fallback):
     """When trafilatura fails, readability finds content in common containers."""
     html = """
     <html><head><title>My Blog Post</title></head>
@@ -384,7 +399,7 @@ def test_fallback_uses_readability_for_content_pages():
     assert "Copyright" not in out["content_text"]
 
 
-def test_substantial_readability_recovery_clears_fallback():
+def test_substantial_readability_recovery_clears_fallback(force_bs4_fallback):
     """A large readability recovery is a real article, not a link-only stub."""
     paras = "".join(
         f"<p>Paragraph {i} of a long recovered article. " + ("word " * 60) + "</p>"
@@ -396,7 +411,7 @@ def test_substantial_readability_recovery_clears_fallback():
     assert out["is_fallback"] == 0
 
 
-def test_fallback_falls_back_to_url_when_nothing_found():
+def test_fallback_falls_back_to_url_when_nothing_found(force_bs4_fallback):
     """When no content can be extracted, title falls back to URL."""
     html = """
     <html><head><title>Empty Page</title></head>
