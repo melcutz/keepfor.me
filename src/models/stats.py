@@ -200,6 +200,13 @@ async def get_user_stats(db, user_id: str) -> dict:
         for day, events in day_events.items()
         if day >= cutoff_iso and score_day(events) > 0
     }
+    # Per-day per-action counts behind each score (grid hover breakdown).
+    # Same window/sparsity as day_scores; every action key always present.
+    day_breakdown = {
+        day: {action: events.get(action, 0) for action in WEIGHTS}
+        for day, events in day_events.items()
+        if day >= cutoff_iso and score_day(events) > 0
+    }
     active_days = {
         datetime.date.fromisoformat(day) for day in day_scores if day_scores[day] > 0
     }
@@ -274,6 +281,7 @@ async def get_user_stats(db, user_id: str) -> dict:
         "total_score": total_score,
         "best_day": best_day,
         "day_scores": day_scores,
+        "day_breakdown": day_breakdown,
         "week_rhythm": week_rhythm,
         "unread_count": unread_count,
         "oldest_unread": oldest_unread,

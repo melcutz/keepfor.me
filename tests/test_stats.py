@@ -316,3 +316,99 @@ async def test_get_user_stats_isolates_users(db, test_user_data):
         w["save"] == 0 and w["open"] == 0 and w["archive"] == 0
         for w in stats["week_rhythm"]
     )
+
+
+def test_stats_anonymous_redirects_to_login(client):
+    response = client.get("/stats", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/auth/login"
+
+
+async def test_stats_page_renders_for_user(client, db, test_user_data):
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    assert "Streak" in response.text
+
+
+async def test_stats_empty_library_day_one_nudge(client, db, test_user_data):
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    assert "Day 1 starts with one save" in response.text
+
+
+async def test_stats_top_tag_links_use_singular_tag_param(client, db, test_user_data):
+    """Top-tag links must use ?tag= (what the library reads), URL-encoded."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+    user_row = await db.query_first("SELECT id FROM users LIMIT 1;")
+    await save_item(
+        db, MockEnv(), user_row["id"], "https://example.com/tagged", tags=["python"]
+    )
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    assert "/?tag=python" in response.text
+    assert "/?tags=" not in response.text
+
+
+async def test_stats_rhythm_renders_grouped_bars(client, db, test_user_data):
+    """Each of the 12 weeks renders save/open/archive grouped bars."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+    user_row = await db.query_first("SELECT id FROM users LIMIT 1;")
+    item, _ = await save_item(
+        db, MockEnv(), user_row["id"], "https://example.com/rhythm"
+    )
+    await record_open(db, user_row["id"], item["id"])
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    # One hover title per week group, all 12 weeks present.
+    assert response.text.count(' archived"') == 12
+    # Three distinct per-action bars in every group.
+    assert response.text.count('rounded-t bg-blue-600" style=') == 12
+    assert response.text.count('rounded-t bg-emerald-600" style=') == 12
+    assert response.text.count('rounded-t bg-amber-600" style=') == 12
+
+
+async def test_get_user_stats_day_breakdown(db, test_user_data):
+    """Per-day per-action counts behind each day score (hover breakdown)."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    env = MockEnv()
+    uid = user["id"]
+    item1, _ = await save_item(
+        db, env, uid, "https://example.com/stats-one", tags=["python"]
+    )
+    item2, _ = await save_item(db, env, uid, "https://example.com/stats-two")
+    await record_open(db, uid, item1["id"])
+    await record_open(db, uid, item1["id"])
+    assert await archive_item(db, uid, item2["id"]) is True
+
+    stats = await get_user_stats(db, uid)
+    today = _utc_today_iso()
+    assert stats["day_breakdown"][today] == {
+        "save": 2,
+        "tag": 1,
+        "note": 0,
+        "pin": 0,
+        "archive": 1,
+        "open": 1,
+    }

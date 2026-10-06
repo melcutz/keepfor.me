@@ -65,6 +65,7 @@ from src.models.items import (
     unarchive_item,
     update_user_notes,
 )
+from src.models.stats import get_user_stats, intensity_bucket
 from src.schemas import (
     CreatePATRequest,
     LoginRequest,
@@ -836,6 +837,90 @@ async def tags_page(request: Request):
         active_nav="tags",
     )
     return HTMLResponse(content=html)
+
+
+@app.get("/stats", response_class=HTMLResponse)
+async def stats_page(request: Request):
+    user = await get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/auth/login", status_code=303)
+    db = get_db(request)
+    stats = await get_user_stats(db, user["id"])
+    day_scores: dict = stats.get("day_scores", {})
+    breakdown: dict = stats.get("day_breakdown", {})
+    median = stats.get("median_active_day", 0.0)
+
+    def _day_title(iso: str, score: int) -> str:
+        parts = []
+        counts = breakdown.get(iso, {})
+        if counts.get("save"):
+            parts.append(f"saved {counts['save']}")
+        if counts.get("open"):
+            parts.append(f"read {counts['open']}")
+        if counts.get("archive"):
+            parts.append(f"triaged {counts['archive']}")
+        suffix = f" ({', '.join(parts)})" if parts else ""
+        return f"{iso}: {score} pts{suffix}"
+
+    today = datetime.datetime.now(datetime.timezone.utc).date()
+    # Year grid: trailing 365 days, columns are Mon-Sun weeks (~53x7).
+    start = today - datetime.timedelta(days=364)
+    grid_start = start - datetime.timedelta(days=start.weekday())
+    weeks: list[list[dict]] = []
+    cursor = grid_start
+    while cursor <= today:
+        week = []
+        for _ in range(7):
+            iso = cursor.isoformat()
+            in_future = cursor > today
+            in_range = cursor >= start and not in_future
+            score = day_scores.get(iso, 0) if in_range else 0
+            week.append(
+                {
+                    "date": iso,
+                    "score": score,
+                    "cls": intensity_bucket(score, median),
+                    "in_range": in_range,
+                    "title": _day_title(iso, score),
+                }
+            )
+            cursor += datetime.timedelta(days=1)
+        weeks.append(week)
+        if len(weeks) > 60:
+            break
+    # Current-week strip: last 7 days ending today (UTC).
+    week_strip = []
+    for n in range(6, -1, -1):
+        day = today - datetime.timedelta(days=n)
+        iso = day.isoformat()
+        score = day_scores.get(iso, 0)
+        week_strip.append(
+            {
+                "date": iso,
+                "label": day.strftime("%a"),
+                "score": score,
+                "cls": intensity_bucket(score, median),
+                "is_today": n == 0,
+                "title": _day_title(iso, score),
+            }
+        )
+    week_rhythm = stats.get("week_rhythm", [])
+    max_rhythm_action = 0
+    for w in week_rhythm:
+        for action in ("save", "open", "archive"):
+            if w.get(action, 0) > max_rhythm_action:
+                max_rhythm_action = w[action]
+    template = jinja_env.get_template("stats.html")
+    return HTMLResponse(
+        content=template.render(
+            current_user=user,
+            stats=stats,
+            active_nav="stats",
+            weeks=weeks,
+            week_strip=week_strip,
+            max_rhythm_action=max_rhythm_action,
+        )
+    )
 
 
 def _tags_list_html(db_tags: list[dict]) -> str:
