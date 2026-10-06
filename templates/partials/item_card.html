@@ -1,9 +1,9 @@
 {% from "partials/icons.html" import icon %}
 {% if item.status == 'queued' or item.status == 'fetching' %}
-<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="item-card bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative"
+<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="item-card {% if item.is_pinned %}is-pinned{% endif %} bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative"
      hx-get="/items/{{ item.id }}/card" hx-trigger="every 4s" hx-swap="outerHTML">
 {% else %}
-<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="item-card bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative">
+<div id="item-card-{{ item.id }}" data-item-id="{{ item.id }}" data-tags="{{ (item.tags or [])|join(',') }}" class="item-card {% if item.is_pinned %}is-pinned{% endif %} bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition group relative">
 {% endif %}
   <input type="checkbox" value="{{ item.id }}" aria-label="Select item"
          class="bulk-select hidden absolute top-3 right-3 z-20 w-4 h-4 accent-slate-900 bg-white rounded-sm shadow ring-1 ring-slate-300">
