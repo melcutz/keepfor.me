@@ -131,6 +131,7 @@
       <nav class="hidden md:flex items-center space-x-4 text-sm font-medium text-slate-600">
         <a href="/" class="hover:text-slate-900 transition">Library</a>
         <a href="/tags" class="hover:text-slate-900 transition">Tags</a>
+        <a href="/stats" class="hover:text-slate-900 transition">Stats</a>
         <a href="/settings" class="hover:text-slate-900 transition">Settings & API</a>
       </nav>
     </div>
@@ -156,7 +157,7 @@
   <!-- Mobile bottom tab bar (desktop uses the header nav) -->
   {% if current_user and not hide_mobile_nav %}
   <nav id="mobile-nav" aria-label="Mobile" class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200" style="padding-bottom: env(safe-area-inset-bottom);">
-    <div class="grid grid-cols-4 items-center text-center py-1">
+    <div class="grid grid-cols-5 items-center text-center py-1">
       <a href="/" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'library' %}text-blue-600{% else %}text-slate-500{% endif %}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <span>Library</span>
@@ -169,6 +170,10 @@
               class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-slate-900 text-white shadow-md hover:bg-slate-800 active:scale-95 transition">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       </button>
+      <a href="/stats" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'stats' %}text-blue-600{% else %}text-slate-500{% endif %}">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/></svg>
+        <span>Stats</span>
+      </a>
       <a href="/settings" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'settings' %}text-blue-600{% else %}text-slate-500{% endif %}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Settings</span>
