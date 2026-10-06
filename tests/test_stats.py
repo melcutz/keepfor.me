@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 
 from src.app import app
 from src.auth.service import login_user, register_user
-from src.models.items import record_open, save_item
-from src.models.stats import current_streak, intensity_bucket, score_day
+from src.models.items import archive_item, create_tag, record_open, save_item
+from src.models.stats import current_streak, get_user_stats, intensity_bucket, score_day
 
 
 class FakeQueue:
@@ -180,3 +180,139 @@ async def test_reader_survives_open_log_failure(
     response = client.get(f"/items/{row['id']}")
     assert response.status_code == 200
     assert test_item_data["url"] in response.text
+
+
+def _utc_today_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
+
+async def test_get_user_stats_aggregates(db, test_user_data):
+    """Seeded library: totals, deduped reads, day score, streak."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    env = MockEnv()
+    uid = user["id"]
+    item1, _ = await save_item(
+        db, env, uid, "https://example.com/stats-one", tags=["python"]
+    )
+    item2, _ = await save_item(db, env, uid, "https://example.com/stats-two")
+    await record_open(db, uid, item1["id"])
+    await record_open(db, uid, item1["id"])
+    assert await archive_item(db, uid, item2["id"]) is True
+
+    stats = await get_user_stats(db, uid)
+    today = _utc_today_iso()
+    # saves=2, tags=1, opens deduped to 1, archives=1:
+    # 2*1 + 1*1 + 1*2 + 1*3 = 8
+    assert stats["total_saves"] == 2
+    assert stats["total_reads"] == 1
+    assert stats["total_archived"] == 1
+    assert stats["day_scores"][today] == 8
+    assert stats["streak"] >= 1
+    assert stats["total_score"] == 8
+    assert stats["best_day"] == today
+    assert stats["median_active_day"] == 8.0
+    assert stats["longest_streak"] >= 1
+    assert stats["unread_count"] == 1
+    assert stats["oldest_unread"]["id"] == item1["id"]
+    assert stats["oldest_unread"]["days"] == 0
+    assert stats["archive_rate"] == 0.5
+    assert ("python", 1) in stats["top_tags"]
+    assert ("example.com", 2) in stats["top_domains"]
+    assert len(stats["week_rhythm"]) == 12
+    this_week = stats["week_rhythm"][-1]
+    assert (this_week["save"], this_week["open"], this_week["archive"]) == (2, 1, 1)
+
+
+async def test_get_user_stats_open_dedup(db, test_user_data):
+    """Two opens seconds apart score as one; an hour-old open counts too."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    uid = user["id"]
+    item, _ = await save_item(db, MockEnv(), uid, "https://example.com/dedup")
+    await record_open(db, uid, item["id"])
+    await record_open(db, uid, item["id"])
+
+    stats = await get_user_stats(db, uid)
+    assert stats["total_reads"] == 1
+    # save=1 + deduped open=1 -> 1*1 + 1*3 = 4
+    assert stats["day_scores"][_utc_today_iso()] == 4
+
+    hour_ago = (
+        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)
+    ).strftime("%Y-%m-%d %H:%M:%S")
+    await db.execute(
+        "INSERT INTO item_opens (user_id, item_id, opened_at) VALUES (?, ?, ?);",
+        (uid, item["id"], hour_ago),
+    )
+    stats = await get_user_stats(db, uid)
+    assert stats["total_reads"] == 2
+
+
+async def test_get_user_stats_empty_library(db, test_user_data):
+    """Fresh user: zeros/None/empty, no crash."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    stats = await get_user_stats(db, user["id"])
+    assert stats["total_saves"] == 0
+    assert stats["total_reads"] == 0
+    assert stats["total_archived"] == 0
+    assert stats["streak"] == 0
+    assert stats["longest_streak"] == 0
+    assert stats["total_score"] == 0
+    assert stats["best_day"] is None
+    assert stats["day_scores"] == {}
+    assert stats["unread_count"] == 0
+    assert stats["oldest_unread"] is None
+    assert stats["archive_rate"] == 0.0
+    assert stats["top_tags"] == []
+    assert stats["top_domains"] == []
+    assert stats["median_active_day"] == 0.0
+    assert len(stats["week_rhythm"]) == 12
+    assert all(
+        w["save"] == 0 and w["open"] == 0 and w["archive"] == 0
+        for w in stats["week_rhythm"]
+    )
+
+
+async def test_get_user_stats_top_tags_excludes_unused(db, test_user_data):
+    """Detached/never-used tags (count 0) never occupy top-10 slots."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    uid = user["id"]
+    await save_item(db, MockEnv(), uid, "https://example.com/tagged", tags=["used"])
+    assert await create_tag(db, uid, "unused") == "unused"
+
+    stats = await get_user_stats(db, uid)
+    assert ("used", 1) in stats["top_tags"]
+    assert all(name != "unused" for name, _ in stats["top_tags"])
+
+
+async def test_get_user_stats_isolates_users(db, test_user_data):
+    """User B's saves/opens/tags must not leak into user A's stats."""
+    user_a = await register_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    user_b = await register_user(
+        db, "other@example.com", "other_password_123", allow_public_signups=True
+    )
+    b_item, _ = await save_item(
+        db, MockEnv(), user_b["id"], "https://example.com/other", tags=["btag"]
+    )
+    await record_open(db, user_b["id"], b_item["id"])
+    assert await archive_item(db, user_b["id"], b_item["id"]) is True
+
+    stats = await get_user_stats(db, user_a["id"])
+    assert stats["total_saves"] == 0
+    assert stats["total_reads"] == 0
+    assert stats["total_archived"] == 0
+    assert stats["total_score"] == 0
+    assert stats["best_day"] is None
+    assert stats["day_scores"] == {}
+    assert stats["streak"] == 0
+    assert stats["unread_count"] == 0
+    assert stats["oldest_unread"] is None
+    assert stats["archive_rate"] == 0.0
+    assert stats["top_tags"] == []
+    assert stats["top_domains"] == []
+    assert stats["median_active_day"] == 0.0
+    assert all(
+        w["save"] == 0 and w["open"] == 0 and w["archive"] == 0
+        for w in stats["week_rhythm"]
+    )
