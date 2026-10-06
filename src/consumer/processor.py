@@ -43,6 +43,15 @@ class OriginHttpError(RuntimeError):
         super().__init__(f"HTTP {status_code} returned by origin server ({url})")
 
 
+class BlockedPageError(RuntimeError):
+    """Fetch succeeded but returned a login wall / soft 404 / redirect stub.
+
+    Not retryable: the origin consistently refuses anonymous fetches, so the
+    item is recorded as failed with the reason and acknowledged (no queue
+    retries). Stored as-is it would look like a saved 1-word article.
+    """
+
+
 async def fetch_page_html(url: str, headers: dict | None = None) -> str:
     """Fetch URL HTML via pyfetch or urllib with a 20s timeout and 5MB cap."""
     try:
@@ -116,6 +125,49 @@ async def generate_triage_summary(env: Any, plain_text: str) -> str | None:
         return None
 
 
+MAX_REDIRECT_HOPS = 2
+
+
+async def _fetch_and_extract(url: str, item_id: str) -> tuple[dict, str | None]:
+    """Fetch + extract, following bounded redirect stubs and reader proxy.
+
+    Returns (extracted, raw_html). raw_html is None for proxy-sourced items.
+    Raises BlockedPageError when the payload is a wall rather than an article.
+    """
+    current_url = url
+    raw_html: str | None = None
+    for hop in range(MAX_REDIRECT_HOPS + 1):
+        try:
+            raw_html = await fetch_page_html(current_url)
+            extracted = extract_article(raw_html, current_url)
+        except OriginHttpError as direct_err:
+            if direct_err.status_code != 403:
+                raise
+            logger.info(f"Direct fetch forbidden, trying reader proxy: item={item_id}")
+            try:
+                proxy_md = await fetch_jina_reader(current_url)
+            except Exception:
+                raise direct_err from None
+            extracted = article_from_reader_markdown(current_url, proxy_md)
+            raw_html = None
+
+        redirect_url = extracted.get("redirect_url")
+        blocked = extracted.get("blocked_reason")
+        # A redirect stub is worth one more hop; a wall is not.
+        if redirect_url and hop < MAX_REDIRECT_HOPS:
+            logger.info(
+                f"Following redirect stub: item={item_id} "
+                f"{current_url} -> {redirect_url}"
+            )
+            current_url = redirect_url
+            continue
+        if blocked:
+            raise BlockedPageError(blocked)
+        return extracted, raw_html
+
+    raise BlockedPageError("redirect loop did not resolve to an article")
+
+
 async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> None:
     """Fetch, extract, upload snapshots to R2, and update D1 and Vectorize.
 
@@ -134,23 +186,10 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
 
     try:
         logger.info(f"Starting extraction: item={item_id}, url={url}")
-        # 1. Fetch raw HTML, falling back to a reader proxy when the
-        # origin forbids datacenter fetches (403). Other statuses and a
-        # failed proxy keep the original error as the recorded reason.
-        raw_html: str | None = None
-        try:
-            raw_html = await fetch_page_html(url)
-            extracted = extract_article(raw_html, url)
-        except OriginHttpError as direct_err:
-            if direct_err.status_code != 403:
-                raise
-            logger.info(f"Direct fetch forbidden, trying reader proxy: item={item_id}")
-            try:
-                proxy_md = await fetch_jina_reader(url)
-            except Exception:
-                raise direct_err from None
-            extracted = article_from_reader_markdown(url, proxy_md)
-            raw_html = None
+        # 1. Fetch raw HTML, following redirect stubs and falling back to a
+        # reader proxy when the origin forbids datacenter fetches (403).
+        # Other statuses and a failed proxy keep the original error.
+        extracted, raw_html = await _fetch_and_extract(url, item_id)
 
         # 2. Store raw snapshot in R2 (skipped for proxied markdown)
         if raw_html is not None and hasattr(env, "BUCKET") and env.BUCKET is not None:
@@ -320,6 +359,15 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
                     rec,
                 )
 
+    except BlockedPageError as blocked:
+        # Recorded, not raised: a wall is a permanent condition, so retrying
+        # the queue message would burn attempts on an unauthenticated fetch.
+        reason = f"Blocked, no article content: {blocked} ({url})"
+        await db.execute(
+            "UPDATE items SET status = 'failed', fail_reason = ? WHERE id = ?;",
+            (reason[:500], item_id),
+        )
+        logger.info(f"Blocked page, marked failed: item={item_id}: {blocked}")
     except Exception as exc:
         # Mark failure in D1
         await db.execute(

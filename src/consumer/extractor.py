@@ -1,7 +1,7 @@
 import html as html_module
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 # NOTE: trafilatura and bs4 are imported lazily (see _load_parsers) rather
 # than at module scope. This module is reachable from the Worker entrypoint
@@ -77,8 +77,39 @@ def sanitize_clean_html(html_str: str) -> str:
         "hr",
         "br",
     }
+    # Tags whose *text* is not prose. Unwrapping these keeps their contents
+    # as visible text: a <script> unwrap leaks "alert('xss')" and a <style>
+    # unwrap leaks CSS into the article body (both observed in prod). Drop the
+    # whole subtree instead.
+    dropped_tags = {
+        "script",
+        "style",
+        "noscript",
+        "template",
+        "svg",
+        "math",
+        "canvas",
+        "iframe",
+        "object",
+        "embed",
+        "video",
+        "audio",
+        "form",
+        "button",
+        "select",
+        "option",
+        "nav",
+        "aside",
+        "footer",
+        "figcaption",
+    }
     for tag in soup.find_all(True):
-        if tag.name not in allowed_tags:
+        # A parent may have been decomposed above, detaching this child.
+        if getattr(tag, "decomposed", False) or tag.parent is None:
+            continue
+        if tag.name in dropped_tags:
+            tag.decompose()
+        elif tag.name not in allowed_tags:
             tag.unwrap()
         else:
             # Filter attributes
@@ -97,7 +128,38 @@ def sanitize_clean_html(html_str: str) -> str:
                         allowed_attrs["alt"] = tag["alt"]
             tag.attrs = allowed_attrs
 
-    return str(soup)
+    # Flatten redundant nesting: <pre><pre>code</pre></pre> (seen in prod)
+    # breaks the monospace block and adds a stray scroll container.
+    for tag in soup.find_all("pre"):
+        for child in tag.find_all(["pre", "code"]):
+            child.unwrap()
+    for tag in soup.find_all("code"):
+        for child in tag.find_all("code"):
+            child.unwrap()
+
+    return _normalize_text_nodes(str(soup))
+
+
+# Zero-width and soft-hyphen noise: invisible, but they break exact-phrase
+# FTS matching and leak into "copy for AI" markdown.
+_ZERO_WIDTH_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\ufeff\u00ad]")
+_SPACE_RUN_RE = re.compile(r"[ \t\u00a0]{2,}")
+
+
+def _normalize_text_nodes(html_str: str) -> str:
+    """Strip invisible chars and collapse runs of whitespace in text nodes."""
+    cleaned = _ZERO_WIDTH_RE.sub("", html_str)
+    # Normalize inside text nodes only, so attribute values stay untouched.
+    parts = re.split(r"(<[^>]+>)", cleaned)
+    for i, part in enumerate(parts):
+        if part.startswith("<"):
+            continue
+        part = part.replace("\u00a0", " ")
+        part = _SPACE_RUN_RE.sub(" ", part)
+        part = re.sub(r" *\n *", "\n", part)
+        parts[i] = part
+    out = "".join(parts)
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
 
 
 def extract_image_url(html: str, metadata: Any = None) -> str | None:
@@ -121,6 +183,129 @@ def extract_image_url(html: str, metadata: Any = None) -> str | None:
             return content or None
     except Exception:
         return None
+    return None
+
+
+def _clean_plain_text(text: str) -> str:
+    """Normalize extracted plain text: drop invisible chars, collapse runs."""
+    cleaned = _ZERO_WIDTH_RE.sub("", text or "")
+    cleaned = cleaned.replace("\u00a0", " ")
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+# Pages that return HTTP 200 but carry no article. Seen across the library:
+# SSO redirects ("Redirecting", "SSO_login"), soft 404s, and consent walls.
+# They extract to a 1-word stub and get saved as if they were articles, so
+# they are detected here and reported to the caller instead.
+_BLOCK_TITLE_RE = re.compile(
+    r"^(?:redirecting|sign\s?in|log\s?in|log\s?out|login|logout|sso|"
+    r"authentication\s+required|access\s+denied|forbidden|page\s+not\s+found|"
+    r"404|403|429|not\s+found|error|too\s+many\s+requests|"
+    r"we\s+are\s+sorry|sorry|verifying|"
+    r"just\s+a\s+moment|attention\s+required|checking\s+your\s+browser|"
+    r"one\s+moment|security\s+check|ddos|bot\s+detection)",
+    re.IGNORECASE,
+)
+_BLOCK_BODY_MARKERS = (
+    "sign in to continue",
+    "sign in to view",
+    "log in to continue",
+    "you do not have permission",
+    "enable javascript to continue",
+    "please enable javascript",
+    "checking your browser",
+    "unusual traffic",
+    "request blocked",
+    "access denied",
+    "page not found",
+    "404 not found",
+    "we are sorry",
+    "this content isn't available",
+    "verify you are human",
+    "session expired",
+    "authentication required",
+)
+
+
+def detect_blocked_page(
+    title: str | None, text: str | None, raw_html: str | None = None
+) -> str | None:
+    """Return a short reason when the fetch yielded a wall, not an article.
+
+    Conservative by design: only fires on short output plus a known marker,
+    so genuinely brief pages are kept.
+    """
+    body = (text or "").strip()
+    words = len(body.split())
+    if words > 120:
+        return None
+
+    t = (title or "").strip()
+    if t and _BLOCK_TITLE_RE.match(t):
+        return f"blocked page (title: {t[:60]!r})"
+
+    low = body.lower()
+    for marker in _BLOCK_BODY_MARKERS:
+        if marker in low:
+            return f"blocked page (body marker: {marker!r})"
+
+    html = (raw_html or "").lower()
+    if words < 20:
+        if 'http-equiv="refresh"' in html or "http-equiv='refresh'" in html:
+            return "redirect stub (meta refresh)"
+        if "window.location" in html and "href=" not in low:
+            return "redirect stub (js navigation)"
+
+    # JavaScript app shell: the HTML ships an empty mount point and the text
+    # arrives client-side. Prod had 1-word "saved" items from these
+    # (ServiceNow portals, SharePoint redirects).
+    if words < 5 and (
+        re.search(r'id=[\'"]?(app|root|__next)[\'"\s>]', html)
+        or "__next_data__" in html
+        or "enable javascript" in html
+    ):
+        return "javascript app shell (no server-rendered text)"
+    return None
+
+
+def detect_redirect_url(html: str, url: str) -> str | None:
+    """Find the real destination of a redirect stub (meta refresh / JS / link).
+
+    Lets the caller follow one hop instead of storing the stub. Bounded to
+    http(s) targets that differ from the URL we already fetched.
+    """
+    if not html:
+        return None
+    soup_cls, _ = _load_parsers()
+    soup = soup_cls(html, "html.parser")
+
+    candidates: list[str] = []
+    meta = soup.find("meta", attrs={"http-equiv": re.compile("refresh", re.I)})
+    if meta and meta.get("content"):
+        m = re.search(r"url\s*=\s*['\"]?([^'\";\s]+)", str(meta["content"]), re.I)
+        if m:
+            candidates.append(m.group(1))
+    for script in soup.find_all("script"):
+        body = script.string or script.get_text() or ""
+        for m in re.finditer(
+            r"(?:window\.location(?:\.href)?\s*=|location\.replace\()\s*['\"]([^'\"]+)",
+            body,
+        ):
+            candidates.append(m.group(1))
+    link = soup.find("link", attrs={"rel": "canonical"})
+    if link and link.get("href"):
+        candidates.append(str(link["href"]))
+
+    for cand in candidates:
+        cand = cand.strip()
+        if not cand or cand.startswith(("javascript:", "#", "mailto:")):
+            continue
+        absolute = urljoin(url, cand)
+        if absolute.rstrip("/") == url.rstrip("/"):
+            continue
+        return absolute
     return None
 
 
@@ -202,8 +387,11 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
         )
 
     clean_html = sanitize_clean_html(clean_html_raw or "")
+    plain_text = _clean_plain_text(plain_text or "")
     word_count = len(plain_text.split())
     image_url = extract_image_url(html, _metadata)
+    blocked_reason = detect_blocked_page(title, plain_text, html)
+    redirect_url = detect_redirect_url(html, url)
 
     return {
         "title": title or url,
@@ -216,6 +404,8 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
         "is_fallback": 1 if is_fallback else 0,
         "word_count": word_count,
         "image_url": image_url,
+        "blocked_reason": blocked_reason,
+        "redirect_url": redirect_url,
     }
 
 
@@ -257,7 +447,8 @@ def article_from_reader_markdown(url: str, reader_text: str) -> dict[str, Any]:
         return "".join(parts)
 
     clean_html = sanitize_clean_html(_to_html(body))
-    word_count = len(body.split())
+    plain_text = _clean_plain_text(body)
+    word_count = len(plain_text.split())
 
     return {
         "title": title,
@@ -265,9 +456,12 @@ def article_from_reader_markdown(url: str, reader_text: str) -> dict[str, Any]:
         "site_name": site_name,
         "published_date": None,
         "excerpt": excerpt,
-        "content_text": body,
+        "content_text": plain_text,
         "clean_html": clean_html,
         "is_fallback": 0,
         "word_count": word_count,
         "image_url": None,
+        # Reader-proxy text is genuine article content: never a wall.
+        "blocked_reason": detect_blocked_page(title, plain_text, None),
+        "redirect_url": None,
     }
