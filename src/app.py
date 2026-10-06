@@ -54,6 +54,7 @@ from src.models.items import (
     list_user_tags,
     merge_tags,
     prune_unused_tags,
+    record_open,
     remove_tags_from_item,
     rename_tag,
     save_item,
@@ -586,8 +587,18 @@ async def search_htmx(
     return HTMLResponse(content="".join(cards) + pager_html + pills_html)
 
 
+async def _log_open_safely(db: Database, user_id: str, item_id: str) -> None:
+    """Record a reader visit; a logging failure must never break the reader."""
+    try:
+        await record_open(db, user_id, item_id)
+    except Exception:
+        logger.warning("item_opens insert failed", exc_info=True)
+
+
 @app.get("/items/{item_id}", response_class=HTMLResponse)
-async def reader_page(request: Request, item_id: str):
+async def reader_page(
+    request: Request, item_id: str, background_tasks: BackgroundTasks
+):
     user = await get_current_user(request)
     if not user:
         return RedirectResponse(url="/auth/login", status_code=303)
@@ -604,6 +615,8 @@ async def reader_page(request: Request, item_id: str):
             "<p><a href='/'>Back to Library</a></p></div>",
             status_code=404,
         )
+
+    background_tasks.add_task(_log_open_safely, db, user["id"], item_id)
 
     clean_html = await get_item_clean_html(db, env, user["id"], item_id)
     tag_styles = tag_styles_for(item.get("tags") or [])
