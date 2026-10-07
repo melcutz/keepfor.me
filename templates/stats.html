@@ -15,7 +15,7 @@
 </style>
 <div class="w-full max-w-[110rem] mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
   <div>
-    <h2 class="text-xl font-bold text-slate-900 tracking-tight">Your reading year</h2>
+    <h1 class="text-xl font-bold text-slate-900 tracking-tight">Your reading year</h1>
     <p class="text-xs text-slate-500 mt-1">Keep Score: saves, tags, notes, pins, archives and reads, scored per day.</p>
   </div>
 
@@ -97,7 +97,7 @@
           <div class="w-2 sm:w-3 rounded-t bg-emerald-600" style="height: {{ (100 * w.open / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%"></div>
           <div class="w-2 sm:w-3 rounded-t bg-amber-600" style="height: {{ (100 * w.archive / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%"></div>
         </div>
-        <p class="text-[10px] text-slate-400">W{{ w.week[-2:] }}</p>
+        <p class="text-[10px] text-slate-500">W{{ w.week[-2:] }}</p>
       </div>
       {% endfor %}
     </div>

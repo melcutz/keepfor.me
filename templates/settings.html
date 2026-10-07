@@ -6,7 +6,7 @@
 {% block content %}
 <div class="max-w-4xl mx-auto px-4 sm:px-8 py-8 space-y-8">
   <div>
-    <h2 class="text-xl font-bold text-slate-900 tracking-tight">Settings & Integrations</h2>
+    <h1 class="text-xl font-bold text-slate-900 tracking-tight">Settings & Integrations</h1>
     <p class="text-xs text-slate-500 mt-1">Configure browser capture, AI agent access tokens, and backup imports/exports.</p>
   </div>
 
@@ -35,7 +35,7 @@
             <p class="text-[11px] text-slate-600 leading-relaxed">
               Adds <strong>Save to Keepfor.me</strong> to your iOS Share Sheet. Uses your existing Safari login session, so you never need to configure tokens.
             </p>
-            <div class="mt-3 bg-white border border-slate-200 rounded p-2.5 text-[11px] text-slate-600 space-y-1">
+            <div class="mt-3 bg-white/70 rounded-lg p-2.5 text-[11px] text-slate-600 space-y-1">
               <div><strong>1.</strong> In the Shortcuts app, tap <strong>+</strong> (New Shortcut)</div>
               <div><strong>2.</strong> Enable <em>"Show in Share Sheet"</em></div>
               <div><strong>3.</strong> Add action <em>Open URLs</em> with:</div>
@@ -63,7 +63,7 @@
             <p class="text-[11px] text-slate-600 leading-relaxed">
               If Keepfor.me is added to your iPhone Home Screen, simply tap <strong>Copy Link</strong> in any app, then open Keepfor.me.
             </p>
-            <div class="mt-3 bg-white border border-slate-200 rounded p-2.5 text-[11px] text-slate-600 space-y-1">
+            <div class="mt-3 bg-white/70 rounded-lg p-2.5 text-[11px] text-slate-600 space-y-1">
               <div><strong>1.</strong> In Safari, tap Share → <em>Add to Home Screen</em></div>
               <div><strong>2.</strong> Copy a link in any app (Twitter, Reddit, YouTube)</div>
               <div><strong>3.</strong> Open Keepfor.me — a 1-tap save prompt appears automatically</div>
@@ -90,7 +90,7 @@
            class="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm cursor-grab active:cursor-grabbing transition">
           <svg width="14" height="14" viewBox="0 0 44 44" aria-hidden="true"><defs><linearGradient id="kfm-bookmarklet" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient></defs><rect x="2" y="2" width="40" height="40" rx="11" fill="url(#kfm-bookmarklet)"/><path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#fff"/></svg><span>Keepfor.me</span>
         </a>
-        <span class="text-xs text-slate-400">← Drag to your bookmarks bar</span>
+        <span class="text-xs text-slate-500">← Drag to your bookmarks bar</span>
       </div>
       <div class="mt-3 text-[11px] text-slate-500 leading-relaxed">
         <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('bookmarklet').href); alert('Bookmarklet code copied!');"
@@ -206,7 +206,7 @@ opencode (opencode.json):
             Re-queue stuck items
           </button>
         </form>
-        <p class="text-[11px] text-slate-400 mt-1">Re-sends extraction jobs for items stuck in "Extracting".</p>
+        <p class="text-[11px] text-slate-500 mt-1">Re-sends extraction jobs for items stuck in "Extracting".</p>
       </div>
 
       <!-- Export Card -->

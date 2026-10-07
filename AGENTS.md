@@ -209,3 +209,17 @@ Prefer dismissing verified false positives with a justification. Do **not** add 
 - **URL extraction resiliency (`src/utils/url.py:extract_url`)**:
   - Native mobile share actions often share text blobs combining article titles and URLs (e.g., `"Article Title: https://example.com/path?utm=..."`).
   - All save entry points (`/save`, `/save-popup`, `/api/items`) use `extract_url()` to extract and normalize valid URLs, strip surrounding punctuation/text/markdown, and prepend `https://` for bare domain strings.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical triage roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout (one `GLOSSARY.md` + `docs/adr/` at root). See `docs/agents/domain.md`.

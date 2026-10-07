@@ -12,6 +12,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Keepfor.me">
   <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
+  <link rel="dns-prefetch" href="https://unpkg.com">
   <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
   <script src="https://unpkg.com/htmx.org@2.0.3"></script>
   {% from "partials/icons.html" import icon %}
@@ -55,7 +59,7 @@
     .theme-sepia article h1, .theme-sepia article .text-slate-900, .theme-sepia article .text-slate-700 { color: #433422 !important; }
     .theme-sepia article .text-slate-500, .theme-sepia article .text-slate-400 { color: #8a7a5f !important; }
     .theme-sepia article header { border-color: #ded1b1 !important; }
-    .theme-sepia #toc-drawer { background-color: #ede3c7 !important; border-color: #ded1b1 !important; box-shadow: 0 4px 12px rgba(67, 52, 34, 0.12) !important; }
+    .theme-sepia #toc-drawer { background-color: #ede3c7 !important; border-color: #ded1b1 !important; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important; }
     .theme-sepia #toc-drawer p { color: #856d50 !important; }
     .theme-sepia #toc-drawer a { color: #433422 !important; }
     .theme-sepia #toc-drawer a.text-slate-500 { color: #8a7a5f !important; }
@@ -67,6 +71,15 @@
     .theme-sepia .reader-control-bg { background-color: #e4d7b5 !important; border-color: #ded1b1 !important; }
     .theme-sepia .reader-control-btn { color: #433422 !important; }
     .theme-sepia .reader-control-btn:hover { background-color: #ede3c7 !important; }
+    .theme-sepia .bg-white { background-color: #ede3c7 !important; }
+    .theme-sepia .bg-slate-50, .theme-sepia .bg-stone-50 { background-color: #f0e7d0 !important; }
+    .theme-sepia .bg-slate-100, .theme-sepia .bg-stone-100 { background-color: #e4d7b5 !important; }
+    .theme-sepia .border-slate-200, .theme-sepia .border-stone-200, .theme-sepia .border-slate-100 { border-color: #ded1b1 !important; }
+    .theme-sepia input, .theme-sepia select, .theme-sepia textarea {
+      background-color: #ede3c7 !important;
+      border-color: #ded1b1 !important;
+      color: #433422 !important;
+    }
 
     /* Dark theme styles */
     body.theme-dark {
@@ -104,6 +117,40 @@
     .theme-dark .reader-control-bg { background-color: #262524 !important; border-color: #3f3c39 !important; }
     .theme-dark .reader-control-btn { color: #cbd5e1 !important; }
     .theme-dark .reader-control-btn:hover { background-color: #33312e !important; color: #ffffff !important; }
+
+    /* App-wide dark mode surfaces */
+    .theme-dark .bg-white { background-color: #1c1b1a !important; }
+    .theme-dark .bg-slate-50, .theme-dark .bg-stone-50 { background-color: #161514 !important; }
+    .theme-dark .bg-slate-100, .theme-dark .bg-stone-100 { background-color: #262524 !important; }
+    .theme-dark .bg-slate-200 { background-color: #33312e !important; }
+    .theme-dark .border-slate-200, .theme-dark .border-stone-200, .theme-dark .border-slate-100 { border-color: #2d2b29 !important; }
+    .theme-dark .border-slate-300 { border-color: #3f3c39 !important; }
+    .theme-dark .text-slate-900, .theme-dark .text-slate-800 { color: #f5f5f4 !important; }
+    .theme-dark .text-slate-700, .theme-dark .text-slate-600 { color: #d6d3d1 !important; }
+    .theme-dark .text-slate-500 { color: #a8a29e !important; }
+    .theme-dark .text-slate-400 { color: #78716c !important; }
+    .theme-dark input, .theme-dark select, .theme-dark textarea {
+      background-color: #21201e !important;
+      border-color: #3f3c39 !important;
+      color: #f5f5f4 !important;
+    }
+    .theme-dark input::placeholder, .theme-dark textarea::placeholder {
+      color: #78716c !important;
+    }
+    .theme-dark .item-card { border-color: #2d2b29 !important; }
+    .theme-dark .item-card:hover { border-color: #44403c !important; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .animate-spin, .animate-pulse {
+        animation: none !important;
+      }
+      .transition, .transition-all, .transition-colors, .transition-\[width\] {
+        transition-duration: 0.05s !important;
+      }
+      html {
+        scroll-behavior: auto !important;
+      }
+    }
   </style>
   <script>
     tailwind.config = {
@@ -121,6 +168,7 @@
   </script>
 </head>
 <body class="h-full flex flex-col font-sans">
+  <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-slate-900 focus:text-white focus:rounded-md focus:text-xs focus:font-semibold focus:shadow-md">Skip to content</a>
   {% if current_user %}
   <header id="site-header" class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200 px-4 sm:px-8 py-3 flex items-center justify-between" style="padding-top: max(0.75rem, env(safe-area-inset-top));">
     <div class="flex items-center space-x-6">
@@ -150,7 +198,7 @@
   </header>
   {% endif %}
 
-  <main class="flex-1 overflow-y-auto pb-28 md:pb-8">
+  <main id="main-content" class="flex-1 overflow-y-auto pb-28 md:pb-8">
     {% block content %}{% endblock %}
   </main>
 
@@ -189,24 +237,24 @@
     <span>Copied clean Markdown for AI prompt</span>
   </div>
   <div id="save-modal" class="hidden fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onclick="if(event.target===this)closeSaveModal()">
-    <div class="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-stone-200 w-full sm:max-w-md p-6 relative" style="padding-bottom: max(2rem, calc(env(safe-area-inset-bottom) + 1.25rem));">
+    <div role="dialog" aria-modal="true" aria-labelledby="save-modal-title" class="bg-white rounded-t-2xl sm:rounded-xl shadow-xl border border-stone-200 w-full sm:max-w-md p-6 relative" style="padding-bottom: max(2rem, calc(env(safe-area-inset-bottom) + 1.25rem));">
       <button onclick="closeSaveModal()"
-              class="absolute top-4 right-4 text-stone-400 hover:text-stone-600 text-lg" aria-label="Close">&times;</button>
-      <div class="flex gap-1 mb-4 bg-stone-100 p-0.5 rounded-lg border border-stone-200 w-max">
-        <button type="button" onclick="saveTab('link')" id="savetab-link" class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded bg-white text-stone-900 shadow-sm">{{ icon("link", class="w-3.5 h-3.5") }} Link</button>
-        <button type="button" onclick="saveTab('note')" id="savetab-note" class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded text-stone-500">{{ icon("note", class="w-3.5 h-3.5") }} Note</button>
+              class="absolute top-4 right-4 text-stone-400 hover:text-stone-600 text-lg" aria-label="Close dialog">&times;</button>
+      <div role="tablist" aria-label="Save format" class="flex gap-1 mb-4 bg-stone-100 p-0.5 rounded-lg w-max">
+        <button type="button" role="tab" aria-selected="true" onclick="saveTab('link')" id="savetab-link" class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded bg-white text-stone-900 shadow-sm">{{ icon("link", class="w-3.5 h-3.5") }} Link</button>
+        <button type="button" role="tab" aria-selected="false" onclick="saveTab('note')" id="savetab-note" class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded text-stone-500">{{ icon("note", class="w-3.5 h-3.5") }} Note</button>
       </div>
 
       <form id="save-link-form" action="/save" method="POST" class="space-y-4">
-      <h3 class="text-base font-semibold text-slate-900 mb-4">Save Link to Library</h3>
+        <h3 id="save-modal-title" class="text-base font-semibold text-slate-900 mb-4">Save Link to Library</h3>
         <div>
-          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Webpage URL</label>
+          <label for="save-url-input" class="block text-sm font-semibold uppercase text-slate-500 mb-1">Webpage URL</label>
           <input type="url" id="save-url-input" name="url" required placeholder="https://example.com/article"
                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
         </div>
         <div>
-          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
-          <input type="text" name="tags" placeholder="ai, research, design"
+          <label for="save-tags-input" class="block text-sm font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
+          <input type="text" id="save-tags-input" name="tags" placeholder="ai, research, design"
                   class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
         </div>
         <div class="flex justify-end space-x-2 pt-2">
@@ -220,18 +268,18 @@
       <form id="save-note-form" action="/notes" method="POST" class="space-y-4 hidden">
         <h3 class="text-base font-semibold text-slate-900 mb-4">Quick Note</h3>
         <div>
-          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Title</label>
-          <input type="text" name="title" placeholder="Note title or first line"
+          <label for="save-note-title" class="block text-sm font-semibold uppercase text-slate-500 mb-1">Title</label>
+          <input type="text" id="save-note-title" name="title" placeholder="Note title or first line"
                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
         </div>
         <div>
-          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Markdown</label>
-          <textarea name="content" required rows="5" placeholder="# Idea&#10;&#10;Markdown text, code snippets, prompts…"
+          <label for="save-note-content" class="block text-sm font-semibold uppercase text-slate-500 mb-1">Markdown</label>
+          <textarea id="save-note-content" name="content" required rows="5" placeholder="# Idea&#10;&#10;Markdown text, code snippets, prompts…"
                     class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900"></textarea>
         </div>
         <div>
-          <label class="block text-sm font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
-          <input type="text" name="tags" placeholder="notes, ideas"
+          <label for="save-note-tags" class="block text-sm font-semibold uppercase text-slate-500 mb-1">Tags (comma separated)</label>
+          <input type="text" id="save-note-tags" name="tags" placeholder="notes, ideas"
                  class="w-full px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
         </div>
         <div class="flex justify-end space-x-2 pt-2">
@@ -290,15 +338,23 @@
       const isLink = which === 'link';
       link.classList.toggle('hidden', !isLink);
       note.classList.toggle('hidden', isLink);
-      const on = 'px-3 py-1 text-xs font-semibold rounded bg-white text-slate-900 shadow-sm';
-      const off = 'px-3 py-1 text-xs font-semibold rounded text-slate-500';
-      if (tl) tl.className = isLink ? on : off;
-      if (tn) tn.className = isLink ? off : on;
+      const on = 'px-3 py-1 text-xs font-semibold rounded bg-white text-stone-900 shadow-sm';
+      const off = 'px-3 py-1 text-xs font-semibold rounded text-stone-500';
+      if (tl) {
+        tl.className = isLink ? on : off;
+        tl.setAttribute('aria-selected', isLink ? 'true' : 'false');
+      }
+      if (tn) {
+        tn.className = isLink ? off : on;
+        tn.setAttribute('aria-selected', isLink ? 'false' : 'true');
+      }
     }
     // Save sheet helpers (shared by header button, mobile quick-save, shortcuts)
+    let lastActiveElementBeforeModal = null;
     function openSaveModal() {
       const modal = document.getElementById('save-modal');
       if (!modal) return;
+      lastActiveElementBeforeModal = document.activeElement;
       modal.classList.remove('hidden');
       const input = document.getElementById('save-url-input');
       if (input) {
@@ -316,23 +372,58 @@
     }
     function closeSaveModal() {
       const modal = document.getElementById('save-modal');
-      if (modal) modal.classList.add('hidden');
+      if (modal) {
+        modal.classList.add('hidden');
+        if (lastActiveElementBeforeModal && typeof lastActiveElementBeforeModal.focus === 'function') {
+          lastActiveElementBeforeModal.focus();
+        }
+      }
     }
-    // Keep the mobile browser chrome in sync with light/sepia/dark surfaces.
+    // Keep the mobile browser chrome and app theme in sync with light/sepia/dark surfaces.
     function syncThemeColor() {
+      try {
+        const savedTheme = localStorage.getItem('kfm_theme') || localStorage.getItem('rk_theme');
+        if (savedTheme === 'dark') {
+          document.body.classList.remove('theme-sepia');
+          document.body.classList.add('theme-dark');
+        } else if (savedTheme === 'sepia') {
+          document.body.classList.remove('theme-dark');
+          document.body.classList.add('theme-sepia');
+        }
+      } catch (_) {}
       const meta = document.getElementById('theme-color-meta');
       if (!meta) return;
       if (document.body.classList.contains('theme-dark')) meta.setAttribute('content', '#121212');
       else if (document.body.classList.contains('theme-sepia')) meta.setAttribute('content', '#f4ecd8');
       else meta.setAttribute('content', '#fcfbf8');
     }
+    syncThemeColor();
     document.addEventListener('DOMContentLoaded', syncThemeColor);
     // Global keyboard shortcuts
     window.addEventListener('keydown', (e) => {
+      const modal = document.getElementById('save-modal');
+      if (modal && !modal.classList.contains('hidden')) {
+        if (e.key === 'Escape') { e.preventDefault(); closeSaveModal(); return; }
+        if (e.key === 'Tab') {
+          const focusables = modal.querySelectorAll('button:not([disabled]), input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])');
+          const visibleFocusables = Array.from(focusables).filter(el => el.offsetParent !== null);
+          if (visibleFocusables.length > 0) {
+            const first = visibleFocusables[0];
+            const last = visibleFocusables[visibleFocusables.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              first.focus();
+            }
+          }
+          return;
+        }
+      }
       if (e.key === 'Escape') { closeSaveModal(); return; }
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.key === 's' || e.key === 'S') {
-        const modal = document.getElementById('save-modal');
         if (modal) {
           e.preventDefault();
           if (modal.classList.contains('hidden')) openSaveModal();
