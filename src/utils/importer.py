@@ -1,4 +1,5 @@
 import csv
+import html
 import io
 import time
 from typing import Any
@@ -84,26 +85,34 @@ async def export_library_json(db: Database, user_id: str) -> list[dict[str, Any]
     rows = await db.query_all(
         """
         SELECT id, url, canonical_url, title, byline, site_name,
-               published_date, excerpt, status, word_count, created_at
+               published_date, excerpt, status, word_count, created_at,
+               user_notes, item_type, is_pinned, image_url, summary, read_state
         FROM items
         WHERE user_id = ?
         ORDER BY created_at DESC;
         """,
         (user_id,),
     )
+    if not rows:
+        return []
+
+    all_tags = await db.query_all(
+        """
+        SELECT it.item_id, t.name
+        FROM item_tags it
+        JOIN tags t ON it.tag_id = t.id
+        WHERE t.user_id = ?;
+        """,
+        (user_id,),
+    )
+    tags_by_item: dict[str, list[str]] = {}
+    for tr in all_tags:
+        tags_by_item.setdefault(tr["item_id"], []).append(tr["name"])
+
     items = []
     for r in rows:
         item = dict(r)
-        # Fetch tags
-        tag_rows = await db.query_all(
-            """
-            SELECT t.name FROM tags t
-            JOIN item_tags it ON t.id = it.tag_id
-            WHERE it.item_id = ?;
-            """,
-            (r["id"],),
-        )
-        item["tags"] = [tr["name"] for tr in tag_rows]
+        item["tags"] = tags_by_item.get(r["id"], [])
         items.append(item)
     return items
 
@@ -123,9 +132,13 @@ async def export_library_html(db: Database, user_id: str) -> str:
         tags_str = ",".join(it["tags"])
         epoch = int(time.time())
         title = it.get("title") or it["url"]
+        safe_url = html.escape(it["url"], quote=True)
+        safe_tags = html.escape(tags_str, quote=True)
+        safe_title = html.escape(title)
         html_lines.append(
-            f'    <DT><A HREF="{it["url"]}" ADD_DATE="{epoch}" '
-            f'TAGS="{tags_str}">{title}</A>'
+            f'    <DT><A HREF="{safe_url}" ADD_DATE="{epoch}" '
+            f'TAGS="{safe_tags}">{safe_title}</A>'
         )
+
     html_lines.append("</DL><p>")
     return "\n".join(html_lines)
