@@ -3,22 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Keepfor.me — Save what matters. Read without distraction.</title>
-  <meta name="description" content="Your personal reading library. Save articles from any device in one tap, read in a peaceful clutter-free view, search naturally, and chat with what you've read using AI.">
+  <title>Keepfor.me — Keep what inspires you. Carry your context into every AI.</title>
+  <meta name="description" content="Your personal context vault for 2026. Save links, notes, bookmarks, and research with one tap. Bring your personal knowledge into Claude, ChatGPT, Cursor, and any AI agent.">
   
   <!-- Open Graph / Social Meta -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://keepfor.me/">
-  <meta property="og:title" content="Keepfor.me — Save what matters. Read without distraction.">
-  <meta property="og:description" content="Save articles with one tap. Enjoy peaceful, ad-free reading, smart search, and private storage for the words you want to keep.">
+  <meta property="og:title" content="Keepfor.me — The Personal Context Vault for You and Your AI">
+  <meta property="og:description" content="Save anything in one tap. Build your personal knowledge vault and carry that context directly into Claude, ChatGPT, Cursor, or any AI assistant.">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cdefs%3E%3ClinearGradient id='kfm' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232563eb'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='40' height='40' rx='11' fill='url(%23kfm)'/%3E%3Cpath d='M17 11h10v16l-5-3.8-5 3.8z' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cdefs%3E%3ClinearGradient id='kfm' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='40' height='40' rx='11' fill='url(%23kfm)'/%3E%3Cpath d='M17 11h10v16l-5-3.8-5 3.8z' fill='%23fff'/%3E%3C/svg%3E">
 
-  <!-- Typography: Inter & Newsreader -->
+  <!-- Modern Typography: Plus Jakarta Sans & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="assets/css/site.css">
 </head>
@@ -28,10 +28,10 @@
   <header class="site-header">
     <div class="container header-inner">
       <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
-        <svg width="26" height="26" viewBox="0 0 44 44" aria-hidden="true">
+        <svg width="28" height="28" viewBox="0 0 44 44" aria-hidden="true">
           <defs>
             <linearGradient id="header-logo" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stop-color="#2563eb"/>
+              <stop offset="0%" stop-color="#4f46e5"/>
               <stop offset="100%" stop-color="#0ea5e9"/>
             </linearGradient>
           </defs>
@@ -39,25 +39,26 @@
           <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
         </svg>
         <span>Keepfor<span class="dot-me">.me</span></span>
+        <span class="brand-badge">2026 Vault</span>
       </a>
 
       <nav aria-label="Main Navigation">
         <ul class="nav-links">
+          <li><a href="#showcase" class="nav-link">Context in Action</a></li>
+          <li><a href="#why-keep" class="nav-link">Why Keep vs Read-Later</a></li>
+          <li><a href="#pillars" class="nav-link">Features</a></li>
           <li><a href="#reader" class="nav-link">The Reader</a></li>
-          <li><a href="#save" class="nav-link">Save from Anywhere</a></li>
-          <li><a href="#search" class="nav-link">Smart Search</a></li>
-          <li><a href="#ai" class="nav-link">Ask with AI</a></li>
-          <li><a href="#why" class="nav-link">Why Keepfor.me</a></li>
+          <li><a href="#self-host" class="nav-link">Self-Host</a></li>
         </ul>
       </nav>
 
       <div class="header-actions">
-        <a href="https://app.keepfor.me" class="btn-primary" aria-label="Open Keepfor.me Application">
-          <span>Go to App</span>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        <a href="https://app.keepfor.me" class="btn-header-cta" aria-label="Open Keepfor.me Application">
+          <span>Open App</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </a>
         <button class="mobile-toggle" aria-label="Toggle navigation menu">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
     </div>
@@ -66,360 +67,490 @@
   <!-- Hero Section -->
   <section class="hero-section">
     <div class="container">
-      <div class="hero-badge">
-        <span>✨ A calmer, private way to read the internet</span>
+      <div class="hero-pill-badge">
+        <span class="sparkle">✨</span>
+        <span>The personal context vault for you and your AI</span>
       </div>
 
       <h1 class="hero-title">
-        Save what matters.<br>
-        Read without distraction.
+        Keep what inspires you.<br>
+        <span class="gradient-text">Carry your context into every AI.</span>
       </h1>
 
       <p class="hero-subtitle">
-        Whenever you discover a great essay, recipe, or article, save it with one tap. Keepfor.me cleans away the ads, popups, and clutter so you can enjoy peaceful reading whenever you're ready.
+        Save links, quick notes, bookmarks, and recipes in one tap. Keepfor.me builds your personal knowledge vault—ready to instantly power Claude, ChatGPT, Cursor, or any agent you rely on.
       </p>
 
       <div class="hero-actions">
-        <a href="https://app.keepfor.me" class="btn-hero-main">
-          <span>Start Reading</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        <a href="https://app.keepfor.me" class="btn-hero-primary">
+          <span>Launch Keepfor.me</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </a>
-        <a href="#reader" class="btn-secondary">
-          <span>Try the Reader Demo</span>
+        <a href="#showcase" class="btn-hero-secondary">
+          <span>See It In Action</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
         </a>
       </div>
 
-      <div class="hero-trust-bar">
-        <div class="trust-item">
+      <div class="hero-proof-bar">
+        <div class="proof-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>Zero ads or tracking</span>
+          <span>1-Tap Universal Capture</span>
         </div>
-        <div class="trust-item">
+        <div class="proof-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>Works on phone & computer</span>
+          <span>Native MCP & AI Ready</span>
         </div>
-        <div class="trust-item">
+        <div class="proof-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>Saved forever, even offline</span>
+          <span>Private & Permanent Storage</span>
         </div>
-        <div class="trust-item">
+        <div class="proof-item">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>100% Free & private</span>
+          <span>Distraction-Free Reader Included</span>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Feature 1: The Reader & Interactive Demo Widget -->
-  <section id="reader" class="section">
+  <!-- Signature Interactive Showcase: Context In Action -->
+  <section id="showcase" class="showcase-section">
     <div class="container">
-      <div class="section-header">
-        <span class="section-eyebrow">The Reading Experience</span>
-        <h2 class="section-title">The reader you’ve always wanted</h2>
+      <div class="showcase-header">
+        <span class="section-eyebrow">Interactive Demo</span>
+        <h2 class="section-title">See your context come alive</h2>
         <p class="section-desc">
-          No cookie banners. No autoplay videos. Just good words on a peaceful page.
+          Click any item below to see how your everyday bookmarks, notes, and links feed directly into AI assistants without manual copy-pasting.
         </p>
       </div>
 
-      <div class="feature-split">
-        <div class="feature-info">
-          <h3 class="feature-heading">Made for deep focus and comfortable eyes</h3>
-          <p class="feature-text">
-            Modern websites are noisy. Keepfor.me pulls out the real article and sets it in comfortable, book-grade typography. Whether you're reading on your morning commute or winding down before bed, reading feels effortless.
-          </p>
-          <ul class="benefits-list">
-            <li>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Three Gentle Reading Themes:</strong> Clean Paper for bright daytime, Warm Sepia for relaxing afternoons, and Night Mode for bedtime.</span>
-            </li>
-            <li>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Thoughtful Typography:</strong> Switch between a classic book serif and a clean modern sans font with a single click.</span>
-            </li>
-            <li>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Permanent Archive:</strong> Even if the original website goes offline or deletes the article, your saved copy is preserved forever.</span>
-            </li>
-          </ul>
-          <p style="font-size: 0.875rem; color: var(--muted); font-style: italic;">
-            Try testing the theme and font buttons in the preview on the right!
-          </p>
-        </div>
-
-        <!-- The Interactive Reader Demo Widget Sandbox -->
-        <div class="reader-sandbox">
-          <div class="sandbox-controls">
-            <div class="control-pill-group">
-              <span class="control-label">Theme:</span>
-              <button class="theme-pill-btn active" data-theme="light">Paper</button>
-              <button class="theme-pill-btn" data-theme="sepia">Warm Book</button>
-              <button class="theme-pill-btn" data-theme="dark">Night</button>
-            </div>
-            <div class="control-pill-group">
-              <span class="control-label">Type:</span>
-              <button class="font-pill-btn active" data-font="serif">Serif</button>
-              <button class="font-pill-btn" data-font="sans">Sans</button>
-            </div>
+      <!-- The Live Context Console -->
+      <div class="context-console">
+        <!-- Left Column: What You Keep -->
+        <div class="console-left">
+          <div class="console-pane-title">
+            <span class="pane-label">What You Kept in Keepfor.me</span>
+            <span class="pane-badge">Select an item below ↓</span>
           </div>
 
-          <!-- Dynamic Reader Card (Changes style ONLY inside this element) -->
-          <div id="reader-demo-widget" class="reader-theme-light reader-font-serif">
-            <div class="widget-header">
-              <div class="widget-meta">
-                <span class="widget-pill">Essays & Life</span>
-                <span class="widget-muted">4 min read · Autumn 2026</span>
+          <div class="kept-item-selector">
+            <!-- Item 1: Pricing Note -->
+            <button class="kept-item-card active" data-item-key="pricing">
+              <div class="item-top-row">
+                <span class="item-type-pill pill-note">📝 Quick Note</span>
+                <span class="item-time">3 days ago</span>
               </div>
-              <h3 class="widget-title">The Art of the Slow Sunday</h3>
-              <div class="widget-byline widget-muted">Elena Morris · On Intentional Living</div>
+              <div class="item-card-title">Freemium vs Usage-Based: My thoughts on our Q3 tier pricing</div>
+              <div class="item-card-preview">Key tradeoff: flat tier causes margin risk on heavy AI users. Suggested approach: $12/mo base for everyday users + usage credits for agent calls.</div>
+              <div class="item-tags">
+                <span class="item-tag">#product</span>
+                <span class="item-tag">#pricing</span>
+                <span class="item-tag">#notes</span>
+              </div>
+            </button>
+
+            <!-- Item 2: Next.js Server Actions -->
+            <button class="kept-item-card" data-item-key="serverActions">
+              <div class="item-top-row">
+                <span class="item-type-pill pill-link">🔗 Web Bookmark</span>
+                <span class="item-time">Yesterday</span>
+              </div>
+              <div class="item-card-title">Next.js 15 Server Actions: Security Boundaries & CSRF Mitigation</div>
+              <div class="item-card-preview">Always treat server action inputs as untrusted public endpoints. Ensure auth session verification occurs inside the action body before DB mutations.</div>
+              <div class="item-tags">
+                <span class="item-tag">#dev</span>
+                <span class="item-tag">#nextjs</span>
+                <span class="item-tag">#security</span>
+              </div>
+            </button>
+
+            <!-- Item 3: Sourdough Recipe -->
+            <button class="kept-item-card" data-item-key="sourdough">
+              <div class="item-top-row">
+                <span class="item-type-pill pill-recipe">🍞 Recipe & Method</span>
+                <span class="item-time">Last week</span>
+              </div>
+              <div class="item-card-title">Grandma's Rustic Sourdough Focaccia (72-Hour Cold Ferment)</div>
+              <div class="item-card-preview">80% hydration, 3% olive oil, stretch and fold 4 times every 30 mins, then 72 hours cold retard in the fridge. Dimple generously with rosemary and sea salt.</div>
+              <div class="item-tags">
+                <span class="item-tag">#recipes</span>
+                <span class="item-tag">#baking</span>
+                <span class="item-tag">#food</span>
+              </div>
+            </button>
+
+            <!-- Item 4: Travel Notes -->
+            <button class="kept-item-card" data-item-key="travel">
+              <div class="item-top-row">
+                <span class="item-type-pill pill-paper">✈️ Travel Guide</span>
+                <span class="item-time">2 weeks ago</span>
+              </div>
+              <div class="item-card-title">Quiet Coffee Shops & Hidden Vintage Bookstores in Yanaka, Tokyo</div>
+              <div class="item-card-preview">Skip the crowded Shibuya cafes. Head to Kayaba Coffee in Yanaka for eggs on sourdough toast, then browse Hagiso cultural cafe and Ogawa Books.</div>
+              <div class="item-tags">
+                <span class="item-tag">#travel</span>
+                <span class="item-tag">#japan</span>
+                <span class="item-tag">#cafes</span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Right Column: AI Assistant Powered by Context -->
+        <div class="console-right">
+          <div class="ai-header-status">
+            <div class="ai-target-app">
+              <span class="ai-pulse-dot"></span>
+              <span id="ai-target-app-label">Claude 3.7 Sonnet</span>
+            </div>
+            <span class="mcp-bridge-badge" id="mcp-bridge-badge">mcp.keepfor.me/search</span>
+          </div>
+
+          <div class="ai-chat-thread">
+            <!-- User Bubble -->
+            <div class="chat-bubble bubble-user">
+              <strong>Prompt to AI</strong>
+              <span id="ai-user-query">Hey Claude, what pricing model did I propose in my notes, and what was the main margin risk?</span>
             </div>
 
-            <div class="widget-takeaway">
-              <strong>Key Reflection</strong>
-              True rest isn’t about doing nothing—it’s about giving yourself permission to do things that produce no measurable outcome.
+            <!-- AI Bubble with real retrieved citation -->
+            <div class="chat-bubble bubble-ai">
+              <div class="ai-citation-tag" id="ai-citation-tag">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                <span>Keepfor.me Vault · "Freemium vs Usage-Based Note" (#product #pricing)</span>
+              </div>
+              <div class="ai-response-body" id="ai-response-body">
+                Based on your saved notes from earlier this week, you proposed a <strong>$12/month base tier</strong> for everyday usage, paired with metered credits for heavy AI tool executions.<br><br>
+                The primary margin risk you highlighted:
+                <div class="ai-highlight-quote">
+                  "An unmetered flat rate leaves us vulnerable to power users consuming hundreds of background LLM agent queries at our expense."
+                </div>
+              </div>
             </div>
+          </div>
 
-            <div class="widget-body">
-              <p>
-                There is a quiet luxury in waking up without an alarm, making coffee without rushing, and spending an uninterrupted hour reading a single thoughtful essay.
-              </p>
-              <p>
-                In a world that demands continuous responsiveness, creating a small sanctuary of quiet words isn’t an indulgence—it’s how we protect our ability to think deeply.
-              </p>
-            </div>
+          <div class="ai-interactive-footer">
+            <span>⚡ Zero copy-pasting required · Live MCP sync</span>
+            <span style="font-family: var(--font-mono); font-size: 0.75rem;">Keepfor.me v2.4</span>
           </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Feature 2: Save from Anywhere -->
-  <section id="save" class="section">
+  <!-- Comparison Section: Why 'Keeping' Beats Just 'Reading Later' -->
+  <section id="why-keep" class="comparison-section">
     <div class="container">
-      <div class="section-header">
-        <span class="section-eyebrow">Instant Capture</span>
-        <h2 class="section-title">Save in one second from any device</h2>
+      <div class="showcase-header">
+        <span class="section-eyebrow">The 2026 Shift</span>
+        <h2 class="section-title">Why "keeping" beats just "reading later"</h2>
         <p class="section-desc">
-          Wherever you find something interesting, putting it into your library takes just a tap.
+          Old read-it-later apps became digital graveyards of guilt. Keepfor.me turns every bookmark and note into active fuel for your daily workflow.
         </p>
       </div>
 
-      <div class="cards-trio">
-        <div class="trio-card">
-          <div class="trio-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+      <div class="comparison-grid">
+        <!-- Old Way -->
+        <div class="comparison-card old-way">
+          <div class="comp-header">
+            <span class="comp-badge-bad">Old 2015 Apps</span>
+            <h3 class="comp-title">The "Read It Later" Trap</h3>
           </div>
-          <h3 class="trio-title">iPhone & iPad</h3>
-          <p class="trio-desc">
-            Use the built-in Safari Share menu with our 1-tap shortcut. It automatically uses your existing Safari login, so you never have to copy/paste tokens.
-          </p>
-        </div>
-
-        <div class="trio-card">
-          <div class="trio-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          </div>
-          <h3 class="trio-title">Computer & Laptop</h3>
-          <p class="trio-desc">
-            Install the 1-click extension for Chrome, Firefox, or Edge, or simply drag our lightweight bookmarklet to your bookmarks bar.
-          </p>
-        </div>
-
-        <div class="trio-card">
-          <div class="trio-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-          </div>
-          <h3 class="trio-title">Android Phone</h3>
-          <p class="trio-desc">
-            Keepfor.me plugs directly into Android’s native share sheet. Tap share in Chrome, Twitter, or any news reader to save instantly.
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Feature 3: Smart Everyday Search -->
-  <section id="search" class="section">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-eyebrow">Natural Search</span>
-        <h2 class="section-title">Find what you remember, even without the title</h2>
-        <p class="section-desc">
-          Can't recall the exact headline? That's completely okay. Search by topic, feeling, or concept.
-        </p>
-      </div>
-
-      <div class="feature-split">
-        <div class="feature-info">
-          <h3 class="feature-heading">Search the way human memory actually works</h3>
-          <p class="feature-text">
-            Most bookmark tools only look for exact words in the title. Keepfor.me understands what an article is about. If you remember reading about "morning sunlight habits" or "how to fold sourdough dough," you'll find it right away.
-          </p>
-          <ul class="benefits-list">
+          <ul class="comp-list">
             <li>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Understands Concepts:</strong> Connects related ideas even when different words were used.</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span><strong>A pile of unread tabs:</strong> Hundreds of articles you saved, forgot about, and feel guilty for never finishing.</span>
             </li>
             <li>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Full-Text Memory:</strong> Searches every word inside the article text, not just the headline.</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span><strong>Trapped in a silo:</strong> Your saved links can't talk to Cursor, Claude, ChatGPT, or your notes.</span>
             </li>
             <li>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Instant Speed:</strong> Results appear in a fraction of a second as you type.</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span><strong>Dumb keyword search:</strong> Can't remember the exact title? Good luck finding that recipe from four months ago.</span>
+            </li>
+            <li>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#e11d48" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+              <span><strong>Paid paywalls & tracking:</strong> Monthly subscriptions just to highlight text or search your own library.</span>
             </li>
           </ul>
         </div>
 
-        <div class="search-demo-box">
-          <div class="search-input-wrapper">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="search-demo-input" placeholder="Type a topic or pick an idea..." value="morning routine">
+        <!-- New Way: Keepfor.me -->
+        <div class="comparison-card new-way">
+          <div class="comp-header">
+            <span class="comp-badge-good">Keepfor.me</span>
+            <h3 class="comp-title">Your Living Context Vault</h3>
           </div>
-
-          <div class="preset-chip-list">
-            <button class="preset-chip active" data-query="morning routine">morning routine</button>
-            <button class="preset-chip" data-query="sourdough baking">sourdough baking</button>
-            <button class="preset-chip" data-query="better sleep habits">better sleep habits</button>
-            <button class="preset-chip" data-query="slow productivity">slow productivity</button>
-          </div>
-
-          <div id="search-results-list" class="search-results-flow">
-            <!-- Dynamically populated by assets/js/site.js -->
-          </div>
+          <ul class="comp-list">
+            <li>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="16 9 10 15 7 12"/></svg>
+              <span><strong>Zero guilt, pure context:</strong> Keep ideas, guides, notes, and links because they enrich what you know, not because you owe them reading time.</span>
+            </li>
+            <li>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="16 9 10 15 7 12"/></svg>
+              <span><strong>Connects to any AI agent:</strong> Seamless Model Context Protocol (MCP) lets Claude or Cursor query your vault like a team brain.</span>
+            </li>
+            <li>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="16 9 10 15 7 12"/></svg>
+              <span><strong>Hybrid Semantic Memory:</strong> Search by feeling, concept, or half-remembered ideas. Finds what you meant in milliseconds.</span>
+            </li>
+            <li>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="16 9 10 15 7 12"/></svg>
+              <span><strong>Private, permanent & free:</strong> 100% open-source with full text archives saved forever. No trackers, no ads.</span>
+            </li>
+          </ul>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Feature 4: Ask with AI -->
-  <section id="ai" class="section">
+  <!-- 4 Pillars Section -->
+  <section id="pillars" class="pillars-section">
     <div class="container">
-      <div class="section-header">
-        <span class="section-eyebrow">Your Reading Assistant</span>
-        <h2 class="section-title">Chat with what you've read</h2>
+      <div class="showcase-header">
+        <span class="section-eyebrow">Built for Everyday Life</span>
+        <h2 class="section-title">Everything you need to collect and connect</h2>
         <p class="section-desc">
-          Turn your saved library into a personal knowledge assistant.
+          Four essential pillars make Keepfor.me the most natural place for everything you discover.
         </p>
       </div>
 
-      <div class="feature-split">
-        <div class="feature-info">
-          <h3 class="feature-heading">Ask questions backed by your curated library</h3>
-          <p class="feature-text">
-            Saved dozens of great reads on health, travel, recipes, or personal finance? You can connect Claude, Cursor, or your favorite AI assistant in seconds. Ask questions, compare viewpoints, or ask for quick summaries.
+      <div class="pillars-grid">
+        <!-- Pillar 1 -->
+        <div class="pillar-card">
+          <div class="pillar-icon-box" style="background: #eff6ff; color: #2563eb;">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          </div>
+          <h3 class="pillar-title">1-Tap Universal Capture</h3>
+          <p class="pillar-desc">
+            Wherever you find something worth keeping, capture it in under a second. No clunky token setups or broken mobile shares.
           </p>
-          <ul class="benefits-list">
+          <ul class="pillar-bullets">
             <li>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Answers from Your Sources:</strong> Your assistant quotes and synthesizes the exact articles you've chosen to save.</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>iOS Safari 1-Tap Shortcut:</strong> Uses your existing Safari session directly from the share sheet.</span>
             </li>
             <li>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>No Copy-Pasting:</strong> Connects securely in the background using the open Model Context Protocol (MCP).</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Chrome & Edge Extension:</strong> Instant keyboard shortcuts and one-click saving while browsing.</span>
             </li>
             <li>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Private & Secure:</strong> Only your authenticated assistant can read your items. Your data is never sold or shared.</span>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Android Web Share Target:</strong> Integrated right into the Android native share drawer.</span>
             </li>
           </ul>
         </div>
 
-        <div class="chat-simulator-card">
-          <div class="chat-bubble user">
-            <div class="chat-avatar user">You</div>
-            <div class="chat-message">
-              "What did that article on sleep suggest about morning light?"
-            </div>
+        <!-- Pillar 2 -->
+        <div class="pillar-card">
+          <div class="pillar-icon-box" style="background: #f5f3ff; color: #7c3aed;">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           </div>
+          <h3 class="pillar-title">Personal Context Vault</h3>
+          <p class="pillar-desc">
+            Your links, quick thoughts, recipes, and notes live in a unified place that organizes itself as you collect.
+          </p>
+          <ul class="pillar-bullets">
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Auto-Tagging Rules:</strong> Automatically tags items by domain, keywords, or topic.</span>
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Permanent Offline Archive:</strong> Full HTML and clean text saved in R2, protected from link rot.</span>
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Smart Hybrid Search:</strong> Combines full-text FTS5 matching with vector semantic embeddings.</span>
+            </li>
+          </ul>
+        </div>
 
-          <div class="chat-bubble ai">
-            <div class="chat-avatar ai">AI</div>
-            <div class="chat-message">
-              "According to your saved article <em>'Mastering Your Sleep Cycles Naturally'</em>, getting 10 to 15 minutes of outdoor sunlight within an hour of waking resets your circadian rhythm, boosts daytime alertness, and helps you fall asleep more naturally at night."
-            </div>
+        <!-- Pillar 3 -->
+        <div class="pillar-card">
+          <div class="pillar-icon-box" style="background: #ecfdf5; color: #059669;">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2a10 10 0 0 1 10 10c0 5.523-4.477 10-10 10a10 10 0 0 1-10-10c0-5.523 4.477-10 10-10z"/><path d="M8 12a4 4 0 0 0 8 0"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
           </div>
+          <h3 class="pillar-title">Bring Your Context to Any AI</h3>
+          <p class="pillar-desc">
+            No more re-explaining who you are, what you've read, or what you care about. Connect your vault into every AI tool you open.
+          </p>
+          <ul class="pillar-bullets">
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Model Context Protocol (MCP):</strong> Works out of the box in Claude Desktop, Cursor, and Raycast.</span>
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Personal Access Tokens:</strong> Secure API endpoints for custom Python, Node, or LangChain agents.</span>
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Ground Truth Citations:</strong> Your AI answers cite the exact articles and notes you saved.</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Pillar 4 -->
+        <div class="pillar-card">
+          <div class="pillar-icon-box" style="background: #fffbeb; color: #d97706;">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          </div>
+          <h3 class="pillar-title">Peaceful Reader When You Want It</h3>
+          <p class="pillar-desc">
+            When you do want to sit down and read, enjoy a distraction-free environment free of cookie banners, popups, and clutter.
+          </p>
+          <ul class="pillar-bullets">
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Calm Reading Themes:</strong> Clean Paper, Warm Sepia, and Night mode for comfortable eyes.</span>
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Pure Content Extraction:</strong> Trafilatura removes ads, social widgets, and sticky headers.</span>
+            </li>
+            <li>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Estimated Read Times:</strong> Know exactly how long an article takes before diving in.</span>
+            </li>
+          </ul>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Feature 5: Why Keepfor.me -->
-  <section id="why" class="section">
+  <!-- Everyday Scenarios Section -->
+  <section class="scenarios-section">
     <div class="container">
-      <div class="section-header">
-        <span class="section-eyebrow">Honest Principles</span>
-        <h2 class="section-title">Built for readers, not algorithms</h2>
+      <div class="showcase-header">
+        <span class="section-eyebrow">Real Everyday Flow</span>
+        <h2 class="section-title">How people use Keepfor.me every day</h2>
         <p class="section-desc">
-          We built Keepfor.me because reading on the internet shouldn't feel stressful.
+          Whatever you're into, your vault shapes itself around your curiosities.
         </p>
       </div>
 
-      <div class="cards-trio">
-        <div class="trio-card">
-          <div class="trio-icon" style="color: #059669; background-color: #ecfdf5;">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          </div>
-          <h3 class="trio-title">100% Private to You</h3>
-          <p class="trio-desc">
-            No analytics companies watching what you read. No advertising trackers following you from page to page. Your library is private.
+      <div class="scenarios-grid">
+        <div class="scenario-card">
+          <div class="scenario-emoji">🧑‍💻</div>
+          <span class="scenario-role">Builders & Engineers</span>
+          <h4 class="scenario-heading">Technical docs & architecture context</h4>
+          <p style="font-size: 0.925rem; color: var(--ink-secondary); line-height: 1.55; margin-bottom: 16px;">
+            Save GitHub issues, framework release notes, and debugging snippets throughout the week.
           </p>
+          <div class="scenario-quote">
+            "Cursor codes with my exact library choices because it pulls directly from my Keepfor.me MCP."
+          </div>
         </div>
 
-        <div class="trio-card">
-          <div class="trio-icon" style="color: #b45309; background-color: #fef3c7;">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
-          </div>
-          <h3 class="trio-title">Yours Forever</h3>
-          <p class="trio-desc">
-            Commercial services often shut down or get acquired. Keepfor.me archives the full text and clean HTML, so your reading history is permanent.
+        <div class="scenario-card">
+          <div class="scenario-emoji">✍️</div>
+          <span class="scenario-role">Writers & Researchers</span>
+          <h4 class="scenario-heading">An effortless personal swipe file</h4>
+          <p style="font-size: 0.925rem; color: var(--ink-secondary); line-height: 1.55; margin-bottom: 16px;">
+            Collect quotes, essays, research studies, and shower thoughts whenever inspiration strikes.
           </p>
+          <div class="scenario-quote">
+            "I tell Claude: 'Draft a newsletter opening using the 3 articles I saved on deliberate practice.'"
+          </div>
         </div>
 
-        <div class="trio-card">
-          <div class="trio-icon" style="color: #2563eb; background-color: #eff6ff;">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-          </div>
-          <h3 class="trio-title">No Subscription Traps</h3>
-          <p class="trio-desc">
-            No monthly subscription fees to access your own highlights or search your own library. Open-source, honest, and accessible.
+        <div class="scenario-card">
+          <div class="scenario-emoji">🌱</div>
+          <span class="scenario-role">Everyday Living</span>
+          <h4 class="scenario-heading">Recipes, trips, and weekend ideas</h4>
+          <p style="font-size: 0.925rem; color: var(--ink-secondary); line-height: 1.55; margin-bottom: 16px;">
+            Keep recipes, neighborhood travel recs, and home maintenance tips in one searchable sanctuary.
           </p>
+          <div class="scenario-quote">
+            "'Hey ChatGPT, plan dinner tonight using the sourdough recipes and pantry notes in my vault.'"
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Discreet Developer & Self-Hosting Accordion Section -->
-  <section class="section" style="padding-top: 40px; padding-bottom: 60px;">
+  <!-- Reader Mode Highlight (Keeps reader feature present and lovely) -->
+  <section id="reader" class="reader-feature-section">
+    <div class="container">
+      <div class="reader-split">
+        <div>
+          <span class="section-eyebrow">Distraction-Free Reading</span>
+          <h2 class="section-title">A quiet haven for the words you cherish</h2>
+          <p style="font-size: 1.05rem; color: var(--ink-secondary); line-height: 1.6; margin-bottom: 24px;">
+            Whenever you want to step away from screens and noise, Keepfor.me strips the internet's chaos down to book-grade typography. No paywalls, no banners, no autoplaying video.
+          </p>
+          <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; color: var(--ink);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Paper, Sepia & Dark modes</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; color: var(--ink);">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>Permanent local HTML snapshot</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Reader Preview -->
+        <div id="reader-preview-box" class="reader-preview-box theme-light">
+          <div class="reader-toolbar">
+            <span style="font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">Reader Preview</span>
+            <div class="theme-btn-group">
+              <button class="theme-pill active" data-theme="light">Paper</button>
+              <button class="theme-pill" data-theme="sepia">Warm Sepia</button>
+              <button class="theme-pill" data-theme="dark">Night</button>
+            </div>
+          </div>
+
+          <h3 class="reader-sample-title">The Architecture of Everyday Wonder</h3>
+          <div class="reader-sample-meta">5 min read · Architecture & Design</div>
+          <div class="reader-sample-text">
+            <p style="margin-bottom: 12px;">
+              Great spaces don’t scream for attention. They invite curiosity through subtle proportions, honest materials, and quiet restraint.
+            </p>
+            <p>
+              When we curate what we keep with intentionality, we transform the internet from an endless stream of noise into our personal cabinet of curiosities.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Discreet Developer & Self-Hosting Section -->
+  <section id="self-host" class="dev-section">
     <div class="container">
       <div class="dev-accordion">
         <details>
           <summary class="dev-summary">
             <div>
-              <div class="dev-summary-title">🛠️ For Tech Enthusiasts & Developers: Self-Host for Free</div>
-              <div class="dev-summary-sub">Keepfor.me is 100% open-source and runs serverless on Cloudflare's free tier. Click to view technical details.</div>
+              <div class="dev-summary-title">🛠️ Self-Host for Free on Cloudflare ($0/month)</div>
+              <div class="dev-summary-sub">100% open source under MIT. Runs serverless on Cloudflare Workers, D1 SQLite, R2, and Vectorize.</div>
             </div>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
           </summary>
           <div class="dev-content">
             <div class="dev-grid">
               <div>
-                <h4 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; color: var(--ink);">Modern Serverless Architecture</h4>
-                <p style="font-size: 0.9rem; color: var(--muted); line-height: 1.6; margin-bottom: 16px;">
-                  Built with Python FastAPI running on Cloudflare Workers (Pyodide), D1 SQLite + FTS5 full-text search, R2 object storage for snapshots, and Vectorize for semantic embeddings. Costs $0/mo under Cloudflare's free tier.
+                <h4 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; color: var(--ink);">Modern Serverless Python Architecture</h4>
+                <p style="font-size: 0.9rem; color: var(--ink-secondary); line-height: 1.6; margin-bottom: 16px;">
+                  Built with Python FastAPI running inside Cloudflare Workers (Pyodide), D1 SQLite + FTS5 full-text search, Vectorize semantic embeddings, and R2 permanent storage. It fits entirely within Cloudflare's free tier.
                 </p>
-                <a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="font-size: 0.85rem; padding: 8px 18px;">
+                <a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer" class="btn-hero-secondary" style="font-size: 0.85rem; padding: 8px 18px;">
                   View Source on GitHub
                 </a>
               </div>
               <div class="terminal-box">
-                <div style="color: #9ca3af; margin-bottom: 8px; font-size: 0.75rem;">
-                  # Quickstart deployment
-                  <button class="term-copy-btn" data-copy-text="git clone https://github.com/melcutz/keepfor.me.git && cd keepfor.me && npx wrangler d1 create keepfor-me-db && npx wrangler d1 migrations apply keepfor-me-db --remote && uvx --from workers-py pywrangler deploy">Copy</button>
+                <div style="color: #94a3b8; margin-bottom: 8px; font-size: 0.75rem;">
+                  # Deploy in 3 minutes
+                  <button class="term-copy-btn" data-copy-text="git clone https://github.com/melcutz/keepfor.me.git && cd keepfor.me && npx wrangler d1 create keepfor-me-db && uvx --from workers-py pywrangler deploy">Copy</button>
                 </div>
-                <div style="color: #38bdf8;">git clone https://github.com/melcutz/keepfor.me.git</div>
-                <div style="color: #38bdf8;">cd keepfor.me</div>
-                <div style="color: #38bdf8;">npx wrangler d1 create keepfor-me-db</div>
-                <div style="color: #38bdf8;">uvx --from workers-py pywrangler deploy</div>
+                <div>git clone https://github.com/melcutz/keepfor.me.git</div>
+                <div>cd keepfor.me</div>
+                <div>npx wrangler d1 create keepfor-me-db</div>
+                <div>uvx --from workers-py pywrangler deploy</div>
               </div>
             </div>
           </div>
@@ -429,41 +560,57 @@
   </section>
 
   <!-- FAQ Section -->
-  <section class="section">
+  <section class="faq-section">
     <div class="container">
-      <div class="section-header">
-        <span class="section-eyebrow">Common Questions</span>
+      <div class="showcase-header">
+        <span class="section-eyebrow">Got Questions?</span>
         <h2 class="section-title">Frequently Asked Questions</h2>
       </div>
 
-      <div class="faq-list">
+      <div class="faq-grid">
         <div class="faq-card">
-          <h4 class="faq-q">Is Keepfor.me free to use?</h4>
+          <h4 class="faq-q">What makes Keepfor.me different from old bookmark apps?</h4>
           <p class="faq-a">
-            Yes, Keepfor.me is open-source software and free. If you host it on Cloudflare, it runs within Cloudflare's generous free tier with zero monthly fees.
+            Old bookmark and read-it-later tools were dead ends: you saved a link, forgot it, and it sat trapped in a closed app. Keepfor.me is designed for 2026: anything you save builds a personal context vault that any AI tool (Claude, ChatGPT, Cursor, Copilot) can query whenever you work.
           </p>
         </div>
 
         <div class="faq-card">
-          <h4 class="faq-q">Do I need to download an app from the App Store?</h4>
+          <h4 class="faq-q">How does my AI connect to my saved context?</h4>
           <p class="faq-a">
-            No download is required. Keepfor.me is a modern progressive web app. You can add it to your home screen directly from Safari or Chrome, and it behaves just like a native app.
+            Keepfor.me natively supports the open Model Context Protocol (MCP). In Claude Desktop or Cursor, you simply add one line with your Keepfor.me URL and secret token. Your AI automatically retrieves your relevant bookmarks and notes whenever you ask questions.
           </p>
         </div>
 
         <div class="faq-card">
-          <h4 class="faq-q">What happens if a website deletes an article I saved?</h4>
+          <h4 class="faq-q">Can I still use it just as a peaceful reader?</h4>
           <p class="faq-a">
-            Your saved copy is completely safe. When you save an article, Keepfor.me stores an exact permanent copy in your library, so you can still read it years later.
+            Absolutely! When you do want to read an essay or recipe, Keepfor.me provides a distraction-free reader mode with customizable typography and themes, free from ads and popups.
           </p>
         </div>
 
         <div class="faq-card">
-          <h4 class="faq-q">Can I organize my articles with tags?</h4>
+          <h4 class="faq-q">Is Keepfor.me private and free?</h4>
           <p class="faq-a">
-            Yes! You can add tags manually or set up automatic tagging rules (for example, tagging anything from your favorite cooking blog as "Recipes").
+            Yes! Keepfor.me is open-source software under the MIT license. There are no tracking scripts, ad networks, or subscription walls. You can use our hosted service or self-host your own instance on Cloudflare for $0/month.
           </p>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA Banner -->
+  <section class="cta-banner-section">
+    <div class="container">
+      <div class="cta-banner-box">
+        <h2 class="cta-banner-title">Start building your personal context vault</h2>
+        <p class="cta-banner-desc">
+          Save whatever catches your attention today. Give your AI the context it has been missing all along.
+        </p>
+        <a href="https://app.keepfor.me" class="btn-hero-primary" style="background: #ffffff; color: var(--brand-indigo); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);">
+          <span>Launch Keepfor.me Free</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
       </div>
     </div>
   </section>
@@ -473,10 +620,10 @@
     <div class="container">
       <div class="footer-top">
         <a href="/" class="brand-link">
-          <svg width="24" height="24" viewBox="0 0 44 44" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 44 44" aria-hidden="true">
             <defs>
               <linearGradient id="footer-logo" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#2563eb"/>
+                <stop offset="0%" stop-color="#4f46e5"/>
                 <stop offset="100%" stop-color="#0ea5e9"/>
               </linearGradient>
             </defs>
@@ -486,14 +633,14 @@
           <span>Keepfor<span class="dot-me">.me</span></span>
         </a>
 
-        <div style="display: flex; gap: 24px; align-items: center; font-size: 0.9rem; font-weight: 500;">
+        <div style="display: flex; gap: 24px; align-items: center; font-size: 0.925rem; font-weight: 600;">
           <a href="https://app.keepfor.me" class="nav-link">Open App</a>
           <a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer" class="nav-link">GitHub</a>
         </div>
       </div>
 
       <div class="footer-bottom">
-        <span>© 2026 Keepfor.me. Made for people who love reading.</span>
+        <span>© 2026 Keepfor.me. The Personal Context Vault for You and Your AI.</span>
         <span>Open source under the MIT License.</span>
       </div>
     </div>
@@ -501,7 +648,7 @@
 
   <!-- Toast for feedback -->
   <div id="copy-toast" role="status" aria-live="polite">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
     <span id="copy-toast-msg">Copied!</span>
   </div>
 

@@ -1,206 +1,117 @@
 /**
- * Keepfor.me — Friendly Presentation Site Interactive Scripts
+ * Keepfor.me — Interactive 2026 Context Vault Scripts
  *
- * 1. Reader Demo Widget Controller (Light, Sepia, Dark + Serif/Sans)
- * 2. Everyday Smart Search Simulator (Natural topic search matching)
- * 3. Copy-to-clipboard helpers
+ * 1. Signature Context Showcase (Simulates live MCP retrieval from kept items)
+ * 2. Reader Mode Theme Switcher
+ * 3. Copy-to-clipboard terminal helpers
  * 4. Mobile navigation toggle
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-  initReaderWidget();
-  initEverydaySearchSimulator();
+  initContextShowcase();
+  initReaderPreview();
   initCopyHelpers();
   initMobileNav();
 });
 
 /* ==========================================================================
-   1. Reader Demo Widget Controller
-   Only touches #reader-demo-widget — site branding remains completely steady!
+   1. Interactive Context Showcase
+   Shows how anything you keep (notes, links, recipes, research) instantly
+   becomes active context in any AI agent (Claude, Cursor, ChatGPT, etc.)
    ========================================================================== */
 
-function initReaderWidget() {
-  const widget = document.getElementById('reader-demo-widget');
-  if (!widget) return;
+const CONTEXT_ITEMS = {
+  pricing: {
+    userQuery: 'Hey Claude, what pricing model did I propose in my notes, and what was the main margin risk?',
+    aiCitation: 'Keepfor.me Vault · "Freemium vs Usage-Based Note" (#product #pricing)',
+    aiResponse: `Based on your saved notes from earlier this week, you proposed a <strong>$12/month base tier</strong> for everyday usage, paired with metered credits for heavy AI tool executions.<br><br>The primary margin risk you highlighted: <div class="ai-highlight-quote">"An unmetered flat rate leaves us vulnerable to power users consuming hundreds of background LLM agent queries at our expense."</div>`,
+    targetApp: 'Claude 3.7 Sonnet',
+    toolCall: 'mcp.keepfor.me/search(query="pricing tier margin risk")'
+  },
+  serverActions: {
+    userQuery: 'Cursor, what security check did that article recommend before writing to the database in Next.js Server Actions?',
+    aiCitation: 'Keepfor.me Vault · "Next.js 15 Server Actions" (#dev #security)',
+    aiResponse: `According to your saved bookmark on Next.js 15 security, you should treat server actions like open public endpoints:<br><br><div class="ai-highlight-quote">"Always verify user authentication and authorization inside the action handler body itself before initiating any database mutation—do not rely solely on middleware."</div>`,
+    targetApp: 'Cursor / Copilot Agent',
+    toolCall: 'mcp.keepfor.me/get_item(id="item_sec_9182")'
+  },
+  sourdough: {
+    userQuery: 'What hydration ratio and cold ferment time did I save for Sunday\'s focaccia bake?',
+    aiCitation: 'Keepfor.me Vault · "Grandma\'s Rustic Sourdough Focaccia" (#recipes #baking)',
+    aiResponse: `In your saved recipe, the parameters are:<br>• <strong>Hydration:</strong> 80% with 3% extra virgin olive oil.<br>• <strong>Fermentation:</strong> 4 sets of stretch-and-folds every 30 minutes, followed by a <strong>72-hour cold retard</strong> in the refrigerator.<br>• Finish with flaky sea salt and fresh rosemary before dimpling.`,
+    targetApp: 'ChatGPT / Raycast AI',
+    toolCall: 'mcp.keepfor.me/search(query="sourdough focaccia hydration cold ferment")'
+  },
+  travel: {
+    userQuery: 'Plan a relaxing Saturday morning in Tokyo using the quiet neighborhood spots I saved in my vault.',
+    aiCitation: 'Keepfor.me Vault · "Quiet Coffee Shops & Bookstores in Yanaka" (#travel #japan)',
+    aiResponse: `Here is your morning itinerary straight from your saved Yanaka notes:<br>1. <strong>9:00 AM:</strong> Coffee and egg toast at <em>Kayaba Coffee</em> (peaceful historic kissaten).<br>2. <strong>10:30 AM:</strong> Browse vintage art prints and architecture titles at <em>Ogawa Books</em>.<br>3. <strong>11:45 AM:</strong> Walk through the quiet residential temple alleys to <em>Hagiso</em> cultural cafe.`,
+    targetApp: 'Apple Intelligence / Agent',
+    toolCall: 'mcp.keepfor.me/search(query="Yanaka Tokyo quiet coffee bookstores")'
+  }
+};
 
-  const themeBtns = document.querySelectorAll('.theme-pill-btn');
-  const fontBtns = document.querySelectorAll('.font-pill-btn');
+function initContextShowcase() {
+  const cards = document.querySelectorAll('.kept-item-card');
+  const userBubble = document.getElementById('ai-user-query');
+  const aiTag = document.getElementById('ai-citation-tag');
+  const aiBody = document.getElementById('ai-response-body');
+  const aiAppLabel = document.getElementById('ai-target-app-label');
+  const mcpBadge = document.getElementById('mcp-bridge-badge');
 
-  themeBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const theme = btn.dataset.theme; // 'light', 'sepia', 'dark'
-      
-      widget.classList.remove('reader-theme-light', 'reader-theme-sepia', 'reader-theme-dark');
-      widget.classList.add(`reader-theme-${theme}`);
+  if (!cards.length || !userBubble || !aiBody) return;
 
-      themeBtns.forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-    });
-  });
+  cards.forEach((card) => {
+    card.addEventListener('click', () => {
+      const key = card.dataset.itemKey;
+      const data = CONTEXT_ITEMS[key];
+      if (!data) return;
 
-  fontBtns.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const font = btn.dataset.font; // 'serif', 'sans'
+      // Update active card state
+      cards.forEach((c) => c.classList.remove('active'));
+      card.classList.add('active');
 
-      widget.classList.remove('reader-font-serif', 'reader-font-sans');
-      widget.classList.add(`reader-font-${font}`);
+      // Subtle animation state
+      aiBody.style.opacity = '0.3';
+      userBubble.style.opacity = '0.3';
 
-      fontBtns.forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
+      setTimeout(() => {
+        userBubble.textContent = data.userQuery;
+        aiTag.textContent = data.aiCitation;
+        aiBody.innerHTML = data.aiResponse;
+        if (aiAppLabel) aiAppLabel.textContent = data.targetApp;
+        if (mcpBadge) mcpBadge.textContent = data.toolCall;
+
+        aiBody.style.opacity = '1';
+        userBubble.style.opacity = '1';
+      }, 140);
     });
   });
 }
 
 /* ==========================================================================
-   2. Everyday Smart Search Simulator
+   2. Reader Preview Box Theme Switcher
    ========================================================================== */
 
-const EVERYDAY_ARTICLES = [
-  {
-    title: 'The Quiet Magic of a 20-Minute Morning Routine',
-    snippet: 'Why starting your day with natural light, hydration, and ten minutes of silence sets the foundation for calm focus.',
-    category: 'Daily Rituals',
-    readTime: '4 min read',
-    keywords: ['morning', 'routine', 'habits', 'focus', 'light', 'calm', 'coffee'],
-    matches: {
-      'morning routine': '99% Match · Exact Topic',
-      'better sleep habits': '85% Match · Related Concept',
-      'slow productivity': '89% Match · Daily Rhythm'
-    }
-  },
-  {
-    title: 'A Gentle Beginner’s Guide to Sourdough Bread',
-    snippet: 'Everything you need to know about keeping a starter alive, folding dough, and baking your first crusty rustic loaf.',
-    category: 'Kitchen & Craft',
-    readTime: '7 min read',
-    keywords: ['sourdough', 'baking', 'bread', 'starter', 'flour', 'kitchen', 'food'],
-    matches: {
-      'sourdough baking': '99% Match · Exact Topic',
-      'morning routine': '78% Match · Kitchen Rituals',
-      'slow productivity': '82% Match · Craft & Patience'
-    }
-  },
-  {
-    title: 'Slow Productivity: The Antidote to Daily Overwhelm',
-    snippet: 'Accomplishing deeply meaningful work by doing fewer things, working at a natural pace, and obsessing over quality.',
-    category: 'Work & Mindset',
-    readTime: '6 min read',
-    keywords: ['slow', 'productivity', 'focus', 'burnout', 'quality', 'work'],
-    matches: {
-      'slow productivity': '99% Match · Exact Topic',
-      'morning routine': '91% Match · Intentional Days',
-      'better sleep habits': '84% Match · Stress Reduction'
-    }
-  },
-  {
-    title: 'Mastering Your Sleep Cycles Naturally',
-    snippet: 'How cooler room temperatures, morning sunlight, and consistent sleep windows transform your daily energy and mood.',
-    category: 'Health & Wellness',
-    readTime: '5 min read',
-    keywords: ['sleep', 'habits', 'rest', 'cycles', 'energy', 'health', 'circadian'],
-    matches: {
-      'better sleep habits': '99% Match · Exact Topic',
-      'morning routine': '92% Match · Circadian Rhythm',
-      'slow productivity': '86% Match · Recovery'
-    }
-  },
-  {
-    title: 'The Art of the Slow Sunday',
-    snippet: 'Why carving out a few hours without screens, errands, or to-do lists rejuvenates how you feel all week long.',
-    category: 'Essays & Living',
-    readTime: '5 min read',
-    keywords: ['slow', 'sunday', 'rest', 'peace', 'unplug', 'reading'],
-    matches: {
-      'slow productivity': '94% Match · Rest as Fuel',
-      'better sleep habits': '88% Match · Deep Rest',
-      'morning routine': '86% Match · Quiet Mornings',
-      'sourdough baking': '80% Match · Weekend Projects'
-    }
-  }
-];
+function initReaderPreview() {
+  const box = document.getElementById('reader-preview-box');
+  const pills = document.querySelectorAll('.theme-pill');
+  if (!box || !pills.length) return;
 
-function initEverydaySearchSimulator() {
-  const input = document.getElementById('search-demo-input');
-  const resultsContainer = document.getElementById('search-results-list');
-  const chips = document.querySelectorAll('.preset-chip');
-  if (!input || !resultsContainer) return;
+  pills.forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const theme = pill.dataset.theme; // 'light', 'sepia', 'dark'
+      box.classList.remove('theme-light', 'theme-sepia', 'theme-dark');
+      box.classList.add(`theme-${theme}`);
 
-  function runSearch(queryText) {
-    const q = queryText.toLowerCase().trim();
-    if (!q) {
-      renderResults(EVERYDAY_ARTICLES.slice(0, 3), 'default');
-      return;
-    }
-
-    // Rank matching articles
-    const scored = EVERYDAY_ARTICLES.map((article) => {
-      let matchLabel = article.matches[q];
-      let score = 0;
-
-      if (matchLabel) {
-        score = parseInt(matchLabel, 10) || 80;
-      } else {
-        const matchesKeyword = article.keywords.some((k) => q.includes(k) || k.includes(q));
-        if (matchesKeyword) {
-          score = 88;
-          matchLabel = '88% Match · Concept Match';
-        } else {
-          score = 65;
-          matchLabel = '65% Match · Related Reading';
-        }
-      }
-
-      return { ...article, score, matchLabel };
-    });
-
-    scored.sort((a, b) => b.score - a.score);
-    renderResults(scored.slice(0, 3), q);
-  }
-
-  function renderResults(items, query) {
-    resultsContainer.innerHTML = '';
-    items.forEach((doc) => {
-      const card = document.createElement('div');
-      card.className = 'search-result-card';
-      card.innerHTML = `
-        <div class="result-top-line">
-          <span class="result-article-title">${escapeHtml(doc.title)}</span>
-          <span class="result-match-badge">${escapeHtml(doc.matchLabel || 'Relevant Match')}</span>
-        </div>
-        <p class="result-snippet">${escapeHtml(doc.snippet)}</p>
-        <div class="result-footer-meta">
-          <span>${escapeHtml(doc.category)}</span> · <span>${escapeHtml(doc.readTime)}</span>
-        </div>
-      `;
-      resultsContainer.appendChild(card);
-    });
-  }
-
-  chips.forEach((chip) => {
-    chip.addEventListener('click', () => {
-      const query = chip.dataset.query;
-      input.value = query;
-      chips.forEach((c) => c.classList.remove('active'));
-      chip.classList.add('active');
-      runSearch(query);
+      pills.forEach((p) => p.classList.remove('active'));
+      pill.classList.add('active');
     });
   });
-
-  let debounceTimeout;
-  input.addEventListener('input', (e) => {
-    clearTimeout(debounceTimeout);
-    debounceTimeout = setTimeout(() => {
-      chips.forEach((c) => c.classList.remove('active'));
-      runSearch(e.target.value);
-    }, 150);
-  });
-
-  // Initial render
-  runSearch('morning routine');
 }
 
 /* ==========================================================================
-   3. Clipboard & Toast Helpers
+   3. Terminal & Copy Helpers
    ========================================================================== */
 
 function initCopyHelpers() {
@@ -231,7 +142,7 @@ function initCopyHelpers() {
 }
 
 /* ==========================================================================
-   4. Mobile Navigation Toggle
+   4. Mobile Navigation
    ========================================================================== */
 
 function initMobileNav() {
@@ -244,21 +155,13 @@ function initMobileNav() {
     nav.style.display = isShown ? 'none' : 'flex';
     nav.style.flexDirection = 'column';
     nav.style.position = 'absolute';
-    nav.style.top = '68px';
+    nav.style.top = '72px';
     nav.style.left = '0';
     nav.style.right = '0';
-    nav.style.backgroundColor = 'var(--canvas)';
-    nav.style.padding = '20px 24px';
+    nav.style.backgroundColor = '#ffffff';
+    nav.style.padding = '24px';
     nav.style.borderBottom = '1px solid var(--border)';
-    nav.style.boxShadow = 'var(--shadow-card)';
+    nav.style.boxShadow = 'var(--shadow-lg)';
+    nav.style.gap = '20px';
   });
-}
-
-function escapeHtml(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
 }
