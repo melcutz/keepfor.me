@@ -1,5 +1,13 @@
 # Keepfor.me
 
+[![Release](https://img.shields.io/github/v/release/melcutz/keepfor.me?color=3b82f6&label=release)](https://github.com/melcutz/keepfor.me/releases/latest)
+[![Tests](https://img.shields.io/github/actions/workflow/status/melcutz/keepfor.me/test.yml?branch=main&label=tests&color=10b981)](https://github.com/melcutz/keepfor.me/actions/workflows/test.yml)
+[![Security](https://img.shields.io/badge/security-CodeQL%20clean-10b981)](https://github.com/melcutz/keepfor.me/security/code-scanning)
+[![Runtime](https://img.shields.io/badge/runtime-Cloudflare%20Python%20Workers-f38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/runtime-apis/bindings/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![Protocol](https://img.shields.io/badge/MCP-Streamable%20HTTP-000000)](https://modelcontextprotocol.io)
+[![License](https://img.shields.io/badge/license-MIT-64748b)](LICENSE)
+
 A thin, fast read-it-later and personal library application running entirely on Cloudflare Python Workers, D1 SQLite with FTS5, Vectorize, R2, and the Model Context Protocol (MCP).
 
 ---
