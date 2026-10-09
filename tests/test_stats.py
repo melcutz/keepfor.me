@@ -523,3 +523,17 @@ async def test_get_user_stats_words_read_and_reading_time(db, test_user_data):
     assert stats["words_read"] == 5000
     assert stats["words_read_display"] == "5.0k words"
     assert stats["reading_time_display"] == "25 mins"
+
+
+async def test_stats_mobile_heatmap_scroll_script(client, db, test_user_data):
+    """The year grid container must have id and script scrolling to present week."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    assert 'id="year-grid-container"' in response.text
+    assert "scrollLeft = container.scrollWidth" in response.text

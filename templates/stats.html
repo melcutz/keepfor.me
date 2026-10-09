@@ -52,7 +52,7 @@
   {% endif %}
 
   <!-- Year contributions grid -->
-  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm overflow-x-auto">
+  <section id="year-grid-container" class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm overflow-x-auto">
     <h3 class="text-base font-semibold text-slate-900 mb-1">Year in review</h3>
     <p class="text-xs text-slate-500 mb-4">Trailing 365 days. Darker green means a bigger Keep Score day.</p>
     <div class="flex gap-[3px]">
@@ -167,4 +167,13 @@
     </section>
   </div>
 </div>
+
+<script>
+  (function() {
+    var container = document.getElementById('year-grid-container');
+    if (container) {
+      container.scrollLeft = container.scrollWidth;
+    }
+  })();
+</script>
 {% endblock %}
