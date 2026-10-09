@@ -223,6 +223,43 @@ async def require_user(request: Request) -> dict[str, Any]:
     return user
 
 
+def _is_safe_path(value: str | None) -> bool:
+    r"""Check if a path is safe for redirection (same-origin relative path only)."""
+    if not value or not isinstance(value, str):
+        return False
+    # Backslashes: never legitimate in a path we generate, and browsers treat
+    # them as slashes, which can create a protocol-relative (cross-origin) URL.
+    if "\\" in value:
+        return False
+    # Control characters and whitespace are stripped by browsers before the URL
+    # is parsed, which can also smuggle a `//` past the checks below.
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F or ch == " " for ch in value):
+        return False
+    if not value.startswith("/") or value.startswith("//"):
+        return False
+    # Structural check: must have no scheme and no authority component.
+    parsed = urlparse(value)
+    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
+        return False
+    return True
+
+
+def _safe_next(value: str | None) -> str:
+    r"""Return a safe post-login redirect: only same-origin paths, else '/'.
+
+    Getting this wrong is a real open redirect: browsers normalise '\' to '/'
+    inside a `Location` header, so a naive `startswith('/')` check lets
+    `?next=/\evil.com` through and it lands on `https://evil.com/` -- after
+    the victim has just typed their password on the genuine site.
+
+    Verified in Chromium: `Location: /\evil.example` produced a request to
+    `http://evil.example/`. A literal tab before `//` is a second bypass.
+    Hence the explicit backslash and control-character rejections below, plus a
+    structural parse so the rule does not depend on prefix guessing alone.
+    """
+    return value if _is_safe_path(value) else "/"
+
+
 # Brand mark served as a file so browsers persist it onto bookmarks
 # (inline data: favicons are not). Dynamic route: zero bundle impact.
 FAVICON_SVG = (
@@ -699,7 +736,19 @@ async def toggle_pin_route(request: Request, item_id: str):
         template = jinja_env.get_template("partials/item_card.html")
         return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
     referer = request.headers.get("referer")
-    return RedirectResponse(url=referer or f"/items/{item_id}", status_code=303)
+    fallback = f"/items/{item_id}"
+    dest = fallback
+    if referer:
+        parsed_ref = urlparse(referer)
+        req_host = (request.url.netloc or "").lower()
+        ref_host = (parsed_ref.netloc or "").lower()
+        if not ref_host or ref_host == req_host:
+            candidate = parsed_ref.path + (
+                "?" + parsed_ref.query if parsed_ref.query else ""
+            )
+            if _is_safe_path(candidate):
+                dest = candidate
+    return RedirectResponse(url=dest, status_code=303)
 
 
 @app.post("/items/{item_id}/notes", response_class=HTMLResponse)
@@ -716,7 +765,9 @@ async def update_notes_route(
         tag_styles = tag_styles_for(item.get("tags") or [])
         template = jinja_env.get_template("partials/item_card.html")
         return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
-    return RedirectResponse(url=next or f"/items/{item_id}", status_code=303)
+    fallback = f"/items/{item_id}"
+    dest = next if _is_safe_path(next) else fallback
+    return RedirectResponse(url=dest, status_code=303)
 
 
 @app.post("/items/{item_id}/archive", response_class=HTMLResponse)
@@ -1431,38 +1482,6 @@ async def import_route(
 # ==========================================
 # Auth Handlers
 # ==========================================
-
-
-def _safe_next(value: str | None) -> str:
-    r"""Return a safe post-login redirect: only same-origin paths, else '/'.
-
-    Getting this wrong is a real open redirect: browsers normalise '\' to '/'
-    inside a `Location` header, so a naive `startswith('/')` check lets
-    `?next=/\evil.com` through and it lands on `https://evil.com/` -- after
-    the victim has just typed their password on the genuine site.
-
-    Verified in Chromium: `Location: /\evil.example` produced a request to
-    `http://evil.example/`. A literal tab before `//` is a second bypass.
-    Hence the explicit backslash and control-character rejections below, plus a
-    structural parse so the rule does not depend on prefix guessing alone.
-    """
-    if not value or not isinstance(value, str):
-        return "/"
-    # Backslashes: never legitimate in a path we generate, and browsers treat
-    # them as slashes, which can create a protocol-relative (cross-origin) URL.
-    if "\\" in value:
-        return "/"
-    # Control characters and whitespace are stripped by browsers before the URL
-    # is parsed, which can also smuggle a `//` past the checks below.
-    if any(ord(ch) < 0x20 or ord(ch) == 0x7F or ch == " " for ch in value):
-        return "/"
-    if not value.startswith("/") or value.startswith("//"):
-        return "/"
-    # Structural check: must have no scheme and no authority component.
-    parsed = urlparse(value)
-    if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
-        return "/"
-    return value
 
 
 TAG_PILL_CLASSES = [

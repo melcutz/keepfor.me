@@ -461,3 +461,21 @@ def test_soft_404_with_error_body():
         " has been moved or does not exist.",
     )
     assert reason
+
+
+def test_is_youtube_url_domain_boundaries():
+    """Ensure YouTube URL detection checks proper domain boundaries."""
+    from src.consumer.extractor import _is_youtube_url
+
+    assert _is_youtube_url("https://youtube.com/watch?v=123") is True
+    assert _is_youtube_url("https://www.youtube.com/watch?v=123") is True
+    assert _is_youtube_url("https://m.youtube.com/watch?v=123") is True
+    assert _is_youtube_url("https://youtu.be/123") is True
+
+    # Hostnames ending with 'youtube.com' or 'youtu.be' without dot boundary
+    # must be rejected
+    assert _is_youtube_url("https://notyoutube.com/watch?v=123") is False
+    assert _is_youtube_url("https://fakeyoutube.com") is False
+    assert _is_youtube_url("https://fakeyoutu.be") is False
+    assert _is_youtube_url("https://youtube.com.attacker.com") is False
+    assert _is_youtube_url("https://youtu.be.attacker.com") is False

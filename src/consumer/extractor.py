@@ -325,7 +325,12 @@ def _is_youtube_url(url: str) -> bool:
         host = (urlparse(url).netloc or "").lower()
     except Exception:
         return False
-    return host.endswith("youtube.com") or host.endswith("youtu.be")
+    return (
+        host == "youtube.com"
+        or host.endswith(".youtube.com")
+        or host == "youtu.be"
+        or host.endswith(".youtu.be")
+    )
 
 
 def _is_github_url(url: str) -> bool:

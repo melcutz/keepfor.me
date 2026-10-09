@@ -481,9 +481,8 @@ def test_csp_allows_cloudflare_beacon(client):
         if name.strip() == "script-src":
             script_src = value
             break
-    assert script_src, f"no script-src directive in: {csp!r}"
-
-    assert "https://static.cloudflareinsights.com" in script_src.split()
+    tokens = script_src.split()
+    assert any(t == "https://static.cloudflareinsights.com" for t in tokens)
 
 
 @pytest.mark.asyncio
@@ -597,6 +596,58 @@ async def test_login_does_not_redirect_offsite(client, db, auth_headers):
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/"
+
+
+@pytest.mark.asyncio
+async def test_item_pin_and_notes_redirect_sanitization(client, db, auth_headers):
+    """Pin and note routes must reject open redirect payloads in referer and next."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    resp = client.post(
+        "/save-popup",
+        data={"url": "https://example.com/test-pin-redir", "title": "Test Item"},
+        follow_redirects=False,
+    )
+    rows = await db.query_all(
+        "SELECT id FROM items WHERE url = 'https://example.com/test-pin-redir';"
+    )
+    item_id = rows[0]["id"]
+
+    # 1. Toggle pin with malicious referer
+    resp = client.post(
+        f"/items/{item_id}/pin",
+        headers={"Referer": "https://evil.example.com/phish"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/items/{item_id}"
+
+    # 2. Toggle pin with valid same-origin referer
+    resp = client.post(
+        f"/items/{item_id}/pin",
+        headers={"Referer": "http://testserver/?category=unread"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/?category=unread"
+
+    # 3. Update notes with malicious next
+    resp = client.post(
+        f"/items/{item_id}/notes",
+        data={"user_notes": "Note content", "next": "https://evil.example.com/phish"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/items/{item_id}"
+
+    # 4. Update notes with valid next
+    resp = client.post(
+        f"/items/{item_id}/notes",
+        data={"user_notes": "Note content", "next": f"/items/{item_id}?saved=1"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == f"/items/{item_id}?saved=1"
 
 
 # ==========================================
