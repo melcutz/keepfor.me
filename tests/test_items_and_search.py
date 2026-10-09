@@ -1,10 +1,11 @@
-"""Tests for items management and hybrid search."""
+import logging
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.auth.service import register_user
 from src.models.items import delete_item, get_item, save_item
-from src.search.engine import hybrid_search
+from src.search.engine import hybrid_search, search_vectorize
 
 
 class FakeQueue:
@@ -409,3 +410,42 @@ async def test_cloudflare_522_falls_back_to_reader_proxy(user_with_env, monkeypa
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched["status"] == "ok"
     assert fetched["title"] == "Proxied Article"
+
+
+@pytest.mark.asyncio
+async def test_search_vectorize_logs_warning_on_failure(caplog):
+    mock_env = MagicMock()
+    mock_env.AI.run = AsyncMock(side_effect=RuntimeError("AI binding timeout"))
+    mock_env.VECTORIZE = MagicMock()
+
+    with caplog.at_level(logging.WARNING):
+        res = await search_vectorize(mock_env, "user-123", "test query")
+        assert res == []
+        assert any("Vector search query failed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_delete_item_logs_warning_on_vectorize_and_r2_failure(
+    user_with_env, caplog
+):
+    user, env, db = user_with_env
+    item, _ = await save_item(db, env, user["id"], "https://example.com/delete-fail")
+
+    # Add chunk so vectorize delete is triggered
+    await db.execute(
+        "INSERT INTO chunks (id, item_id, user_id, chunk_index, token_count) "
+        "VALUES (?, ?, ?, ?, ?);",
+        ("chunk-1", item["id"], user["id"], 0, 100),
+    )
+
+    env.VECTORIZE = MagicMock()
+    env.VECTORIZE.deleteByIds = AsyncMock(side_effect=RuntimeError("Vectorize error"))
+    env.BUCKET = MagicMock()
+    env.BUCKET.delete = AsyncMock(side_effect=RuntimeError("R2 error"))
+
+    with caplog.at_level(logging.WARNING):
+        deleted = await delete_item(db, env, user["id"], item["id"])
+        assert deleted is True
+        messages = [r.message for r in caplog.records]
+        assert any("Failed to delete vector embeddings" in m for m in messages)
+        assert any("Failed to delete R2 snapshots" in m for m in messages)

@@ -223,16 +223,20 @@ async def delete_item(db: Database, env: Any, user_id: str, item_id: str) -> boo
     if chunk_ids and hasattr(env, "VECTORIZE") and env.VECTORIZE is not None:
         try:
             await env.VECTORIZE.deleteByIds(chunk_ids)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete vector embeddings for item %s: %s", item_id, exc
+            )
 
     # 2. Delete R2 snapshots
     if hasattr(env, "BUCKET") and env.BUCKET is not None:
         try:
             await env.BUCKET.delete(f"items/{item_id}/raw.html")
             await env.BUCKET.delete(f"items/{item_id}/clean.html")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete R2 snapshots for item %s: %s", item_id, exc
+            )
 
     # 3. Delete from D1 (triggers cascade deletions on chunks, item_tags)
     await db.execute_batch(
