@@ -760,7 +760,6 @@ async def get_pinned_items(db: Database, user_id: str) -> list[dict[str, Any]]:
     return out
 
 
-
 async def update_user_notes(
     db: Database, user_id: str, item_id: str, user_notes: str | None
 ) -> bool:
