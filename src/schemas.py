@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ==========================================
 # Request Models
@@ -13,20 +13,28 @@ from pydantic import BaseModel, Field
 class SaveItemRequest(BaseModel):
     """Request to save a URL to the library."""
 
-    url: str = Field(..., description="The webpage or article URL to save")
-    tags: List[str] = Field(default_factory=list, description="Optional list of tags")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "url": "https://example.com/article",
                 "tags": ["tech", "read-later"],
             }
         }
+    )
+
+    url: str = Field(..., description="The webpage or article URL to save")
+    tags: List[str] = Field(default_factory=list, description="Optional list of tags")
+    title: Optional[str] = Field(default=None, description="Optional custom title")
 
 
 class SearchRequest(BaseModel):
     """Request to search the library."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {"query": "machine learning", "mode": "hybrid", "limit": 10}
+        }
+    )
 
     query: str = Field(
         ..., description="Search query terms or semantic question", min_length=1
@@ -36,11 +44,6 @@ class SearchRequest(BaseModel):
     )
     tag: Optional[str] = Field(default=None, description="Filter by tag")
     limit: int = Field(default=30, ge=1, le=100, description="Max results (1-100)")
-
-    class Config:
-        json_schema_extra = {
-            "example": {"query": "machine learning", "mode": "hybrid", "limit": 10}
-        }
 
 
 class TagItemRequest(BaseModel):
