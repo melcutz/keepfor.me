@@ -412,3 +412,20 @@ async def test_get_user_stats_day_breakdown(db, test_user_data):
         "archive": 1,
         "open": 1,
     }
+
+
+async def test_stats_heatmap_uses_theme_css_variables(client, db, test_user_data):
+    """Heatmap cells must reference CSS custom properties for dark/sepia support."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    # Templates must use CSS variables rather than hardcoded light cream colors
+    assert "var(--contrib-s0)" in response.text
+    assert "var(--contrib-s4)" in response.text
+    # base.html must define the tokens for light, sepia, and dark
+    assert "--contrib-s0:" in response.text

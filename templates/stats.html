@@ -5,11 +5,11 @@
 {% block content %}
 <style>
   body { overflow-x: clip; }
-  .s0 { background-color: #ece9e2; }
-  .s1 { background-color: #c9e0c2; }
-  .s2 { background-color: #8fc183; }
-  .s3 { background-color: #3f7d44; }
-  .s4 { background-color: #1e3a2f; }
+  .s0 { background-color: var(--contrib-s0); }
+  .s1 { background-color: var(--contrib-s1); }
+  .s2 { background-color: var(--contrib-s2); }
+  .s3 { background-color: var(--contrib-s3); }
+  .s4 { background-color: var(--contrib-s4); }
   .contrib-cell { width: 11px; height: 11px; border-radius: 2px; }
   @media (min-width: 768px) { .contrib-cell { width: 13px; height: 13px; } }
 </style>
@@ -71,7 +71,7 @@
     <h3 class="text-base font-semibold text-slate-900 mb-4">This week</h3>
     <div class="grid grid-cols-7 gap-2">
       {% for day in week_strip %}
-      <div class="text-center rounded-lg border p-2 {% if day.is_today %}border-slate-900{% else %}border-slate-200{% endif %}">
+      <div class="text-center rounded-lg border p-2 {% if day.is_today %}border-slate-900 dark:border-slate-100 ring-1 ring-slate-900 dark:ring-slate-100{% else %}border-slate-200 dark:border-stone-800{% endif %}">
         <p class="text-[11px] font-semibold uppercase text-slate-500">{{ day.label }}</p>
         <div class="contrib-cell s{{ day.cls }} mx-auto my-2" title="{{ day.title }}"></div>
         <p class="text-xs font-bold text-slate-900">{{ day.score }}</p>
