@@ -149,36 +149,61 @@ async def search_fts(
     db: Database, user_id: str, query: str, limit: int = 50
 ) -> list[dict[str, Any]]:
     """Runs FTS5 keyword query returning ranked item_ids with snippets."""
-    # Escape special FTS characters
-    clean_q = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
-    if not clean_q:
-        return []
-
-    # Format for prefix matching: word1* word2*
-    fts_terms = " ".join(f'"{term}"*' for term in clean_q.split() if term)
-    if not fts_terms:
-        return []
-
-    sql = """
-        SELECT item_id, rank,
-               snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
-        FROM items_fts
-        WHERE items_fts MATCH ? AND user_id = ?
-        ORDER BY rank
-        LIMIT ?;
-    """
-    try:
-        return await db.query_all(sql, (fts_terms, user_id, limit))
-    except Exception:
-        # Fallback to simple title/url LIKE search if FTS query syntax error
-        fallback_sql = """
-            SELECT id as item_id, 0.0 as rank, excerpt as snippet
+    url_matches: list[dict[str, Any]] = []
+    if "." in query or "/" in query or ":" in query:
+        url_sql = """
+            SELECT id as item_id, -100.0 as rank, excerpt as snippet
             FROM items
-            WHERE user_id = ? AND (title LIKE ? OR url LIKE ?)
+            WHERE user_id = ? AND (canonical_url LIKE ? OR url LIKE ?)
             LIMIT ?;
         """
-        like_term = f"%{clean_q}%"
-        return await db.query_all(fallback_sql, (user_id, like_term, like_term, limit))
+        clean_domain = query.strip()
+        like_term = f"%{clean_domain}%"
+        try:
+            url_matches = await db.query_all(
+                url_sql, (user_id, like_term, like_term, limit)
+            )
+        except Exception as exc:
+            logger.warning("URL search fallback failed: %s", exc)
+            url_matches = []
+
+    # Escape special FTS characters
+    clean_q = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
+    fts_matches: list[dict[str, Any]] = []
+    if clean_q:
+        # Format for prefix matching: word1* word2*
+        fts_terms = " ".join(f'"{term}"*' for term in clean_q.split() if term)
+        if fts_terms:
+            sql = """
+                SELECT item_id, rank,
+                       snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
+                FROM items_fts
+                WHERE items_fts MATCH ? AND user_id = ?
+                ORDER BY rank
+                LIMIT ?;
+            """
+            try:
+                fts_matches = await db.query_all(sql, (fts_terms, user_id, limit))
+            except Exception:
+                # Fallback to simple title/url LIKE search if FTS query syntax error
+                fallback_sql = """
+                    SELECT id as item_id, 0.0 as rank, excerpt as snippet
+                    FROM items
+                    WHERE user_id = ? AND (title LIKE ? OR url LIKE ?)
+                    LIMIT ?;
+                """
+                like_term = f"%{clean_q}%"
+                fts_matches = await db.query_all(
+                    fallback_sql, (user_id, like_term, like_term, limit)
+                )
+
+    seen = set()
+    combined: list[dict[str, Any]] = []
+    for r in url_matches + (fts_matches or []):
+        if r["item_id"] not in seen:
+            seen.add(r["item_id"])
+            combined.append(r)
+    return combined[:limit]
 
 
 async def search_vectorize(

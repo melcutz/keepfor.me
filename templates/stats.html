@@ -152,7 +152,7 @@
       <ul class="space-y-2 text-sm">
         {% for host, count in stats.top_domains %}
         <li class="flex items-center justify-between">
-          <span class="text-slate-800 font-medium truncate">{{ host }}</span>
+          <a href="/?q={{ host|urlencode }}" class="text-slate-800 font-medium hover:text-blue-600 truncate">{{ host }}</a>
           <span class="text-slate-500 shrink-0 ml-3">{{ count }}</span>
         </li>
         {% endfor %}

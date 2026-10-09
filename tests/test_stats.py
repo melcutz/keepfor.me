@@ -449,3 +449,38 @@ async def test_get_user_stats_oldest_unread_fallback_title(db, test_user_data):
     assert stats["oldest_unread"] is not None
     assert stats["oldest_unread"]["id"] == "uuid-1234"
     assert stats["oldest_unread"]["title"] == "news.ycombinator.com"
+
+
+async def test_stats_top_domains_are_clickable_links(client, db, test_user_data):
+    """Top domain items must render as links to /?q=<domain>."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+    uid = (await db.query_first("SELECT id FROM users LIMIT 1;"))["id"]
+    await save_item(db, MockEnv(), uid, "https://github.com/torvalds/linux")
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    assert 'href="/?q=github.com"' in response.text
+
+
+async def test_search_fts_matches_domain_terms(db, test_user_data):
+    """Searching for a domain matches items having that domain in URL."""
+    from src.search.engine import search_fts
+
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    uid = user["id"]
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, content_text, status)"
+        " VALUES ('i1', ?, 'https://arstechnica.com/gadgets/1',"
+        " 'https://arstechnica.com/gadgets/1', 'Gadget Review',"
+        " 'Body text without site name', 'ok');",
+        (uid,),
+    )
+
+    results = await search_fts(db, uid, "arstechnica.com")
+    assert len(results) >= 1
+    assert any(r["item_id"] == "i1" for r in results)
