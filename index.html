@@ -3,40 +3,39 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>Keepfor.me — Personal Library & AI-Ready Read-It-Later Engine</title>
-  <meta name="description" content="Your personal library and read-it-later engine. Built for deep focus, instant reading, hybrid search, and native AI agent integration via Model Context Protocol (MCP).">
+  <title>Keepfor.me — Save what matters. Read without distraction.</title>
+  <meta name="description" content="Your personal reading library. Save articles from any device in one tap, read in a peaceful clutter-free view, search naturally, and chat with what you've read using AI.">
   
   <!-- Open Graph / Social Meta -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://keepfor.me/">
-  <meta property="og:title" content="Keepfor.me — Personal Library & Read-It-Later Engine">
-  <meta property="og:description" content="Distraction-free reading, full-text FTS5 & Vectorize hybrid search, raw markdown in R2, and native MCP support for AI agents.">
-  <meta property="og:image" content="https://keepfor.me/assets/images/og-card.png">
+  <meta property="og:title" content="Keepfor.me — Save what matters. Read without distraction.">
+  <meta property="og:description" content="Save articles with one tap. Enjoy peaceful, ad-free reading, smart search, and private storage for the words you want to keep.">
 
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cdefs%3E%3ClinearGradient id='kfm' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232563eb'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='40' height='40' rx='11' fill='url(%23kfm)'/%3E%3Cpath d='M17 11h10v16l-5-3.8-5 3.8z' fill='%23fff'/%3E%3C/svg%3E">
 
-  <!-- Google Fonts: Inter & Newsreader -->
+  <!-- Typography: Inter & Newsreader -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="assets/css/site.css">
 </head>
 <body>
 
-  <!-- Site Header -->
+  <!-- Site Navigation -->
   <header class="site-header">
     <div class="container header-inner">
       <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
         <svg width="26" height="26" viewBox="0 0 44 44" aria-hidden="true">
           <defs>
-            <linearGradient id="header-logo-grad" x1="0" y1="0" x2="1" y2="1">
+            <linearGradient id="header-logo" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stop-color="#2563eb"/>
               <stop offset="100%" stop-color="#0ea5e9"/>
             </linearGradient>
           </defs>
-          <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#header-logo-grad)"/>
+          <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#header-logo)"/>
           <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
         </svg>
         <span>Keepfor<span class="dot-me">.me</span></span>
@@ -44,22 +43,17 @@
 
       <nav aria-label="Main Navigation">
         <ul class="nav-links">
-          <li><a href="#features" class="nav-link">Core Jobs</a></li>
-          <li><a href="#reader-preview" class="nav-link">Store & Read</a></li>
-          <li><a href="#search" class="nav-link">Hybrid Search</a></li>
-          <li><a href="#mcp" class="nav-link">AI Agents (MCP)</a></li>
-          <li><a href="#architecture" class="nav-link">Architecture</a></li>
-          <li><a href="#self-host" class="nav-link">Self-Host</a></li>
+          <li><a href="#reader" class="nav-link">The Reader</a></li>
+          <li><a href="#save" class="nav-link">Save from Anywhere</a></li>
+          <li><a href="#search" class="nav-link">Smart Search</a></li>
+          <li><a href="#ai" class="nav-link">Ask with AI</a></li>
+          <li><a href="#why" class="nav-link">Why Keepfor.me</a></li>
         </ul>
       </nav>
 
       <div class="header-actions">
-        <a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer" class="btn-ghost" aria-label="View on GitHub">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-          <span>GitHub</span>
-        </a>
-        <a href="https://app.keepfor.me" class="btn-primary" aria-label="Launch Keepfor.me Web Application">
-          <span>Launch App</span>
+        <a href="https://app.keepfor.me" class="btn-primary" aria-label="Open Keepfor.me Application">
+          <span>Go to App</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </a>
         <button class="mobile-toggle" aria-label="Toggle navigation menu">
@@ -72,460 +66,364 @@
   <!-- Hero Section -->
   <section class="hero-section">
     <div class="container">
-      <div class="hero-eyebrow">
-        <span class="pulse-dot"></span>
-        <span>v1.0.0 Live on Cloudflare Edge</span>
+      <div class="hero-badge">
+        <span>✨ A calmer, private way to read the internet</span>
       </div>
 
       <h1 class="hero-title">
-        Your personal library & read-it-later engine.<br>
-        <span class="gradient-text">Built for deep focus and AI agents.</span>
+        Save what matters.<br>
+        Read without distraction.
       </h1>
 
       <p class="hero-subtitle">
-        Distraction-free reading with dual R2 snapshots, concurrent FTS5 & Vectorize hybrid search, 1-tap captures across devices, and a native Model Context Protocol (MCP) bridge for Claude and Cursor.
+        Whenever you discover a great essay, recipe, or article, save it with one tap. Keepfor.me cleans away the ads, popups, and clutter so you can enjoy peaceful reading whenever you're ready.
       </p>
 
       <div class="hero-actions">
-        <a href="https://app.keepfor.me" class="btn-accent">
-          <span>Launch Web App</span>
+        <a href="https://app.keepfor.me" class="btn-hero-main">
+          <span>Start Reading</span>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
         </a>
-        <a href="#self-host" class="btn-outline">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-          <span>Self-Host in 3 Steps</span>
+        <a href="#reader" class="btn-secondary">
+          <span>Try the Reader Demo</span>
         </a>
       </div>
 
-      <div class="hero-pills">
-        <div class="pill-item">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>100% Serverless Pyodide</span>
+      <div class="hero-trust-bar">
+        <div class="trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>Zero ads or tracking</span>
         </div>
-        <div class="pill-item">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>Cloudflare D1 + SQLite FTS5</span>
+        <div class="trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>Works on phone & computer</span>
         </div>
-        <div class="pill-item">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>R2 Markdown Dual Snapshots</span>
+        <div class="trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>Saved forever, even offline</span>
         </div>
-        <div class="pill-item">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>Reciprocal Rank Fusion</span>
-        </div>
-        <div class="pill-item">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-          <span>Streamable HTTP MCP API</span>
+        <div class="trust-item">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>100% Free & private</span>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- 4 Core Jobs Section -->
-  <section id="features" class="section">
+  <!-- Feature 1: The Reader & Interactive Demo Widget -->
+  <section id="reader" class="section">
     <div class="container">
       <div class="section-header">
-        <span class="section-tag">Core Jobs</span>
-        <h2 class="section-title">Engineered for how you actually save, read, and query knowledge</h2>
-        <p class="section-description">
-          Keepfor.me replaces bloated, third-party bookmark silos with a private edge engine designed around four foundational jobs.
+        <span class="section-eyebrow">The Reading Experience</span>
+        <h2 class="section-title">The reader you’ve always wanted</h2>
+        <p class="section-desc">
+          No cookie banners. No autoplay videos. Just good words on a peaceful page.
         </p>
       </div>
 
-      <div class="jobs-grid">
-        
-        <!-- Job 1: Universal 1-Tap Capture -->
-        <div class="job-card">
-          <div class="job-content">
-            <span class="job-badge blue">Job 01</span>
-            <h3 class="job-title">1-Tap Universal Capture Across Every Device</h3>
-            <p class="job-desc">
-              Save articles, research papers, and discussions instantly from any desktop browser, iOS device, or Android smartphone without friction.
-            </p>
-            <ul class="feature-list">
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Manifest V3 Extension:</strong> Chrome, Firefox & Edge with 1-click token setup and badge notifications.</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>iOS 1-Tap Safari Shortcut:</strong> Dispatches directly to Keepfor.me using active Safari cookies—zero API keys needed.</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Android Web Share Target:</strong> Integrated directly into the native Android system share sheet.</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Smart Clipboard Detection:</strong> Automatically senses copied URLs when switching into the standalone PWA.</span>
-              </li>
-            </ul>
-          </div>
-          <div class="capture-grid">
-            <div class="capture-card">
-              <div class="capture-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-              </div>
-              <h4 class="capture-title">MV3 Browser Extension</h4>
-              <p class="capture-desc">Saves current tab in 1 click, supports keyboard shortcuts and auto-tagging rules.</p>
-            </div>
-            <div class="capture-card">
-              <div class="capture-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-              </div>
-              <h4 class="capture-title">Apple iOS Shortcut</h4>
-              <p class="capture-desc">Share sheet integration with interactive close-panel and cookie session auth.</p>
-            </div>
-            <div class="capture-card">
-              <div class="capture-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-              </div>
-              <h4 class="capture-title">Android Web Share</h4>
-              <p class="capture-desc">W3C Share Target API handles combined title and link blobs effortlessly.</p>
-            </div>
-            <div class="capture-card">
-              <div class="capture-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
-              </div>
-              <h4 class="capture-title">Smart PWA Clipboard</h4>
-              <p class="capture-desc">Floating 1-tap toast on focus when an article link is copied from any app.</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Job 2: Store & Read (INTERACTIVE READER WIDGET DEMO) -->
-        <div id="reader-preview" class="job-card">
-          <div class="job-content">
-            <span class="job-badge green">Job 02</span>
-            <h3 class="job-title">Store Clean Markdown & Read in Pure Comfort</h3>
-            <p class="job-desc">
-              Stripped of ads, navigation clutter, cookie walls, and trackers. Saved articles are archived with dual R2 snapshots (raw HTML and clean Markdown) and rendered in a distraction-free reader.
-            </p>
-            <ul class="feature-list">
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Three Editorial Themes:</strong> Light (Paper), Sepia (Classic), and Dark (Night).</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Serif & Sans Typography:</strong> Balanced line lengths (65–75 chars) optimized for reading fatigue.</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Dual R2 Archival:</strong> Permanent snapshot in your personal Cloudflare R2 bucket. Even if the original web page vanishes, your copy lives forever.</span>
-              </li>
-            </ul>
-            <p style="font-size: 0.85rem; color: var(--muted); font-style: italic;">
-              Try toggling the reader themes in the preview widget on the right!
-            </p>
-          </div>
-
-          <!-- The Interactive Reader Widget -->
-          <div class="reader-demo-container">
-            <div class="reader-toolbar">
-              <div class="toolbar-group">
-                <span class="toolbar-label">Theme:</span>
-                <button class="theme-pill-btn active" data-theme="light">Light</button>
-                <button class="theme-pill-btn" data-theme="sepia">Sepia</button>
-                <button class="theme-pill-btn" data-theme="dark">Dark</button>
-              </div>
-              <div class="toolbar-group">
-                <span class="toolbar-label">Type:</span>
-                <button class="font-pill-btn active" data-font="serif">Serif</button>
-                <button class="font-pill-btn" data-font="sans">Sans</button>
-              </div>
-            </div>
-
-            <!-- Dynamic widget card -->
-            <div id="reader-demo-widget" class="reader-theme-light reader-font-serif">
-              <div class="widget-header">
-                <div class="widget-meta">
-                  <span class="widget-pill">Architecture</span>
-                  <span class="widget-muted">4 min read · Oct 2026</span>
-                </div>
-                <h3 class="widget-title">Why Moving to Edge Pyodide Changes Read-It-Later Performance</h3>
-                <div class="widget-byline widget-muted">Keepfor.me Engineering · Published in Distributed Systems</div>
-              </div>
-
-              <div class="widget-takeaway">
-                <strong>Key Takeaway</strong>
-                Running Python on Cloudflare Pyodide isolates eliminates cold-boot database connections and delivers sub-second reader views across 300+ edge locations.
-              </div>
-
-              <div class="widget-body">
-                <p>
-                  Traditional read-it-later tools run on heavy server fleets with centralized relational databases. When an article is opened, queries travel thousands of miles to a single origin region, introducing noticeable lag.
-                </p>
-                <p>
-                  By pairing Cloudflare D1 with R2 object storage and async worker queues, the entire extraction and formatting pipeline executes directly at the edge closest to you.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Job 3: Hybrid Search (INTERACTIVE SIMULATOR) -->
-        <div id="search" class="job-card">
-          <div class="job-content">
-            <span class="job-badge amber">Job 03</span>
-            <h3 class="job-title">Reciprocal Rank Fusion Hybrid Search</h3>
-            <p class="job-desc">
-              Keyword search misses synonyms. Vector search misses exact identifiers, acronyms, and error codes. Keepfor.me runs both concurrently and combines them mathematically.
-            </p>
-            <ul class="feature-list">
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>SQLite FTS5 BM25:</strong> Precise exact-match full-text indexing inside Cloudflare D1.</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Cloudflare Vectorize:</strong> Semantic conceptual search using 384-dimensional dense vectors.</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Concurrent & Bounded:</strong> Evaluated with <code>asyncio.gather</code> and strict 5-second timeouts to guarantee fast response times.</span>
-              </li>
-            </ul>
-          </div>
-
-          <!-- The Interactive Hybrid Search Simulator -->
-          <div class="search-demo-container">
-            <div class="search-input-box">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input type="text" id="search-demo-input" placeholder="Type or pick a preset query..." value="sqlite performance">
-            </div>
-
-            <div class="preset-chips">
-              <button class="preset-chip active" data-query="sqlite performance">sqlite performance</button>
-              <button class="preset-chip" data-query="neural embeddings">neural embeddings</button>
-              <button class="preset-chip" data-query="pwa offline">pwa offline</button>
-              <button class="preset-chip" data-query="mcp agents">mcp agents</button>
-            </div>
-
-            <div class="formula-card">
-              <span>Formula: RRF = 1 / (60 + BM25_Rank) + 1 / (60 + Vec_Rank)</span>
-            </div>
-
-            <div id="search-results-list" class="search-results-list">
-              <!-- Dynamically populated by assets/js/site.js -->
-            </div>
-          </div>
-        </div>
-
-        <!-- Job 4: AI Agent MCP Bridge -->
-        <div id="mcp" class="job-card">
-          <div class="job-content">
-            <span class="job-badge purple">Job 04</span>
-            <h3 class="job-title">Your Reading Vault Connected to AI Agents</h3>
-            <p class="job-desc">
-              Keepfor.me is a first-class Model Context Protocol (MCP) server. Give Claude Desktop, Cursor, or your autonomous agent direct, read-only access to your curated research library.
-            </p>
-            <ul class="feature-list">
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Streamable HTTP Transport:</strong> No local stdio subprocesses or port proxies required. Native HTTPS JSON-RPC endpoint at <code>/api/mcp</code>.</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Built-In Agent Tools:</strong> <code>search_saved_items</code>, <code>get_item_markdown</code>, and <code>list_tags</code> for comprehensive research retrieval.</span>
-              </li>
-              <li>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span><strong>Secure Token Auth:</strong> Authenticated via Personal Access Tokens (<code>kfm_live_*</code>) stored as SHA-256 hashes.</span>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Code Mockup Window -->
-          <div class="code-mockup">
-            <div class="code-mockup-header">
-              <div class="window-dots">
-                <span></span><span></span><span></span>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <button class="code-tab-btn active theme-pill-btn" data-tab="claude" style="color: #cbd5e1; background: #334155; border: none;">Claude Desktop</button>
-                <button class="code-tab-btn theme-pill-btn" data-tab="cursor" style="color: #94a3b8; background: transparent; border: none;">Cursor</button>
-                <button class="code-tab-btn theme-pill-btn" data-tab="curl" style="color: #94a3b8; background: transparent; border: none;">cURL</button>
-              </div>
-              <button class="copy-btn" data-copy-target="mcp-code-block" aria-label="Copy MCP Configuration">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                <span>Copy</span>
-              </button>
-            </div>
-            <pre class="code-content"><code id="mcp-code-block">{
-  "mcpServers": {
-    "keepfor-me": {
-      "type": "http",
-      "url": "https://keepfor.me/api/mcp",
-      "headers": {
-        "Authorization": "Bearer kfm_live_YOUR_PERSONAL_TOKEN"
-      }
-    }
-  }
-}</code></pre>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </section>
-
-  <!-- Architecture Section -->
-  <section id="architecture" class="section">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Architecture</span>
-        <h2 class="section-title">Zero Servers. Built entirely on Cloudflare edge primitives.</h2>
-        <p class="section-description">
-          Keepfor.me leverages Cloudflare's Python Worker runtime (Pyodide), D1, Vectorize, and R2 to deliver a lightning-fast, zero-maintenance personal cloud.
-        </p>
-      </div>
-
-      <div class="arch-card">
-        <div class="arch-flow-grid">
-          <div class="arch-step">
-            <span class="arch-step-num">1</span>
-            <h4 class="arch-step-title">Ingest & Queuing</h4>
-            <p class="arch-step-desc">URLs are saved in <50ms. Heavy web extraction is pushed to Cloudflare Queues for asynchronous parsing.</p>
-          </div>
-          <div class="arch-step">
-            <span class="arch-step-num">2</span>
-            <h4 class="arch-step-title">Pyodide Extraction</h4>
-            <p class="arch-step-desc">Lazy-loaded Trafilatura and BeautifulSoup extract clean readability text and metadata at the edge.</p>
-          </div>
-          <div class="arch-step">
-            <span class="arch-step-num">3</span>
-            <h4 class="arch-step-title">Dual R2 Archival</h4>
-            <p class="arch-step-desc">Full HTML source and formatted Markdown files are written to Cloudflare R2 object storage for durability.</p>
-          </div>
-          <div class="arch-step">
-            <span class="arch-step-num">4</span>
-            <h4 class="arch-step-title">D1 & Vectorize</h4>
-            <p class="arch-step-desc">Metadata & FTS5 tokens are written to D1; Workers AI embeds semantic vectors into Vectorize.</p>
-          </div>
-        </div>
-
-        <table class="specs-table">
-          <thead>
-            <tr>
-              <th>Component</th>
-              <th>Technology</th>
-              <th>Design Rationale & Latency</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>Runtime</strong></td>
-              <td>Cloudflare Python Worker (Pyodide)</td>
-              <td>FastAPI application with 250–350ms warm response and zero server instances to patch.</td>
-            </tr>
-            <tr>
-              <td><strong>Database</strong></td>
-              <td>Cloudflare D1 (SQLite + FTS5)</td>
-              <td>Serverless edge database with composite indexes and sub-roundtrip RPC batching.</td>
-            </tr>
-            <tr>
-              <td><strong>Snapshot Storage</strong></td>
-              <td>Cloudflare R2 Object Storage</td>
-              <td>S3-compatible zero egress cost storage for immutable Markdown and HTML article backups.</td>
-            </tr>
-            <tr>
-              <td><strong>Search Index</strong></td>
-              <td>SQLite FTS5 + Cloudflare Vectorize</td>
-              <td>Reciprocal Rank Fusion merges BM25 text match with 384-dimensional dense semantic vectors.</td>
-            </tr>
-            <tr>
-              <td><strong>Agent Protocol</strong></td>
-              <td>Model Context Protocol (JSON-RPC)</td>
-              <td>Streamable HTTP server at <code>/api/mcp</code> for direct consumption by LLM coding tools.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <!-- Self-Hosting Quickstart Section -->
-  <section id="self-host" class="section">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Deployment</span>
-        <h2 class="section-title">Self-Host in under 3 minutes</h2>
-        <p class="section-description">
-          Deploy your own private instance to Cloudflare. 100% free under Cloudflare's generous free tier limits.
-        </p>
-      </div>
-
-      <div class="self-host-container">
-        <div>
-          <h3 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 16px; color: var(--ink);">
-            Your data. Your credentials. Your private cloud.
-          </h3>
-          <p style="color: var(--muted); line-height: 1.6; margin-bottom: 20px;">
-            Unlike commercial read-it-later services that track reading habits, lock articles behind subscriptions, or shut down unexpectedly, Keepfor.me is fully open-source and yours forever.
+      <div class="feature-split">
+        <div class="feature-info">
+          <h3 class="feature-heading">Made for deep focus and comfortable eyes</h3>
+          <p class="feature-text">
+            Modern websites are noisy. Keepfor.me pulls out the real article and sets it in comfortable, book-grade typography. Whether you're reading on your morning commute or winding down before bed, reading feels effortless.
           </p>
-          <ul class="feature-list">
+          <ul class="benefits-list">
             <li>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Zero Monthly Cost:</strong> Fits comfortably within Cloudflare's free tier for personal libraries.</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Three Gentle Reading Themes:</strong> Clean Paper for bright daytime, Warm Sepia for relaxing afternoons, and Night Mode for bedtime.</span>
             </li>
             <li>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Automatic First-User Admin:</strong> The first user to register becomes instance administrator. Public signups stay closed by default.</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Thoughtful Typography:</strong> Switch between a classic book serif and a clean modern sans font with a single click.</span>
             </li>
             <li>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span><strong>Automated GitHub Actions:</strong> Push to main deploys updates seamlessly to your custom domain.</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Permanent Archive:</strong> Even if the original website goes offline or deletes the article, your saved copy is preserved forever.</span>
             </li>
           </ul>
-          <div style="margin-top: 28px;">
-            <a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer" class="btn-primary">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-              <span>View GitHub Repository</span>
-            </a>
-          </div>
+          <p style="font-size: 0.875rem; color: var(--muted); font-style: italic;">
+            Try testing the theme and font buttons in the preview on the right!
+          </p>
         </div>
 
-        <div class="terminal-box">
-          <div class="terminal-header">
-            <div class="window-dots"><span></span><span></span><span></span></div>
-            <span style="font-family: var(--font-mono); font-size: 0.75rem; color: #9ca3af;">bash — 3-step deployment</span>
-            <button class="term-copy-btn" data-copy-text="git clone https://github.com/melcutz/keepfor.me.git && cd keepfor.me && npx wrangler d1 create keepfor-me-db && npx wrangler d1 migrations apply keepfor-me-db --remote && uvx --from workers-py pywrangler deploy">Copy All</button>
+        <!-- The Interactive Reader Demo Widget Sandbox -->
+        <div class="reader-sandbox">
+          <div class="sandbox-controls">
+            <div class="control-pill-group">
+              <span class="control-label">Theme:</span>
+              <button class="theme-pill-btn active" data-theme="light">Paper</button>
+              <button class="theme-pill-btn" data-theme="sepia">Warm Book</button>
+              <button class="theme-pill-btn" data-theme="dark">Night</button>
+            </div>
+            <div class="control-pill-group">
+              <span class="control-label">Type:</span>
+              <button class="font-pill-btn active" data-font="serif">Serif</button>
+              <button class="font-pill-btn" data-font="sans">Sans</button>
+            </div>
           </div>
-          <div class="terminal-body">
-            <div class="term-cmd">
-              <div class="term-comment"># 1. Clone the repository</div>
-              <div class="term-line">
-                <span><span class="prompt">$</span>git clone https://github.com/melcutz/keepfor.me.git</span>
-                <button class="term-copy-btn" data-copy-text="git clone https://github.com/melcutz/keepfor.me.git && cd keepfor.me">copy</button>
+
+          <!-- Dynamic Reader Card (Changes style ONLY inside this element) -->
+          <div id="reader-demo-widget" class="reader-theme-light reader-font-serif">
+            <div class="widget-header">
+              <div class="widget-meta">
+                <span class="widget-pill">Essays & Life</span>
+                <span class="widget-muted">4 min read · Autumn 2026</span>
               </div>
-              <div class="term-line">
-                <span><span class="prompt">$</span>cd keepfor.me</span>
-              </div>
+              <h3 class="widget-title">The Art of the Slow Sunday</h3>
+              <div class="widget-byline widget-muted">Elena Morris · On Intentional Living</div>
             </div>
 
-            <div class="term-cmd">
-              <div class="term-comment"># 2. Create D1 database and apply schema migrations</div>
-              <div class="term-line">
-                <span><span class="prompt">$</span>npx wrangler d1 create keepfor-me-db</span>
-                <button class="term-copy-btn" data-copy-text="npx wrangler d1 create keepfor-me-db">copy</button>
-              </div>
-              <div class="term-line">
-                <span><span class="prompt">$</span>npx wrangler d1 migrations apply keepfor-me-db --remote</span>
-                <button class="term-copy-btn" data-copy-text="npx wrangler d1 migrations apply keepfor-me-db --remote">copy</button>
-              </div>
+            <div class="widget-takeaway">
+              <strong>Key Reflection</strong>
+              True rest isn’t about doing nothing—it’s about giving yourself permission to do things that produce no measurable outcome.
             </div>
 
-            <div class="term-cmd" style="margin-bottom: 0;">
-              <div class="term-comment"># 3. Deploy to Cloudflare Workers</div>
-              <div class="term-line">
-                <span><span class="prompt">$</span>uvx --from workers-py pywrangler deploy</span>
-                <button class="term-copy-btn" data-copy-text="uvx --from workers-py pywrangler deploy">copy</button>
-              </div>
+            <div class="widget-body">
+              <p>
+                There is a quiet luxury in waking up without an alarm, making coffee without rushing, and spending an uninterrupted hour reading a single thoughtful essay.
+              </p>
+              <p>
+                In a world that demands continuous responsiveness, creating a small sanctuary of quiet words isn’t an indulgence—it’s how we protect our ability to think deeply.
+              </p>
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 2: Save from Anywhere -->
+  <section id="save" class="section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-eyebrow">Instant Capture</span>
+        <h2 class="section-title">Save in one second from any device</h2>
+        <p class="section-desc">
+          Wherever you find something interesting, putting it into your library takes just a tap.
+        </p>
+      </div>
+
+      <div class="cards-trio">
+        <div class="trio-card">
+          <div class="trio-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          </div>
+          <h3 class="trio-title">iPhone & iPad</h3>
+          <p class="trio-desc">
+            Use the built-in Safari Share menu with our 1-tap shortcut. It automatically uses your existing Safari login, so you never have to copy/paste tokens.
+          </p>
+        </div>
+
+        <div class="trio-card">
+          <div class="trio-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          </div>
+          <h3 class="trio-title">Computer & Laptop</h3>
+          <p class="trio-desc">
+            Install the 1-click extension for Chrome, Firefox, or Edge, or simply drag our lightweight bookmarklet to your bookmarks bar.
+          </p>
+        </div>
+
+        <div class="trio-card">
+          <div class="trio-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+          </div>
+          <h3 class="trio-title">Android Phone</h3>
+          <p class="trio-desc">
+            Keepfor.me plugs directly into Android’s native share sheet. Tap share in Chrome, Twitter, or any news reader to save instantly.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 3: Smart Everyday Search -->
+  <section id="search" class="section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-eyebrow">Natural Search</span>
+        <h2 class="section-title">Find what you remember, even without the title</h2>
+        <p class="section-desc">
+          Can't recall the exact headline? That's completely okay. Search by topic, feeling, or concept.
+        </p>
+      </div>
+
+      <div class="feature-split">
+        <div class="feature-info">
+          <h3 class="feature-heading">Search the way human memory actually works</h3>
+          <p class="feature-text">
+            Most bookmark tools only look for exact words in the title. Keepfor.me understands what an article is about. If you remember reading about "morning sunlight habits" or "how to fold sourdough dough," you'll find it right away.
+          </p>
+          <ul class="benefits-list">
+            <li>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Understands Concepts:</strong> Connects related ideas even when different words were used.</span>
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Full-Text Memory:</strong> Searches every word inside the article text, not just the headline.</span>
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Instant Speed:</strong> Results appear in a fraction of a second as you type.</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="search-demo-box">
+          <div class="search-input-wrapper">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="search-demo-input" placeholder="Type a topic or pick an idea..." value="morning routine">
+          </div>
+
+          <div class="preset-chip-list">
+            <button class="preset-chip active" data-query="morning routine">morning routine</button>
+            <button class="preset-chip" data-query="sourdough baking">sourdough baking</button>
+            <button class="preset-chip" data-query="better sleep habits">better sleep habits</button>
+            <button class="preset-chip" data-query="slow productivity">slow productivity</button>
+          </div>
+
+          <div id="search-results-list" class="search-results-flow">
+            <!-- Dynamically populated by assets/js/site.js -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 4: Ask with AI -->
+  <section id="ai" class="section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-eyebrow">Your Reading Assistant</span>
+        <h2 class="section-title">Chat with what you've read</h2>
+        <p class="section-desc">
+          Turn your saved library into a personal knowledge assistant.
+        </p>
+      </div>
+
+      <div class="feature-split">
+        <div class="feature-info">
+          <h3 class="feature-heading">Ask questions backed by your curated library</h3>
+          <p class="feature-text">
+            Saved dozens of great reads on health, travel, recipes, or personal finance? You can connect Claude, Cursor, or your favorite AI assistant in seconds. Ask questions, compare viewpoints, or ask for quick summaries.
+          </p>
+          <ul class="benefits-list">
+            <li>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Answers from Your Sources:</strong> Your assistant quotes and synthesizes the exact articles you've chosen to save.</span>
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>No Copy-Pasting:</strong> Connects securely in the background using the open Model Context Protocol (MCP).</span>
+            </li>
+            <li>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span><strong>Private & Secure:</strong> Only your authenticated assistant can read your items. Your data is never sold or shared.</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="chat-simulator-card">
+          <div class="chat-bubble user">
+            <div class="chat-avatar user">You</div>
+            <div class="chat-message">
+              "What did that article on sleep suggest about morning light?"
+            </div>
+          </div>
+
+          <div class="chat-bubble ai">
+            <div class="chat-avatar ai">AI</div>
+            <div class="chat-message">
+              "According to your saved article <em>'Mastering Your Sleep Cycles Naturally'</em>, getting 10 to 15 minutes of outdoor sunlight within an hour of waking resets your circadian rhythm, boosts daytime alertness, and helps you fall asleep more naturally at night."
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature 5: Why Keepfor.me -->
+  <section id="why" class="section">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-eyebrow">Honest Principles</span>
+        <h2 class="section-title">Built for readers, not algorithms</h2>
+        <p class="section-desc">
+          We built Keepfor.me because reading on the internet shouldn't feel stressful.
+        </p>
+      </div>
+
+      <div class="cards-trio">
+        <div class="trio-card">
+          <div class="trio-icon" style="color: #059669; background-color: #ecfdf5;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <h3 class="trio-title">100% Private to You</h3>
+          <p class="trio-desc">
+            No analytics companies watching what you read. No advertising trackers following you from page to page. Your library is private.
+          </p>
+        </div>
+
+        <div class="trio-card">
+          <div class="trio-icon" style="color: #b45309; background-color: #fef3c7;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+          </div>
+          <h3 class="trio-title">Yours Forever</h3>
+          <p class="trio-desc">
+            Commercial services often shut down or get acquired. Keepfor.me archives the full text and clean HTML, so your reading history is permanent.
+          </p>
+        </div>
+
+        <div class="trio-card">
+          <div class="trio-icon" style="color: #2563eb; background-color: #eff6ff;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          </div>
+          <h3 class="trio-title">No Subscription Traps</h3>
+          <p class="trio-desc">
+            No monthly subscription fees to access your own highlights or search your own library. Open-source, honest, and accessible.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Discreet Developer & Self-Hosting Accordion Section -->
+  <section class="section" style="padding-top: 40px; padding-bottom: 60px;">
+    <div class="container">
+      <div class="dev-accordion">
+        <details>
+          <summary class="dev-summary">
+            <div>
+              <div class="dev-summary-title">🛠️ For Tech Enthusiasts & Developers: Self-Host for Free</div>
+              <div class="dev-summary-sub">Keepfor.me is 100% open-source and runs serverless on Cloudflare's free tier. Click to view technical details.</div>
+            </div>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </summary>
+          <div class="dev-content">
+            <div class="dev-grid">
+              <div>
+                <h4 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; color: var(--ink);">Modern Serverless Architecture</h4>
+                <p style="font-size: 0.9rem; color: var(--muted); line-height: 1.6; margin-bottom: 16px;">
+                  Built with Python FastAPI running on Cloudflare Workers (Pyodide), D1 SQLite + FTS5 full-text search, R2 object storage for snapshots, and Vectorize for semantic embeddings. Costs $0/mo under Cloudflare's free tier.
+                </p>
+                <a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer" class="btn-secondary" style="font-size: 0.85rem; padding: 8px 18px;">
+                  View Source on GitHub
+                </a>
+              </div>
+              <div class="terminal-box">
+                <div style="color: #9ca3af; margin-bottom: 8px; font-size: 0.75rem;">
+                  # Quickstart deployment
+                  <button class="term-copy-btn" data-copy-text="git clone https://github.com/melcutz/keepfor.me.git && cd keepfor.me && npx wrangler d1 create keepfor-me-db && npx wrangler d1 migrations apply keepfor-me-db --remote && uvx --from workers-py pywrangler deploy">Copy</button>
+                </div>
+                <div style="color: #38bdf8;">git clone https://github.com/melcutz/keepfor.me.git</div>
+                <div style="color: #38bdf8;">cd keepfor.me</div>
+                <div style="color: #38bdf8;">npx wrangler d1 create keepfor-me-db</div>
+                <div style="color: #38bdf8;">uvx --from workers-py pywrangler deploy</div>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
     </div>
   </section>
@@ -534,78 +432,77 @@
   <section class="section">
     <div class="container">
       <div class="section-header">
-        <span class="section-tag">FAQ</span>
+        <span class="section-eyebrow">Common Questions</span>
         <h2 class="section-title">Frequently Asked Questions</h2>
       </div>
 
-      <div class="faq-grid">
-        <div class="faq-item">
-          <h4 class="faq-question">How does Keepfor.me differ from Pocket or Omnivore?</h4>
-          <p class="faq-answer">
-            Keepfor.me is self-hosted on your own Cloudflare account. There are no venture-backed subscription paywalls, no analytics tracking, and no risk of shutdown. Furthermore, Keepfor.me offers native Model Context Protocol (MCP) support, enabling AI agents like Claude to directly read your personal library.
+      <div class="faq-list">
+        <div class="faq-card">
+          <h4 class="faq-q">Is Keepfor.me free to use?</h4>
+          <p class="faq-a">
+            Yes, Keepfor.me is open-source software and free. If you host it on Cloudflare, it runs within Cloudflare's generous free tier with zero monthly fees.
           </p>
         </div>
 
-        <div class="faq-item">
-          <h4 class="faq-question">Does it cost anything to run on Cloudflare?</h4>
-          <p class="faq-answer">
-            For personal usage, Keepfor.me costs $0/month. Cloudflare's free tier includes 100,000 Worker requests/day, 5GB of D1 SQLite storage, 10GB of R2 storage with free egress, and free Vectorize index queries.
+        <div class="faq-card">
+          <h4 class="faq-q">Do I need to download an app from the App Store?</h4>
+          <p class="faq-a">
+            No download is required. Keepfor.me is a modern progressive web app. You can add it to your home screen directly from Safari or Chrome, and it behaves just like a native app.
           </p>
         </div>
 
-        <div class="faq-item">
-          <h4 class="faq-question">Can I use Keepfor.me on my phone without an app store download?</h4>
-          <p class="faq-answer">
-            Yes. Keepfor.me is a progressive web app (PWA). On Android, it implements the Web Share Target API. On iOS, it uses a 1-tap Apple Shortcut and clipboard auto-detection, providing an app-like experience directly through Safari.
+        <div class="faq-card">
+          <h4 class="faq-q">What happens if a website deletes an article I saved?</h4>
+          <p class="faq-a">
+            Your saved copy is completely safe. When you save an article, Keepfor.me stores an exact permanent copy in your library, so you can still read it years later.
           </p>
         </div>
 
-        <div class="faq-item">
-          <h4 class="faq-question">How do I connect Claude Desktop or Cursor?</h4>
-          <p class="faq-answer">
-            Go to Settings in your Keepfor.me instance, generate a Personal Access Token (PAT), and copy the JSON snippet from the MCP tab. Paste it into your <code>claude_desktop_config.json</code> or <code>.cursor/mcp.json</code>. Your assistant can now query your saved reading list anytime.
+        <div class="faq-card">
+          <h4 class="faq-q">Can I organize my articles with tags?</h4>
+          <p class="faq-a">
+            Yes! You can add tags manually or set up automatic tagging rules (for example, tagging anything from your favorite cooking blog as "Recipes").
           </p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Site Footer -->
+  <!-- Footer -->
   <footer class="site-footer">
     <div class="container">
       <div class="footer-top">
         <a href="/" class="brand-link">
           <svg width="24" height="24" viewBox="0 0 44 44" aria-hidden="true">
             <defs>
-              <linearGradient id="footer-logo-grad" x1="0" y1="0" x2="1" y2="1">
+              <linearGradient id="footer-logo" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0%" stop-color="#2563eb"/>
                 <stop offset="100%" stop-color="#0ea5e9"/>
               </linearGradient>
             </defs>
-            <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#footer-logo-grad)"/>
+            <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#footer-logo)"/>
             <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
           </svg>
           <span>Keepfor<span class="dot-me">.me</span></span>
         </a>
 
-        <div style="display: flex; gap: 20px; align-items: center; font-size: 0.9rem; font-weight: 500;">
-          <a href="https://app.keepfor.me" class="nav-link">Launch App</a>
+        <div style="display: flex; gap: 24px; align-items: center; font-size: 0.9rem; font-weight: 500;">
+          <a href="https://app.keepfor.me" class="nav-link">Open App</a>
           <a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer" class="nav-link">GitHub</a>
-          <a href="#self-host" class="nav-link">Documentation</a>
         </div>
       </div>
 
       <div class="footer-bottom">
-        <span>© 2026 Keepfor.me. Open source under the MIT License.</span>
-        <span>Hosted with GitHub Pages & Cloudflare Edge.</span>
+        <span>© 2026 Keepfor.me. Made for people who love reading.</span>
+        <span>Open source under the MIT License.</span>
       </div>
     </div>
   </footer>
 
-  <!-- Toast for Copy Feedback -->
+  <!-- Toast for feedback -->
   <div id="copy-toast" role="status" aria-live="polite">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-    <span id="copy-toast-msg">Copied snippet to clipboard!</span>
+    <span id="copy-toast-msg">Copied!</span>
   </div>
 
   <script src="assets/js/site.js"></script>

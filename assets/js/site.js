@@ -1,17 +1,16 @@
 /**
- * Keepfor.me — Presentation Site Interactive Controllers
+ * Keepfor.me — Friendly Presentation Site Interactive Scripts
  *
- * 1. Reader Demo Widget Controller (Isolates theme & font toggling to widget only)
- * 2. Hybrid Search Interactive Simulator (Reciprocal Rank Fusion BM25 + Vectorize)
- * 3. Clipboard & Toast Feedback
- * 4. Code Tab Switcher
+ * 1. Reader Demo Widget Controller (Light, Sepia, Dark + Serif/Sans)
+ * 2. Everyday Smart Search Simulator (Natural topic search matching)
+ * 3. Copy-to-clipboard helpers
+ * 4. Mobile navigation toggle
  */
 
 document.addEventListener('DOMContentLoaded', () => {
   initReaderWidget();
-  initHybridSearchSimulator();
+  initEverydaySearchSimulator();
   initCopyHelpers();
-  initCodeTabs();
   initMobileNav();
 });
 
@@ -31,11 +30,9 @@ function initReaderWidget() {
     btn.addEventListener('click', () => {
       const theme = btn.dataset.theme; // 'light', 'sepia', 'dark'
       
-      // Remove all theme classes on widget
       widget.classList.remove('reader-theme-light', 'reader-theme-sepia', 'reader-theme-dark');
       widget.classList.add(`reader-theme-${theme}`);
 
-      // Update button active state
       themeBtns.forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
     });
@@ -55,68 +52,74 @@ function initReaderWidget() {
 }
 
 /* ==========================================================================
-   2. Hybrid Search Interactive Simulator
-   Simulates Reciprocal Rank Fusion: 1/(60 + r_bm25) + 1/(60 + r_vec)
+   2. Everyday Smart Search Simulator
    ========================================================================== */
 
-const SEARCH_DEMO_DATABASE = [
+const EVERYDAY_ARTICLES = [
   {
-    title: 'Optimizing SQLite & FTS5 in Serverless Pyodide',
-    snippet: 'Benchmarking composite indexes, full-text virtual tables, and single-roundtrip latency on Cloudflare Workers edge nodes.',
-    date: 'Oct 02, 2026',
-    category: 'Architecture',
-    keywords: ['sqlite', 'performance', 'database', 'fts5', 'edge', 'latency', 'pyodide', 'd1'],
-    bm25Ranks: { 'sqlite performance': 1, 'neural embeddings': 5, 'pwa offline': 4, 'mcp agents': 6 },
-    vecRanks: { 'sqlite performance': 2, 'neural embeddings': 4, 'pwa offline': 5, 'mcp agents': 5 },
+    title: 'The Quiet Magic of a 20-Minute Morning Routine',
+    snippet: 'Why starting your day with natural light, hydration, and ten minutes of silence sets the foundation for calm focus.',
+    category: 'Daily Rituals',
+    readTime: '4 min read',
+    keywords: ['morning', 'routine', 'habits', 'focus', 'light', 'calm', 'coffee'],
+    matches: {
+      'morning routine': '99% Match · Exact Topic',
+      'better sleep habits': '85% Match · Related Concept',
+      'slow productivity': '89% Match · Daily Rhythm'
+    }
   },
   {
-    title: 'Hybrid Information Retrieval: Reciprocal Rank Fusion',
-    snippet: 'Why combining sparse keyword BM25 scoring with dense cosine semantic embeddings beats single-engine search by 34%.',
-    date: 'Sep 28, 2026',
-    category: 'Search Engine',
-    keywords: ['hybrid', 'search', 'rrf', 'bm25', 'vectorize', 'embeddings', 'rank', 'fusion'],
-    bm25Ranks: { 'sqlite performance': 3, 'neural embeddings': 1, 'pwa offline': 6, 'mcp agents': 3 },
-    vecRanks: { 'sqlite performance': 3, 'neural embeddings': 2, 'pwa offline': 4, 'mcp agents': 2 },
+    title: 'A Gentle Beginner’s Guide to Sourdough Bread',
+    snippet: 'Everything you need to know about keeping a starter alive, folding dough, and baking your first crusty rustic loaf.',
+    category: 'Kitchen & Craft',
+    readTime: '7 min read',
+    keywords: ['sourdough', 'baking', 'bread', 'starter', 'flour', 'kitchen', 'food'],
+    matches: {
+      'sourdough baking': '99% Match · Exact Topic',
+      'morning routine': '78% Match · Kitchen Rituals',
+      'slow productivity': '82% Match · Craft & Patience'
+    }
   },
   {
-    title: 'Edge AI Embeddings with Cloudflare Workers AI & Vectorize',
-    snippet: 'Generating 384-dimensional dense vectors on the edge using BAAI/bge-small-en-v1.5 and querying Vectorize index in <30ms.',
-    date: 'Sep 24, 2026',
-    category: 'AI & Vectors',
-    keywords: ['neural', 'embeddings', 'vectorize', 'workers ai', 'ai', 'dense', 'semantic', 'models'],
-    bm25Ranks: { 'sqlite performance': 4, 'neural embeddings': 2, 'pwa offline': 7, 'mcp agents': 4 },
-    vecRanks: { 'sqlite performance': 1, 'neural embeddings': 1, 'pwa offline': 6, 'mcp agents': 4 },
+    title: 'Slow Productivity: The Antidote to Daily Overwhelm',
+    snippet: 'Accomplishing deeply meaningful work by doing fewer things, working at a natural pace, and obsessing over quality.',
+    category: 'Work & Mindset',
+    readTime: '6 min read',
+    keywords: ['slow', 'productivity', 'focus', 'burnout', 'quality', 'work'],
+    matches: {
+      'slow productivity': '99% Match · Exact Topic',
+      'morning routine': '91% Match · Intentional Days',
+      'better sleep habits': '84% Match · Stress Reduction'
+    }
   },
   {
-    title: 'Model Context Protocol (MCP) Streamable HTTP Deep Dive',
-    snippet: 'Exposing personal document vaults to Claude Desktop and Cursor via JSON-RPC over Streamable HTTP without persistent stdio pipes.',
-    date: 'Oct 05, 2026',
-    category: 'MCP & Agents',
-    keywords: ['mcp', 'agents', 'claude', 'cursor', 'llm', 'streamable', 'http', 'json-rpc'],
-    bm25Ranks: { 'sqlite performance': 6, 'neural embeddings': 4, 'pwa offline': 8, 'mcp agents': 1 },
-    vecRanks: { 'sqlite performance': 5, 'neural embeddings': 3, 'pwa offline': 7, 'mcp agents': 1 },
+    title: 'Mastering Your Sleep Cycles Naturally',
+    snippet: 'How cooler room temperatures, morning sunlight, and consistent sleep windows transform your daily energy and mood.',
+    category: 'Health & Wellness',
+    readTime: '5 min read',
+    keywords: ['sleep', 'habits', 'rest', 'cycles', 'energy', 'health', 'circadian'],
+    matches: {
+      'better sleep habits': '99% Match · Exact Topic',
+      'morning routine': '92% Match · Circadian Rhythm',
+      'slow productivity': '86% Match · Recovery'
+    }
   },
   {
-    title: 'Modern PWA Offline Architecture & Web Share Target',
-    snippet: 'Zero-latency mobile captures with Android share target sheets, Safari iOS shortcuts, and offline-first service worker caches.',
-    date: 'Sep 19, 2026',
-    category: 'Mobile & PWA',
-    keywords: ['pwa', 'offline', 'mobile', 'share', 'cache', 'ios', 'android', 'shortcut'],
-    bm25Ranks: { 'sqlite performance': 5, 'neural embeddings': 6, 'pwa offline': 1, 'mcp agents': 7 },
-    vecRanks: { 'sqlite performance': 6, 'neural embeddings': 6, 'pwa offline': 1, 'mcp agents': 6 },
-  },
-  {
-    title: 'Distraction-Free Web Content Extraction with Trafilatura',
-    snippet: 'Stripping navbars, tracker scripts, ads, and cookie banners to produce clean raw Markdown and HTML snapshots in R2.',
-    date: 'Sep 12, 2026',
-    category: 'Extraction',
-    keywords: ['extraction', 'markdown', 'clean', 'trafilatura', 'r2', 'reader', 'content'],
-    bm25Ranks: { 'sqlite performance': 2, 'neural embeddings': 7, 'pwa offline': 2, 'mcp agents': 5 },
-    vecRanks: { 'sqlite performance': 4, 'neural embeddings': 5, 'pwa offline': 2, 'mcp agents': 7 },
+    title: 'The Art of the Slow Sunday',
+    snippet: 'Why carving out a few hours without screens, errands, or to-do lists rejuvenates how you feel all week long.',
+    category: 'Essays & Living',
+    readTime: '5 min read',
+    keywords: ['slow', 'sunday', 'rest', 'peace', 'unplug', 'reading'],
+    matches: {
+      'slow productivity': '94% Match · Rest as Fuel',
+      'better sleep habits': '88% Match · Deep Rest',
+      'morning routine': '86% Match · Quiet Mornings',
+      'sourdough baking': '80% Match · Weekend Projects'
+    }
   }
 ];
 
-function initHybridSearchSimulator() {
+function initEverydaySearchSimulator() {
   const input = document.getElementById('search-demo-input');
   const resultsContainer = document.getElementById('search-results-list');
   const chips = document.querySelectorAll('.preset-chip');
@@ -125,58 +128,54 @@ function initHybridSearchSimulator() {
   function runSearch(queryText) {
     const q = queryText.toLowerCase().trim();
     if (!q) {
-      renderResults(SEARCH_DEMO_DATABASE.slice(0, 3), 'default');
+      renderResults(EVERYDAY_ARTICLES.slice(0, 3), 'default');
       return;
     }
 
-    // Determine ranking based on predefined presets or keyword match
-    const scored = SEARCH_DEMO_DATABASE.map((item, idx) => {
-      let bm25Rank = item.bm25Ranks[q] || (item.keywords.some(k => q.includes(k)) ? 1 + (idx % 3) : 6 + idx);
-      let vecRank = item.vecRanks[q] || (item.keywords.some(k => q.includes(k)) ? 2 + (idx % 2) : 5 + idx);
+    // Rank matching articles
+    const scored = EVERYDAY_ARTICLES.map((article) => {
+      let matchLabel = article.matches[q];
+      let score = 0;
 
-      // Reciprocal Rank Fusion Formula: 1 / (60 + r_bm25) + 1 / (60 + r_vec)
-      const rrfScore = (1 / (60 + bm25Rank)) + (1 / (60 + vecRank));
+      if (matchLabel) {
+        score = parseInt(matchLabel, 10) || 80;
+      } else {
+        const matchesKeyword = article.keywords.some((k) => q.includes(k) || k.includes(q));
+        if (matchesKeyword) {
+          score = 88;
+          matchLabel = '88% Match · Concept Match';
+        } else {
+          score = 65;
+          matchLabel = '65% Match · Related Reading';
+        }
+      }
 
-      return {
-        ...item,
-        bm25Rank,
-        vecRank,
-        rrfScore
-      };
+      return { ...article, score, matchLabel };
     });
 
-    // Sort descending by RRF score
-    scored.sort((a, b) => b.rrfScore - a.rrfScore);
+    scored.sort((a, b) => b.score - a.score);
     renderResults(scored.slice(0, 3), q);
   }
 
   function renderResults(items, query) {
     resultsContainer.innerHTML = '';
-    items.forEach((doc, index) => {
-      const scoreStr = doc.rrfScore ? doc.rrfScore.toFixed(4) : (0.0325 - index * 0.003).toFixed(4);
-      const bm25Rank = doc.bm25Rank || (index + 1);
-      const vecRank = doc.vecRank || (index + 2);
-
+    items.forEach((doc) => {
       const card = document.createElement('div');
-      card.className = 'search-result-item';
+      card.className = 'search-result-card';
       card.innerHTML = `
-        <div class="res-header">
-          <span class="res-title">${escapeHtml(doc.title)}</span>
-          <span class="rrf-score-badge" title="RRF Score = 1/(60+${bm25Rank}) + 1/(60+${vecRank})">RRF ${scoreStr}</span>
+        <div class="result-top-line">
+          <span class="result-article-title">${escapeHtml(doc.title)}</span>
+          <span class="result-match-badge">${escapeHtml(doc.matchLabel || 'Relevant Match')}</span>
         </div>
-        <p style="font-size: 0.825rem; color: var(--muted); margin-bottom: 10px; line-height: 1.5;">${escapeHtml(doc.snippet)}</p>
-        <div class="res-meta">
-          <span class="rank-pill bm25">BM25 Rank #${bm25Rank}</span>
-          <span class="rank-pill vector">Vector Rank #${vecRank}</span>
-          <span>${escapeHtml(doc.category)}</span>
-          <span>${escapeHtml(doc.date)}</span>
+        <p class="result-snippet">${escapeHtml(doc.snippet)}</p>
+        <div class="result-footer-meta">
+          <span>${escapeHtml(doc.category)}</span> · <span>${escapeHtml(doc.readTime)}</span>
         </div>
       `;
       resultsContainer.appendChild(card);
     });
   }
 
-  // Preset chips click
   chips.forEach((chip) => {
     chip.addEventListener('click', () => {
       const query = chip.dataset.query;
@@ -187,7 +186,6 @@ function initHybridSearchSimulator() {
     });
   });
 
-  // Input debouncing
   let debounceTimeout;
   input.addEventListener('input', (e) => {
     clearTimeout(debounceTimeout);
@@ -198,15 +196,14 @@ function initHybridSearchSimulator() {
   });
 
   // Initial render
-  runSearch('sqlite performance');
+  runSearch('morning routine');
 }
 
 /* ==========================================================================
-   3. Clipboard & Toast Feedback
+   3. Clipboard & Toast Helpers
    ========================================================================== */
 
 function initCopyHelpers() {
-  const copyButtons = document.querySelectorAll('[data-copy-target]');
   const toast = document.getElementById('copy-toast');
   const toastMsg = document.getElementById('copy-toast-msg');
 
@@ -219,111 +216,22 @@ function initCopyHelpers() {
     }, 2400);
   }
 
-  copyButtons.forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const targetId = btn.dataset.copyTarget;
-      const targetElem = document.getElementById(targetId);
-      if (!targetElem) return;
-
-      const text = targetElem.innerText || targetElem.textContent;
-      try {
-        await navigator.clipboard.writeText(text.trim());
-        const originalText = btn.innerHTML;
-        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Copied!`;
-        showToast('Copied snippet to clipboard!');
-        setTimeout(() => {
-          btn.innerHTML = originalText;
-        }, 2000);
-      } catch (err) {
-        showToast('Press Ctrl+C to copy snippet');
-      }
-    });
-  });
-
-  // Generic direct copy buttons (e.g. terminal command copy)
   const cmdButtons = document.querySelectorAll('[data-copy-text]');
   cmdButtons.forEach((btn) => {
     btn.addEventListener('click', async () => {
       const text = btn.dataset.copyText;
       try {
         await navigator.clipboard.writeText(text);
-        showToast(`Copied: "${text}"`);
+        showToast('Copied to clipboard!');
       } catch (err) {
-        showToast('Failed to copy to clipboard');
+        showToast('Press Ctrl+C to copy');
       }
     });
   });
 }
 
 /* ==========================================================================
-   4. Code Tab Switcher
-   ========================================================================== */
-
-const CODE_SNIPPETS = {
-  claude: `{
-  "mcpServers": {
-    "keepfor-me": {
-      "type": "http",
-      "url": "https://keepfor.me/api/mcp",
-      "headers": {
-        "Authorization": "Bearer kfm_live_YOUR_PERSONAL_TOKEN"
-      }
-    }
-  }
-}`,
-  cursor: `{
-  "mcp": {
-    "servers": {
-      "keepfor-me": {
-        "url": "https://keepfor.me/api/mcp",
-        "headers": {
-          "Authorization": "Bearer kfm_live_YOUR_PERSONAL_TOKEN"
-        }
-      }
-    }
-  }
-}`,
-  curl: `curl -X POST https://keepfor.me/api/mcp \\
-  -H "Authorization: Bearer kfm_live_YOUR_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/call",
-    "params": {
-      "name": "search_saved_items",
-      "arguments": { "query": "edge computing sqlite" }
-    }
-  }'`
-};
-
-function initCodeTabs() {
-  const tabs = document.querySelectorAll('.code-tab-btn');
-  const codeBlock = document.getElementById('mcp-code-block');
-  const codeFileName = document.getElementById('code-file-name');
-  if (!tabs.length || !codeBlock) return;
-
-  tabs.forEach((tab) => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab; // 'claude', 'cursor', 'curl'
-      tabs.forEach((t) => t.classList.remove('active'));
-      tab.classList.add('active');
-
-      if (CODE_SNIPPETS[target]) {
-        codeBlock.textContent = CODE_SNIPPETS[target];
-      }
-
-      if (codeFileName) {
-        if (target === 'claude') codeFileName.textContent = 'claude_desktop_config.json';
-        else if (target === 'cursor') codeFileName.textContent = '.cursor/mcp.json';
-        else if (target === 'curl') codeFileName.textContent = 'bash (terminal)';
-      }
-    });
-  });
-}
-
-/* ==========================================================================
-   5. Mobile Navigation Toggle
+   4. Mobile Navigation Toggle
    ========================================================================== */
 
 function initMobileNav() {
@@ -342,7 +250,7 @@ function initMobileNav() {
     nav.style.backgroundColor = 'var(--canvas)';
     nav.style.padding = '20px 24px';
     nav.style.borderBottom = '1px solid var(--border)';
-    nav.style.boxShadow = 'var(--shadow-md)';
+    nav.style.boxShadow = 'var(--shadow-card)';
   });
 }
 
