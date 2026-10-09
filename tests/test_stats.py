@@ -412,3 +412,147 @@ async def test_get_user_stats_day_breakdown(db, test_user_data):
         "archive": 1,
         "open": 1,
     }
+
+
+async def test_stats_heatmap_uses_theme_css_variables(client, db, test_user_data):
+    """Heatmap cells must reference CSS custom properties for dark/sepia support."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    # Templates must use CSS variables rather than hardcoded light cream colors
+    assert "var(--contrib-s0)" in response.text
+    assert "var(--contrib-s4)" in response.text
+    # base.html must define the tokens for light, sepia, and dark
+    assert "--contrib-s0:" in response.text
+
+
+async def test_get_user_stats_oldest_unread_fallback_title(db, test_user_data):
+    """When title is NULL, fallback to host or Untitled article, not UUID."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    uid = user["id"]
+    # Insert an unread item with title=None
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, read_state, created_at)"
+        " VALUES ('uuid-1234', ?, 'https://news.ycombinator.com/item?id=1',"
+        " 'https://news.ycombinator.com/item?id=1', NULL, 'unread',"
+        " '2026-01-01 00:00:00');",
+        (uid,),
+    )
+
+    stats = await get_user_stats(db, uid)
+    assert stats["oldest_unread"] is not None
+    assert stats["oldest_unread"]["id"] == "uuid-1234"
+    assert stats["oldest_unread"]["title"] == "news.ycombinator.com"
+
+
+async def test_stats_top_domains_are_clickable_links(client, db, test_user_data):
+    """Top domain items must render as links to /?q=<domain>."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+    uid = (await db.query_first("SELECT id FROM users LIMIT 1;"))["id"]
+    await save_item(db, MockEnv(), uid, "https://github.com/torvalds/linux")
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    assert 'href="/?q=github.com"' in response.text
+
+
+async def test_search_fts_matches_domain_terms(db, test_user_data):
+    """Searching for a domain matches items having that domain in URL."""
+    from src.search.engine import search_fts
+
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    uid = user["id"]
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, content_text, status)"
+        " VALUES ('i1', ?, 'https://arstechnica.com/gadgets/1',"
+        " 'https://arstechnica.com/gadgets/1', 'Gadget Review',"
+        " 'Body text without site name', 'ok');",
+        (uid,),
+    )
+
+    results = await search_fts(db, uid, "arstechnica.com")
+    assert len(results) >= 1
+    assert any(r["item_id"] == "i1" for r in results)
+
+
+async def test_get_user_stats_words_read_and_reading_time(db, test_user_data):
+    """Opened and archived items contribute word counts and reading time."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    uid = user["id"]
+    # item1: 1,500 words, opened
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, word_count, read_state, created_at)"
+        " VALUES ('w1', ?, 'https://example.com/w1', 'https://example.com/w1',"
+        " 'W1', 1500, 'unread', '2026-01-01 00:00:00');",
+        (uid,),
+    )
+    await record_open(db, uid, "w1")
+
+    # item2: 3,500 words, archived
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, word_count, read_state, created_at)"
+        " VALUES ('w2', ?, 'https://example.com/w2', 'https://example.com/w2',"
+        " 'W2', 3500, 'archived', '2026-01-01 00:00:00');",
+        (uid,),
+    )
+
+    # item3: 10,000 words, unread and never opened (should NOT count)
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, word_count, read_state, created_at)"
+        " VALUES ('w3', ?, 'https://example.com/w3', 'https://example.com/w3',"
+        " 'W3', 10000, 'unread', '2026-01-01 00:00:00');",
+        (uid,),
+    )
+
+    stats = await get_user_stats(db, uid)
+    # Total words read = 1500 + 3500 = 5000 words. At 200 wpm = 25 mins.
+    assert stats["words_read"] == 5000
+    assert stats["words_read_display"] == "5.0k words"
+    assert stats["reading_time_display"] == "25 mins"
+
+
+async def test_stats_mobile_heatmap_scroll_script(client, db, test_user_data):
+    """The year grid container must have id and script scrolling to present week."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    assert 'id="year-grid-container"' in response.text
+    assert "scrollLeft = container.scrollWidth" in response.text
+
+
+async def test_stats_rhythm_has_date_tooltips_and_min_height(
+    client, db, test_user_data
+):
+    """Rhythm chart bars must have calendar date ranges and min visible height."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+    uid = (await db.query_first("SELECT id FROM users LIMIT 1;"))["id"]
+    item, _ = await save_item(db, MockEnv(), uid, "https://example.com/rhythm-test")
+    await record_open(db, uid, item["id"])
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    # Bars for non-zero actions must contain min-height to survive import spikes
+    assert "min-height: 4px" in response.text

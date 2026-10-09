@@ -80,6 +80,31 @@ def _longest_streak(active_days: set[datetime.date]) -> int:
     return best
 
 
+def _week_range_str(year: int, week: int) -> str:
+    mon = datetime.date.fromisocalendar(year, week, 1)
+    sun = mon + datetime.timedelta(days=6)
+    if mon.month == sun.month:
+        return f"{mon.strftime('%b')} {mon.day}–{sun.day}"
+    return f"{mon.strftime('%b')} {mon.day} – {sun.strftime('%b')} {sun.day}"
+
+
+def format_reading_metrics(words: int) -> tuple[str, str]:
+    """Format words read and estimated reading time (200 wpm standard)."""
+    if words <= 0:
+        return "0 words", "0 mins"
+    if words < 1000:
+        words_str = f"{words} words"
+    else:
+        words_str = f"{words / 1000:.1f}k words"
+
+    minutes = max(1, round(words / 200))
+    if minutes < 60:
+        time_str = f"{minutes} min{'s' if minutes != 1 else ''}"
+    else:
+        time_str = f"{minutes / 60:.1f} hrs"
+    return words_str, time_str
+
+
 async def get_user_stats(db, user_id: str) -> dict:
     """Everything the stats page needs; every query scoped to the user."""
     from src.models.items import list_user_tags
@@ -101,6 +126,7 @@ async def get_user_stats(db, user_id: str) -> dict:
         oldest,
         tag_list,
         url_rows,
+        words_row,
     ) = await asyncio.gather(
         db.query_all(
             "SELECT DATE(created_at) AS day, COUNT(*) AS n FROM items"
@@ -144,13 +170,20 @@ async def get_user_stats(db, user_id: str) -> dict:
             (user_id,),
         ),
         db.query_first(
-            "SELECT id, title, created_at FROM items"
+            "SELECT id, title, canonical_url, url, created_at FROM items"
             " WHERE user_id = ? AND read_state = 'unread'"
             " ORDER BY created_at ASC LIMIT 1;",
             (user_id,),
         ),
         list_user_tags(db, user_id),
         db.query_all("SELECT canonical_url FROM items WHERE user_id = ?;", (user_id,)),
+        db.query_first(
+            "SELECT COALESCE(SUM(word_count), 0) AS total_words FROM items"
+            " WHERE user_id = ? AND (read_state = 'archived' OR id IN ("
+            "   SELECT DISTINCT item_id FROM item_opens WHERE user_id = ?"
+            " ));",
+            (user_id, user_id),
+        ),
     )
 
     # Collapse opens within 5 minutes of the previous kept open of the same
@@ -233,15 +266,19 @@ async def get_user_stats(db, user_id: str) -> dict:
         if key in rhythm:
             for action in ("save", "open", "archive"):
                 rhythm[key][action] += events.get(action, 0)
-    week_rhythm = [
-        {
-            "week": f"{year}-W{week:02d}",
-            "save": rhythm[(year, week)]["save"],
-            "open": rhythm[(year, week)]["open"],
-            "archive": rhythm[(year, week)]["archive"],
-        }
-        for year, week in week_keys
-    ]
+    week_rhythm = []
+    for year, week in week_keys:
+        mon = datetime.date.fromisocalendar(year, week, 1)
+        week_rhythm.append(
+            {
+                "week": f"{year}-W{week:02d}",
+                "date_range": _week_range_str(year, week),
+                "date_label": f"{mon.strftime('%b')} {mon.day}",
+                "save": rhythm[(year, week)]["save"],
+                "open": rhythm[(year, week)]["open"],
+                "archive": rhythm[(year, week)]["archive"],
+            }
+        )
 
     total_saves = count_row["total"] if count_row else 0
     total_archived = count_row["archived"] if count_row else 0
@@ -249,9 +286,17 @@ async def get_user_stats(db, user_id: str) -> dict:
 
     oldest_unread = None
     if oldest:
+        raw_title = (oldest.get("title") or "").strip()
+        if not raw_title:
+            target_url = oldest.get("canonical_url") or oldest.get("url") or ""
+            try:
+                raw_title = urlparse(target_url).netloc
+            except Exception:
+                raw_title = ""
+        display_title = raw_title if raw_title else "Untitled article"
         oldest_unread = {
             "id": oldest["id"],
-            "title": oldest["title"],
+            "title": display_title,
             "days": (
                 today - datetime.date.fromisoformat(oldest["created_at"][:10])
             ).days,
@@ -272,10 +317,16 @@ async def get_user_stats(db, user_id: str) -> dict:
         for host, count in sorted(hosts.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
     ]
 
+    words_read = words_row["total_words"] if words_row else 0
+    words_display, time_display = format_reading_metrics(words_read)
+
     return {
         "total_saves": total_saves,
         "total_reads": total_reads,
         "total_archived": total_archived,
+        "words_read": words_read,
+        "words_read_display": words_display,
+        "reading_time_display": time_display,
         "streak": current_streak(active_days, today),
         "longest_streak": _longest_streak(active_days),
         "total_score": total_score,

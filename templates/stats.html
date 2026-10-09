@@ -5,11 +5,11 @@
 {% block content %}
 <style>
   body { overflow-x: clip; }
-  .s0 { background-color: #ece9e2; }
-  .s1 { background-color: #c9e0c2; }
-  .s2 { background-color: #8fc183; }
-  .s3 { background-color: #3f7d44; }
-  .s4 { background-color: #1e3a2f; }
+  .s0 { background-color: var(--contrib-s0); }
+  .s1 { background-color: var(--contrib-s1); }
+  .s2 { background-color: var(--contrib-s2); }
+  .s3 { background-color: var(--contrib-s3); }
+  .s4 { background-color: var(--contrib-s4); }
   .contrib-cell { width: 11px; height: 11px; border-radius: 2px; }
   @media (min-width: 768px) { .contrib-cell { width: 13px; height: 13px; } }
 </style>
@@ -38,6 +38,10 @@
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Best day</p>
         <p class="text-xl font-bold text-slate-900">{{ stats.best_day or "—" }}</p>
       </div>
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Read volume</p>
+        <p class="text-xl font-bold text-slate-900">{{ stats.words_read_display }} <span class="text-xs font-normal text-slate-500">· ~{{ stats.reading_time_display }}</span></p>
+      </div>
     </div>
   </section>
 
@@ -48,7 +52,7 @@
   {% endif %}
 
   <!-- Year contributions grid -->
-  <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm overflow-x-auto">
+  <section id="year-grid-container" class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm overflow-x-auto">
     <h3 class="text-base font-semibold text-slate-900 mb-1">Year in review</h3>
     <p class="text-xs text-slate-500 mb-4">Trailing 365 days. Darker green means a bigger Keep Score day.</p>
     <div class="flex gap-[3px]">
@@ -71,7 +75,7 @@
     <h3 class="text-base font-semibold text-slate-900 mb-4">This week</h3>
     <div class="grid grid-cols-7 gap-2">
       {% for day in week_strip %}
-      <div class="text-center rounded-lg border p-2 {% if day.is_today %}border-slate-900{% else %}border-slate-200{% endif %}">
+      <div class="text-center rounded-lg border p-2 {% if day.is_today %}border-slate-900 dark:border-slate-100 ring-1 ring-slate-900 dark:ring-slate-100{% else %}border-slate-200 dark:border-stone-800{% endif %}">
         <p class="text-[11px] font-semibold uppercase text-slate-500">{{ day.label }}</p>
         <div class="contrib-cell s{{ day.cls }} mx-auto my-2" title="{{ day.title }}"></div>
         <p class="text-xs font-bold text-slate-900">{{ day.score }}</p>
@@ -92,12 +96,12 @@
     <div class="flex items-end gap-2 h-32">
       {% for w in stats.week_rhythm %}
       <div class="flex-1 flex flex-col items-center gap-1 h-full justify-end">
-        <div class="flex items-end justify-center gap-[3px] w-full h-full" title="{{ w.week }}: {{ w.save }} saves, {{ w.open }} reads, {{ w.archive }} archived">
-          <div class="w-2 sm:w-3 rounded-t bg-blue-600" style="height: {{ (100 * w.save / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%"></div>
-          <div class="w-2 sm:w-3 rounded-t bg-emerald-600" style="height: {{ (100 * w.open / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%"></div>
-          <div class="w-2 sm:w-3 rounded-t bg-amber-600" style="height: {{ (100 * w.archive / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%"></div>
+        <div class="flex items-end justify-center gap-[3px] w-full h-full" title="{{ w.date_range or w.week }}: {{ w.save }} saves, {{ w.open }} reads, {{ w.archive }} archived">
+          <div class="w-2 sm:w-3 rounded-t bg-blue-600" style="height: {{ (100 * w.save / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%;{% if w.save > 0 %} min-height: 4px;{% endif %}"></div>
+          <div class="w-2 sm:w-3 rounded-t bg-emerald-600" style="height: {{ (100 * w.open / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%;{% if w.open > 0 %} min-height: 4px;{% endif %}"></div>
+          <div class="w-2 sm:w-3 rounded-t bg-amber-600" style="height: {{ (100 * w.archive / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%;{% if w.archive > 0 %} min-height: 4px;{% endif %}"></div>
         </div>
-        <p class="text-[10px] text-slate-500">W{{ w.week[-2:] }}</p>
+        <p class="text-[10px] text-slate-500" title="{{ w.date_range or w.week }}">W{{ w.week[-2:] }}</p>
       </div>
       {% endfor %}
     </div>
@@ -119,7 +123,7 @@
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Oldest unread</p>
         {% if stats.oldest_unread %}
         <p class="truncate">
-          <a href="/items/{{ stats.oldest_unread.id }}" class="text-blue-600 hover:underline font-medium">{{ stats.oldest_unread.title or stats.oldest_unread.id }}</a>
+          <a href="/items/{{ stats.oldest_unread.id }}" class="text-blue-600 hover:underline font-medium">{{ stats.oldest_unread.title or "Untitled article" }}</a>
           <span class="text-slate-500">· {{ stats.oldest_unread.days }}d old</span>
         </p>
         {% else %}
@@ -152,7 +156,7 @@
       <ul class="space-y-2 text-sm">
         {% for host, count in stats.top_domains %}
         <li class="flex items-center justify-between">
-          <span class="text-slate-800 font-medium truncate">{{ host }}</span>
+          <a href="/?q={{ host|urlencode }}" class="text-slate-800 font-medium hover:text-blue-600 truncate">{{ host }}</a>
           <span class="text-slate-500 shrink-0 ml-3">{{ count }}</span>
         </li>
         {% endfor %}
@@ -163,4 +167,13 @@
     </section>
   </div>
 </div>
+
+<script>
+  (function() {
+    var container = document.getElementById('year-grid-container');
+    if (container) {
+      container.scrollLeft = container.scrollWidth;
+    }
+  })();
+</script>
 {% endblock %}
