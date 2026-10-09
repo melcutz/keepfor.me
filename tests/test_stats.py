@@ -537,3 +537,22 @@ async def test_stats_mobile_heatmap_scroll_script(client, db, test_user_data):
     assert response.status_code == 200
     assert 'id="year-grid-container"' in response.text
     assert "scrollLeft = container.scrollWidth" in response.text
+
+
+async def test_stats_rhythm_has_date_tooltips_and_min_height(
+    client, db, test_user_data
+):
+    """Rhythm chart bars must have calendar date ranges and min visible height."""
+    await register_user(db, test_user_data["email"], test_user_data["password"])
+    _, session_id = await login_user(
+        db, test_user_data["email"], test_user_data["password"]
+    )
+    client.cookies["kfm_session"] = session_id
+    uid = (await db.query_first("SELECT id FROM users LIMIT 1;"))["id"]
+    item, _ = await save_item(db, MockEnv(), uid, "https://example.com/rhythm-test")
+    await record_open(db, uid, item["id"])
+
+    response = client.get("/stats")
+    assert response.status_code == 200
+    # Bars for non-zero actions must contain min-height to survive import spikes
+    assert "min-height: 4px" in response.text

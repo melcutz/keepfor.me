@@ -80,6 +80,14 @@ def _longest_streak(active_days: set[datetime.date]) -> int:
     return best
 
 
+def _week_range_str(year: int, week: int) -> str:
+    mon = datetime.date.fromisocalendar(year, week, 1)
+    sun = mon + datetime.timedelta(days=6)
+    if mon.month == sun.month:
+        return f"{mon.strftime('%b')} {mon.day}–{sun.day}"
+    return f"{mon.strftime('%b')} {mon.day} – {sun.strftime('%b')} {sun.day}"
+
+
 def format_reading_metrics(words: int) -> tuple[str, str]:
     """Format words read and estimated reading time (200 wpm standard)."""
     if words <= 0:
@@ -258,15 +266,19 @@ async def get_user_stats(db, user_id: str) -> dict:
         if key in rhythm:
             for action in ("save", "open", "archive"):
                 rhythm[key][action] += events.get(action, 0)
-    week_rhythm = [
-        {
-            "week": f"{year}-W{week:02d}",
-            "save": rhythm[(year, week)]["save"],
-            "open": rhythm[(year, week)]["open"],
-            "archive": rhythm[(year, week)]["archive"],
-        }
-        for year, week in week_keys
-    ]
+    week_rhythm = []
+    for year, week in week_keys:
+        mon = datetime.date.fromisocalendar(year, week, 1)
+        week_rhythm.append(
+            {
+                "week": f"{year}-W{week:02d}",
+                "date_range": _week_range_str(year, week),
+                "date_label": f"{mon.strftime('%b')} {mon.day}",
+                "save": rhythm[(year, week)]["save"],
+                "open": rhythm[(year, week)]["open"],
+                "archive": rhythm[(year, week)]["archive"],
+            }
+        )
 
     total_saves = count_row["total"] if count_row else 0
     total_archived = count_row["archived"] if count_row else 0

@@ -96,12 +96,12 @@
     <div class="flex items-end gap-2 h-32">
       {% for w in stats.week_rhythm %}
       <div class="flex-1 flex flex-col items-center gap-1 h-full justify-end">
-        <div class="flex items-end justify-center gap-[3px] w-full h-full" title="{{ w.week }}: {{ w.save }} saves, {{ w.open }} reads, {{ w.archive }} archived">
-          <div class="w-2 sm:w-3 rounded-t bg-blue-600" style="height: {{ (100 * w.save / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%"></div>
-          <div class="w-2 sm:w-3 rounded-t bg-emerald-600" style="height: {{ (100 * w.open / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%"></div>
-          <div class="w-2 sm:w-3 rounded-t bg-amber-600" style="height: {{ (100 * w.archive / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%"></div>
+        <div class="flex items-end justify-center gap-[3px] w-full h-full" title="{{ w.date_range or w.week }}: {{ w.save }} saves, {{ w.open }} reads, {{ w.archive }} archived">
+          <div class="w-2 sm:w-3 rounded-t bg-blue-600" style="height: {{ (100 * w.save / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%;{% if w.save > 0 %} min-height: 4px;{% endif %}"></div>
+          <div class="w-2 sm:w-3 rounded-t bg-emerald-600" style="height: {{ (100 * w.open / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%;{% if w.open > 0 %} min-height: 4px;{% endif %}"></div>
+          <div class="w-2 sm:w-3 rounded-t bg-amber-600" style="height: {{ (100 * w.archive / max_rhythm_action) | round(1) if max_rhythm_action else 0 }}%;{% if w.archive > 0 %} min-height: 4px;{% endif %}"></div>
         </div>
-        <p class="text-[10px] text-slate-500">W{{ w.week[-2:] }}</p>
+        <p class="text-[10px] text-slate-500" title="{{ w.date_range or w.week }}">W{{ w.week[-2:] }}</p>
       </div>
       {% endfor %}
     </div>
