@@ -2,6 +2,7 @@ import asyncio
 from typing import Any
 
 from src.models.db import Database
+from src.utils.logging import logger
 
 RRF_K = 60  # Standard RRF constant
 # Bound on the embedding call and the vector query. Search must stay
@@ -14,7 +15,7 @@ VECTOR_SEARCH_TIMEOUT = 5.0
 # legacy (nothing writes it) but counted with 'queued' defensively.
 STATUS_GROUPS = {
     "extracting": ("queued", "fetching"),
-    "saved": ("ok",),
+    "saved": ("ok", "saved"),
     "failed": ("failed",),
 }
 
@@ -233,7 +234,8 @@ async def search_vectorize(
         # Return sorted by score descending
         sorted_items = sorted(item_scores.items(), key=lambda x: x[1], reverse=True)
         return [{"item_id": item_id, "score": score} for item_id, score in sorted_items]
-    except Exception:
+    except Exception as exc:
+        logger.warning("Vector search query failed: %s", exc)
         return []
 
 

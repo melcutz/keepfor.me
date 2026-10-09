@@ -328,3 +328,29 @@ async def test_cleanup_failed_other_removes_only_unmatched(client, db, auth_head
     assert "https://example.com/odd" not in urls
     assert "https://example.com/blocked" in urls
     assert "https://example.com/slow" in urls
+
+
+@pytest.mark.asyncio
+async def test_quick_notes_included_in_saved_status_group(db):
+    from src.auth.service import register_user
+    from src.models.items import save_note
+    from src.search.engine import get_recent_items, get_status_counts
+
+    user = await register_user(db, "note_status@test.local", "password123")
+    user_id = user["id"]
+
+    # Save a quick note (hardcodes status='saved')
+    note = await save_note(
+        db, None, user_id, "Note Title", "Note content text", ["testtag"]
+    )
+    assert note["status"] == "saved"
+
+    # Status counts must count the note under "saved"
+    counts = await get_status_counts(db, user_id)
+    assert counts["saved"] == 1
+    assert counts["all"] == 1
+
+    # Filter ?status=saved must return the note
+    items = await get_recent_items(db, user_id, status="saved")
+    assert len(items) == 1
+    assert items[0]["id"] == note["id"]

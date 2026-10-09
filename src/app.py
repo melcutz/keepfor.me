@@ -1362,7 +1362,8 @@ async def requeue_stuck_items(request: Request):
             status_code=503,
         )
     cutoff = (
-        datetime.datetime.utcnow() - datetime.timedelta(minutes=REQUEUE_STUCK_MINUTES)
+        datetime.datetime.now(datetime.timezone.utc)
+        - datetime.timedelta(minutes=REQUEUE_STUCK_MINUTES)
     ).strftime("%Y-%m-%d %H:%M:%S")
     rows = await db.query_all(
         "SELECT id, canonical_url FROM items WHERE user_id = ? AND status = 'queued' "

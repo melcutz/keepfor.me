@@ -90,9 +90,9 @@
 		"binding": "ASSETS"
 	},
 	"vars": {
-		"ALLOW_PUBLIC_SIGNUPS": "false",
-		"SESSION_SECRET": "keepfor-me-secret-change-in-production-dev-key"
+		"ALLOW_PUBLIC_SIGNUPS": "false"
 	},
+
 	"observability": {
 		"logs": {
 			"enabled": true,

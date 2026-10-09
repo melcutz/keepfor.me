@@ -223,16 +223,20 @@ async def delete_item(db: Database, env: Any, user_id: str, item_id: str) -> boo
     if chunk_ids and hasattr(env, "VECTORIZE") and env.VECTORIZE is not None:
         try:
             await env.VECTORIZE.deleteByIds(chunk_ids)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete vector embeddings for item %s: %s", item_id, exc
+            )
 
     # 2. Delete R2 snapshots
     if hasattr(env, "BUCKET") and env.BUCKET is not None:
         try:
             await env.BUCKET.delete(f"items/{item_id}/raw.html")
             await env.BUCKET.delete(f"items/{item_id}/clean.html")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete R2 snapshots for item %s: %s", item_id, exc
+            )
 
     # 3. Delete from D1 (triggers cascade deletions on chunks, item_tags)
     await db.execute_batch(
@@ -734,10 +738,28 @@ async def get_pinned_items(db: Database, user_id: str) -> list[dict[str, Any]]:
         " ORDER BY created_at DESC;",
         (user_id,),
     )
+    if not rows:
+        return []
+
+    item_ids = [r["id"] for r in rows]
+    placeholders = ",".join("?" for _ in item_ids)
+    tag_rows = await db.query_all(
+        f"""
+        SELECT it.item_id, t.name as tag_name
+        FROM item_tags it
+        JOIN tags t ON it.tag_id = t.id
+        WHERE it.item_id IN ({placeholders});
+        """,
+        tuple(item_ids),
+    )
+    item_tags_map: dict[str, list[str]] = {}
+    for tr in tag_rows:
+        item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
+
     out: list[dict[str, Any]] = []
     for r in rows:
         item = dict(r)
-        item["tags"] = await get_item_tags(db, r["id"])
+        item["tags"] = item_tags_map.get(r["id"], [])
         out.append(item)
     return out
 
