@@ -14,7 +14,7 @@ VECTOR_SEARCH_TIMEOUT = 5.0
 # legacy (nothing writes it) but counted with 'queued' defensively.
 STATUS_GROUPS = {
     "extracting": ("queued", "fetching"),
-    "saved": ("ok",),
+    "saved": ("ok", "saved"),
     "failed": ("failed",),
 }
 
