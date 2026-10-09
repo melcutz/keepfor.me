@@ -78,6 +78,31 @@ async def test_get_pinned_items(user_with_env):
 
 
 @pytest.mark.asyncio
+async def test_get_pinned_items_batch_tags(user_with_env):
+    user, env, db = user_with_env
+    # Item 1 with 2 tags
+    i1, _ = await save_item(
+        db, env, user["id"], "https://example.com/pin1", ["tag1", "tag2"]
+    )
+    await toggle_pin_item(db, user["id"], i1["id"])
+
+    # Item 2 with 0 tags
+    i2, _ = await save_item(db, env, user["id"], "https://example.com/pin2", [])
+    await toggle_pin_item(db, user["id"], i2["id"])
+
+    # Item 3 with 1 tag
+    i3, _ = await save_item(db, env, user["id"], "https://example.com/pin3", ["tag3"])
+    await toggle_pin_item(db, user["id"], i3["id"])
+
+    pinned = await get_pinned_items(db, user["id"])
+    assert len(pinned) == 3
+    tags_by_id = {p["id"]: p["tags"] for p in pinned}
+    assert set(tags_by_id[i1["id"]]) == {"tag1", "tag2"}
+    assert tags_by_id[i2["id"]] == []
+    assert set(tags_by_id[i3["id"]]) == {"tag3"}
+
+
+@pytest.mark.asyncio
 async def test_save_note(user_with_env):
     user, env, db = user_with_env
     note = await save_note(

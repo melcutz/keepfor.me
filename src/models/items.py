@@ -734,12 +734,31 @@ async def get_pinned_items(db: Database, user_id: str) -> list[dict[str, Any]]:
         " ORDER BY created_at DESC;",
         (user_id,),
     )
+    if not rows:
+        return []
+
+    item_ids = [r["id"] for r in rows]
+    placeholders = ",".join("?" for _ in item_ids)
+    tag_rows = await db.query_all(
+        f"""
+        SELECT it.item_id, t.name as tag_name
+        FROM item_tags it
+        JOIN tags t ON it.tag_id = t.id
+        WHERE it.item_id IN ({placeholders});
+        """,
+        tuple(item_ids),
+    )
+    item_tags_map: dict[str, list[str]] = {}
+    for tr in tag_rows:
+        item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
+
     out: list[dict[str, Any]] = []
     for r in rows:
         item = dict(r)
-        item["tags"] = await get_item_tags(db, r["id"])
+        item["tags"] = item_tags_map.get(r["id"], [])
         out.append(item)
     return out
+
 
 
 async def update_user_notes(
