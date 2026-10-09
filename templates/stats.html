@@ -119,7 +119,7 @@
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Oldest unread</p>
         {% if stats.oldest_unread %}
         <p class="truncate">
-          <a href="/items/{{ stats.oldest_unread.id }}" class="text-blue-600 hover:underline font-medium">{{ stats.oldest_unread.title or stats.oldest_unread.id }}</a>
+          <a href="/items/{{ stats.oldest_unread.id }}" class="text-blue-600 hover:underline font-medium">{{ stats.oldest_unread.title or "Untitled article" }}</a>
           <span class="text-slate-500">· {{ stats.oldest_unread.days }}d old</span>
         </p>
         {% else %}

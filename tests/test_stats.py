@@ -429,3 +429,23 @@ async def test_stats_heatmap_uses_theme_css_variables(client, db, test_user_data
     assert "var(--contrib-s4)" in response.text
     # base.html must define the tokens for light, sepia, and dark
     assert "--contrib-s0:" in response.text
+
+
+async def test_get_user_stats_oldest_unread_fallback_title(db, test_user_data):
+    """When title is NULL, fallback to host or Untitled article, not UUID."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    uid = user["id"]
+    # Insert an unread item with title=None
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, read_state, created_at)"
+        " VALUES ('uuid-1234', ?, 'https://news.ycombinator.com/item?id=1',"
+        " 'https://news.ycombinator.com/item?id=1', NULL, 'unread',"
+        " '2026-01-01 00:00:00');",
+        (uid,),
+    )
+
+    stats = await get_user_stats(db, uid)
+    assert stats["oldest_unread"] is not None
+    assert stats["oldest_unread"]["id"] == "uuid-1234"
+    assert stats["oldest_unread"]["title"] == "news.ycombinator.com"

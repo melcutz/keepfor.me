@@ -144,7 +144,7 @@ async def get_user_stats(db, user_id: str) -> dict:
             (user_id,),
         ),
         db.query_first(
-            "SELECT id, title, created_at FROM items"
+            "SELECT id, title, canonical_url, url, created_at FROM items"
             " WHERE user_id = ? AND read_state = 'unread'"
             " ORDER BY created_at ASC LIMIT 1;",
             (user_id,),
@@ -249,9 +249,17 @@ async def get_user_stats(db, user_id: str) -> dict:
 
     oldest_unread = None
     if oldest:
+        raw_title = (oldest.get("title") or "").strip()
+        if not raw_title:
+            target_url = oldest.get("canonical_url") or oldest.get("url") or ""
+            try:
+                raw_title = urlparse(target_url).netloc
+            except Exception:
+                raw_title = ""
+        display_title = raw_title if raw_title else "Untitled article"
         oldest_unread = {
             "id": oldest["id"],
-            "title": oldest["title"],
+            "title": display_title,
             "days": (
                 today - datetime.date.fromisoformat(oldest["created_at"][:10])
             ).days,
