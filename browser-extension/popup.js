@@ -88,8 +88,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       const tags = tagsInput.value.split(",").map(t => t.trim()).filter(Boolean);
+      const title = titleInput.value.trim();
       const payload = {
         url: urlInput.value.trim(),
+        title: title || undefined,
         tags: tags
       };
 

@@ -106,6 +106,20 @@ def test_popup_js_save_contract():
     assert "is_new" in js
 
 
+def test_popup_html_settings_placeholder():
+    html = POPUP_HTML.read_text()
+    assert 'placeholder="https://app.keepfor.me"' in html
+    assert 'placeholder="https://keepfor.me"' not in html
+
+
+def test_popup_js_includes_title_in_payload():
+    js = POPUP_JS.read_text()
+    # Must read titleInput and include in payload
+    assert "titleInput" in js
+    assert "title" in js
+    assert re.search(r"title:\s*(title|titleInput\.value)", js)
+
+
 def test_host_permissions_cover_base_url():
     data = json.loads(MANIFEST.read_text())
     host = BASE_URL.split("://", 1)[1].split("/", 1)[0]
