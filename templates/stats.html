@@ -38,6 +38,10 @@
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Best day</p>
         <p class="text-xl font-bold text-slate-900">{{ stats.best_day or "—" }}</p>
       </div>
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Read volume</p>
+        <p class="text-xl font-bold text-slate-900">{{ stats.words_read_display }} <span class="text-xs font-normal text-slate-500">· ~{{ stats.reading_time_display }}</span></p>
+      </div>
     </div>
   </section>
 

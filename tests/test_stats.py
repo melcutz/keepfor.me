@@ -484,3 +484,42 @@ async def test_search_fts_matches_domain_terms(db, test_user_data):
     results = await search_fts(db, uid, "arstechnica.com")
     assert len(results) >= 1
     assert any(r["item_id"] == "i1" for r in results)
+
+
+async def test_get_user_stats_words_read_and_reading_time(db, test_user_data):
+    """Opened and archived items contribute word counts and reading time."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    uid = user["id"]
+    # item1: 1,500 words, opened
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, word_count, read_state, created_at)"
+        " VALUES ('w1', ?, 'https://example.com/w1', 'https://example.com/w1',"
+        " 'W1', 1500, 'unread', '2026-01-01 00:00:00');",
+        (uid,),
+    )
+    await record_open(db, uid, "w1")
+
+    # item2: 3,500 words, archived
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, word_count, read_state, created_at)"
+        " VALUES ('w2', ?, 'https://example.com/w2', 'https://example.com/w2',"
+        " 'W2', 3500, 'archived', '2026-01-01 00:00:00');",
+        (uid,),
+    )
+
+    # item3: 10,000 words, unread and never opened (should NOT count)
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, word_count, read_state, created_at)"
+        " VALUES ('w3', ?, 'https://example.com/w3', 'https://example.com/w3',"
+        " 'W3', 10000, 'unread', '2026-01-01 00:00:00');",
+        (uid,),
+    )
+
+    stats = await get_user_stats(db, uid)
+    # Total words read = 1500 + 3500 = 5000 words. At 200 wpm = 25 mins.
+    assert stats["words_read"] == 5000
+    assert stats["words_read_display"] == "5.0k words"
+    assert stats["reading_time_display"] == "25 mins"

@@ -80,6 +80,23 @@ def _longest_streak(active_days: set[datetime.date]) -> int:
     return best
 
 
+def format_reading_metrics(words: int) -> tuple[str, str]:
+    """Format words read and estimated reading time (200 wpm standard)."""
+    if words <= 0:
+        return "0 words", "0 mins"
+    if words < 1000:
+        words_str = f"{words} words"
+    else:
+        words_str = f"{words / 1000:.1f}k words"
+
+    minutes = max(1, round(words / 200))
+    if minutes < 60:
+        time_str = f"{minutes} min{'s' if minutes != 1 else ''}"
+    else:
+        time_str = f"{minutes / 60:.1f} hrs"
+    return words_str, time_str
+
+
 async def get_user_stats(db, user_id: str) -> dict:
     """Everything the stats page needs; every query scoped to the user."""
     from src.models.items import list_user_tags
@@ -101,6 +118,7 @@ async def get_user_stats(db, user_id: str) -> dict:
         oldest,
         tag_list,
         url_rows,
+        words_row,
     ) = await asyncio.gather(
         db.query_all(
             "SELECT DATE(created_at) AS day, COUNT(*) AS n FROM items"
@@ -151,6 +169,13 @@ async def get_user_stats(db, user_id: str) -> dict:
         ),
         list_user_tags(db, user_id),
         db.query_all("SELECT canonical_url FROM items WHERE user_id = ?;", (user_id,)),
+        db.query_first(
+            "SELECT COALESCE(SUM(word_count), 0) AS total_words FROM items"
+            " WHERE user_id = ? AND (read_state = 'archived' OR id IN ("
+            "   SELECT DISTINCT item_id FROM item_opens WHERE user_id = ?"
+            " ));",
+            (user_id, user_id),
+        ),
     )
 
     # Collapse opens within 5 minutes of the previous kept open of the same
@@ -280,10 +305,16 @@ async def get_user_stats(db, user_id: str) -> dict:
         for host, count in sorted(hosts.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
     ]
 
+    words_read = words_row["total_words"] if words_row else 0
+    words_display, time_display = format_reading_metrics(words_read)
+
     return {
         "total_saves": total_saves,
         "total_reads": total_reads,
         "total_archived": total_archived,
+        "words_read": words_read,
+        "words_read_display": words_display,
+        "reading_time_display": time_display,
         "streak": current_streak(active_days, today),
         "longest_streak": _longest_streak(active_days),
         "total_score": total_score,
