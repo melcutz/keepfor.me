@@ -18,3 +18,7 @@ To discuss commercial licensing, please reach out to Claudiu Branzan at `commerc
 ## Previous Releases
 
 Versions and releases distributed prior to the adoption of AGPL-3.0 were published under the MIT License and remain under the MIT License for anyone who already received those releases.
+
+## Trademark
+
+The AGPL-3.0 license grants software copyright permissions only, not trademark rights; see [TRADEMARK.md](TRADEMARK.md) for guidelines on using the Keepfor name and marks.

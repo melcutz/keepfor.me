@@ -289,3 +289,4 @@ Keepfor.me is licensed under the [GNU Affero General Public License v3.0](LICENS
 - **Network Services**: If you modify Keepfor.me and offer it as a service over a network, you must publish your modified source code under the AGPL-3.0.
 - **Commercial Licensing**: Commercial licenses and alternative licensing agreements are available upon request to support proprietary, enterprise, or closed-source deployments. See [LICENSING.md](LICENSING.md) for details.
 - **Prior Releases**: Previous releases prior to this license change remain under the MIT License for anyone who already has them.
+- **Trademark**: The project name and marks are governed by [TRADEMARK.md](TRADEMARK.md).
