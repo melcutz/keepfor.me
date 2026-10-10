@@ -95,6 +95,7 @@ async def api_search(request: Request, body: SearchRequest):
     user = await deps.require_user(request)
     db = deps.get_db(request)
     env = deps.get_env_from_request(request)
+    scope = deps.get_scope(request)
     # body is already validated by Pydantic
     results, _ = await hybrid_search(
         db,
@@ -104,6 +105,7 @@ async def api_search(request: Request, body: SearchRequest):
         mode=body.mode,
         tag=body.tag,
         limit=body.limit,
+        scope=scope,
     )
     return JSONResponse(content=results)
 

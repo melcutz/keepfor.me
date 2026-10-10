@@ -265,9 +265,10 @@ async def delete_item(
     )
     chunk_ids = [r["id"] for r in chunk_rows]
 
-    if chunk_ids and hasattr(env, "VECTORIZE") and env.VECTORIZE is not None:
+    if chunk_ids:
         try:
-            await env.VECTORIZE.deleteByIds(chunk_ids)
+            vectors = scope.vectors(env)
+            await vectors.delete(chunk_ids)
         except Exception as exc:
             logger.warning(
                 "Failed to delete vector embeddings for item %s: %s", item_id, exc
@@ -881,10 +882,11 @@ async def save_note(
     )
     # Best-effort single-chunk Vectorize embedding (fail-open; no AI in tests).
     try:
+        vectors = scope.vectors(env)
         if (
             env is not None
             and getattr(env, "AI", None) is not None
-            and getattr(env, "VECTORIZE", None) is not None
+            and vectors.index is not None
             and body
         ):
             from keepfor.utils.chunker import recursive_character_split
@@ -903,7 +905,7 @@ async def save_note(
                 vecs = raw.get("data", raw) if isinstance(raw, dict) else raw
                 if vecs:
                     chunk_id = f"item_{item_id}_chunk_0"
-                    await env.VECTORIZE.upsert(
+                    await vectors.upsert(
                         [
                             {
                                 "id": chunk_id,

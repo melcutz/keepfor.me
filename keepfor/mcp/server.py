@@ -245,7 +245,14 @@ async def handle_tool_call(
         tag = arguments.get("tag")
         limit = arguments.get("limit", 10)
         items, _ = await hybrid_search(
-            db, env, user_id, query, mode=mode, tag=tag, limit=limit
+            db,
+            env,
+            user_id,
+            query,
+            mode=mode,
+            tag=tag,
+            limit=limit,
+            scope=scope,
         )
         return [
             {

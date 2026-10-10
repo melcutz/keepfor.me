@@ -332,12 +332,12 @@ async def extract_and_store(
             extracted["content_text"], target_tokens=400, overlap_tokens=50
         )
 
+        vectors = scope.vectors(env)
         if (
             chunks
             and hasattr(env, "AI")
-            and hasattr(env, "VECTORIZE")
             and env.AI is not None
-            and env.VECTORIZE is not None
+            and vectors.index is not None
         ):
             # Batch embeddings in groups of 10
             vectors_to_upsert = []
@@ -376,7 +376,7 @@ async def extract_and_store(
 
             # Upsert into Vectorize
             if vectors_to_upsert:
-                await env.VECTORIZE.upsert(vectors_to_upsert)
+                await vectors.upsert(vectors_to_upsert)
 
             # Update D1 chunks tracking table
             await db.execute("DELETE FROM chunks WHERE item_id = ?;", (item_id,))

@@ -2,10 +2,14 @@
 # Copyright (C) 2026 Claudiu Branzan
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
+from keepfor.search.vectors import VectorIndex
 from keepfor.utils.logging import logger
+
+if TYPE_CHECKING:
+    from keepfor.spi import TenantScope
 
 RRF_K = 60  # Standard RRF constant
 # Bound on the embedding call and the vector query. Search must stay
@@ -210,15 +214,22 @@ async def search_fts(
 
 
 async def search_vectorize(
-    env: Any, user_id: str, query: str, limit: int = 50
+    env: Any,
+    user_id: str,
+    query: str,
+    limit: int = 50,
+    *,
+    scope: TenantScope | None = None,
 ) -> list[dict[str, Any]]:
     """Generates embedding for query and searches Vectorize."""
-    if (
-        not hasattr(env, "AI")
-        or not hasattr(env, "VECTORIZE")
-        or env.AI is None
-        or env.VECTORIZE is None
-    ):
+    vectors = (
+        scope.vectors(env)
+        if scope is not None
+        else VectorIndex(
+            getattr(env, "VECTORIZE", None) if env else None, namespace=None
+        )
+    )
+    if not hasattr(env, "AI") or env.AI is None or vectors.index is None:
         return []
 
     try:
@@ -239,23 +250,12 @@ async def search_vectorize(
         query_vector = embeddings[0]
 
         # Vectorize query with metadata requested (max topK is 50 when
-        # returnMetadata is 'all'). We do not filter by user_id in Vectorize
-        # directly because Cloudflare Vectorize requires a metadata index and
-        # does not backfill existing vectors into newly created metadata
-        # indexes. Downstream, D1 strictly enforces tenant isolation via
-        # `WHERE i.id IN (...) AND i.user_id = ?`, and matches with metadata
-        # are also checked below.
+        # returnMetadata is 'all').
         query_top_k = min(limit, 50)
-        vec_res = await asyncio.wait_for(
-            env.VECTORIZE.query(
-                query_vector,
-                {"topK": query_top_k, "returnMetadata": "all"},
-            ),
+        matches = await asyncio.wait_for(
+            vectors.query(query_vector, query_top_k),
             timeout=VECTOR_SEARCH_TIMEOUT,
         )
-        matches = getattr(vec_res, "matches", [])
-        if hasattr(matches, "to_py"):
-            matches = matches.to_py()
 
         # Deduplicate matches by item_id, keeping highest score
         item_scores: dict[str, float] = {}
@@ -263,6 +263,14 @@ async def search_vectorize(
             meta = m.get("metadata") or {}
             match_user_id = meta.get("user_id")
             if match_user_id and match_user_id != user_id:
+                if scope and scope.vector_namespace:
+                    logger.warning(
+                        "Foreign match in namespaced vector query: "
+                        "match_id=%s, match_user=%s, expected_user=%s",
+                        m.get("id"),
+                        match_user_id,
+                        user_id,
+                    )
                 continue
 
             item_id = meta.get("item_id")
@@ -304,12 +312,19 @@ async def hybrid_search(
     status: str | None = None,
     category: str | None = None,
     quick: bool = False,
+    *,
+    scope: TenantScope | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Execute hybrid search with RRF fusion, filters, and pagination.
 
     Returns (page_items, total_matches). total is exact for browse, and
     the ranked-candidate count (~100 max) for text queries.
     """
+    if scope is None and user_id:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
     query = query.strip()
     tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))][
         :MAX_TAG_FILTERS
@@ -352,12 +367,14 @@ async def hybrid_search(
     want_vec = mode in ("hybrid", "semantic") and env is not None
     if want_fts and want_vec:
         fts_task = asyncio.create_task(search_fts(db, user_id, query, limit=50))
-        vec_task = asyncio.create_task(search_vectorize(env, user_id, query, limit=50))
+        vec_task = asyncio.create_task(
+            search_vectorize(env, user_id, query, limit=50, scope=scope)
+        )
         fts_results, vec_results = await asyncio.gather(fts_task, vec_task)
     elif want_fts:
         fts_results = await search_fts(db, user_id, query, limit=50)
     elif want_vec:
-        vec_results = await search_vectorize(env, user_id, query, limit=50)
+        vec_results = await search_vectorize(env, user_id, query, limit=50, scope=scope)
 
     # Reciprocal Rank Fusion
     rrf_scores: dict[str, float] = {}

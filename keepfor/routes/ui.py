@@ -207,6 +207,7 @@ async def library_page(
         return RedirectResponse(url="/auth/login", status_code=303)
 
     env = deps.get_env_from_request(request)
+    scope = deps.get_scope(request)
     clean_status = status.strip() if status and status.strip() else None
     clean_category = category.strip() if category and category.strip() else None
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
@@ -223,6 +224,7 @@ async def library_page(
         status=clean_status,
         category=clean_category,
         quick=bool(quick),
+        scope=scope,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -238,6 +240,7 @@ async def library_page(
             status=clean_status,
             category=clean_category,
             quick=bool(quick),
+            scope=scope,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
     tags, status_counts, pinned_items = await asyncio.gather(
@@ -311,6 +314,7 @@ async def search_htmx(
 
     db = deps.get_db(request)
     env = deps.get_env_from_request(request)
+    scope = deps.get_scope(request)
     clean_tag = tag.strip() if tag.strip() else None
     clean_status = status.strip() if status.strip() else None
     clean_category = category.strip() if category.strip() else None
@@ -331,6 +335,7 @@ async def search_htmx(
         status=clean_status,
         category=clean_category,
         quick=quick_flag,
+        scope=scope,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -347,6 +352,7 @@ async def search_htmx(
             status=clean_status,
             category=clean_category,
             quick=quick_flag,
+            scope=scope,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
     tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
