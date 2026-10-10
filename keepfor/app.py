@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
-import time
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Request
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import APIRouter, FastAPI, Request
 
-from keepfor import deps
+from keepfor import deps, runtime
+from keepfor.middleware import LoggingMiddleware, SecurityHeadersMiddleware
 from keepfor.models.items import record_open
 from keepfor.routes import api_router, auth_router, settings_router, ui_router
 from keepfor.routes._shared import (
@@ -29,75 +30,51 @@ from keepfor.routes.settings import (
     FAIL_GROUP_ORDER,
     get_fail_group_counts,
 )
-from keepfor.utils.logging import get_request_id, logger
-
-app = FastAPI(title="Keepfor.me API & UI", version="0.1.0")
-
-
-# Logging middleware
-class LoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        get_request_id()
-        start_time = time.time()
-
-        try:
-            response = await call_next(request)
-            time.time() - start_time
-
-            logger.info(
-                f"{request.method} {request.url.path} -> {response.status_code}"
-            )
-            return response
-        except Exception as exc:
-            time.time() - start_time
-            logger.error(
-                f"Exception in {request.method} {request.url.path}", exc_info=exc
-            )
-            raise
+from keepfor.spi import Providers
+from keepfor.templating import configure_templates
 
 
-app.add_middleware(LoggingMiddleware)
+def create_app(
+    providers: Providers | None = None,
+    *,
+    extra_routers: Sequence[APIRouter] = (),
+    include_auth_routes: bool = True,
+    include_settings_routes: bool = True,
+    template_dirs: Sequence[Path] = (),
+    template_globals: Mapping[str, Any] | None = None,
+    extra_middleware: Sequence[tuple[type, dict[str, Any]]] = (),
+    title: str = "Keepfor.me API & UI",
+) -> FastAPI:
+    prov = (providers or Providers()).resolved()
+    runtime.set_providers(prov)
+
+    if template_dirs or template_globals:
+        configure_templates(extra_dirs=template_dirs, globals=template_globals)
+
+    app = FastAPI(title=title, version="0.1.0")
+    app.state.providers = prov
+
+    for mw_cls, mw_kwargs in extra_middleware:
+        app.add_middleware(mw_cls, **mw_kwargs)
+
+    app.add_middleware(LoggingMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    for r in extra_routers:
+        app.include_router(r)
+
+    if include_auth_routes:
+        app.include_router(auth_router)
+    if include_settings_routes:
+        app.include_router(settings_router)
+
+    app.include_router(api_router)
+    app.include_router(ui_router)
+
+    return app
 
 
-# Security headers middleware
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        # Prevent MIME type sniffing
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        # Disable framing
-        response.headers["X-Frame-Options"] = "DENY"
-        # Referrer policy
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        # Permissions policy (disable unnecessary APIs)
-        response.headers["Permissions-Policy"] = (
-            "geolocation=(), microphone=(), camera=()"
-        )
-        # Content Security Policy
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' "
-            "https://cdn.tailwindcss.com https://unpkg.com "
-            "https://static.cloudflareinsights.com; "
-            "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; "
-            "img-src 'self' https: data:; "
-            "font-src 'self' https: data:; "
-            "connect-src 'self' https:; "
-            "object-src 'none'; "
-            "base-uri 'self'; "
-            "form-action 'self'; "
-            "frame-ancestors 'none'"
-        )
-        return response
-
-
-app.add_middleware(SecurityHeadersMiddleware)
-
-# Include core routers
-app.include_router(auth_router)
-app.include_router(settings_router)
-app.include_router(api_router)
-app.include_router(ui_router)
+app = create_app()
 
 
 # Backwards compatibility re-exports
@@ -129,6 +106,7 @@ def get_db(request: Request):
 
 __all__ = [
     "app",
+    "create_app",
     "LoggingMiddleware",
     "SecurityHeadersMiddleware",
     "get_env_from_request",
