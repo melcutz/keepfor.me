@@ -1,0 +1,22 @@
+# Default owner
+*                         @melcutz
+
+# Legal and policy: always owner reviewed
+/LICENSE                  @melcutz
+/LICENSING.md             @melcutz
+/CLA.md                   @melcutz
+/NOTICE                   @melcutz
+/TRADEMARK.md             @melcutz
+/SECURITY.md              @melcutz
+
+# CI, release and deploy surface
+/.github/                 @melcutz
+/wrangler.jsonc           @melcutz
+/pyproject.toml           @melcutz
+
+# Extension seams and tenant isolation (the contract cloud depends on)
+/keepfor/spi.py           @melcutz
+/keepfor/defaults.py      @melcutz
+/migrations/              @melcutz
+/tests/isolation/         @melcutz
+/tests/test_sql_tenant_scope.py @melcutz
