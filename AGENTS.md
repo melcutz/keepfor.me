@@ -5,7 +5,7 @@ FastAPI read-it-later app deployed as a Cloudflare **Python Worker** (`compatibi
 ## Commands
 
 ```bash
-python3 -m pytest tests/ -q                          # 237 passed, 1 skipped, ~55s
+python3 -m pytest tests/ -q                          # 319 passed, 9 skipped, ~100s
 python3 -m pytest tests/test_crypto.py::test_password_hashing   # single test
 python3 -m pytest tests/ -k crypto -q                # filter
 
@@ -14,8 +14,7 @@ ruff check src/ tests/ --select=E,W,F,I,N
 ruff format --check src/ tests/
 ```
 
-- **Run pytest from the repo root.** From any subdirectory it dies with `ModuleNotFoundError: No module named 'src'` — `src` has no `__init__.py` and resolves as a namespace package only when the root is on `sys.path`. `pythonpath = src` in `pytest.ini` is not what makes it work.
-- All tests are **module-level functions**; there are no `Test*` classes. Node IDs are `tests/test_x.py::test_name`.
+- **Run pytest from the repo root.** All tests are **module-level functions**; there are no `Test*` classes. Node IDs are `tests/test_x.py::test_name`.
 - Local dev / deploy to prod: `uvx --from workers-py pywrangler dev --config wrangler.local.jsonc` (never run dev against `wrangler.jsonc` without `--config`) / manual deploy via `workflow_dispatch` or `pywrangler deploy`.
 
 ## What CI actually gates
@@ -33,6 +32,14 @@ Only the `lint` (ruff check **and** format) and `test` (pytest) jobs can fail a 
 `deploy.yml` requires manual triggering via `workflow_dispatch` with input `confirm: "deploy"` (or local `pywrangler deploy`). Deploys are manual: self-hosters deploy to their own Cloudflare account; the owner deploys by running the workflow by hand. Pushing to `main` does NOT auto-deploy. Needs `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets.
 
 **Warning about `"remote": true`:** `wrangler.jsonc` has `"remote": true` on D1, R2, and Vectorize bindings with the real production `database_id`. Never run local dev against `wrangler.jsonc` as it reads and writes remote production resources! For local simulation, copy `wrangler.local.example.jsonc` to `wrangler.local.jsonc` and use `pywrangler dev --config wrangler.local.jsonc`.
+
+## Open-core rules
+
+- core never imports from the private cloud repo
+- extension happens only through `keepfor/spi.py`
+- every SQL touching a tenant table must be scoped by `user_id` (CI enforces)
+- every change to `spi.py` bumps `CORE_API_VERSION` when it is not backward compatible
+- deploys are manual
 
 ## Bundle size: the deploy will fail with "exceeded 64 MiB" if you aren't careful
 
@@ -87,7 +94,7 @@ Code reads bindings by name via `env.X` / `getattr(env, "X", None)`:
 
 | Name used in code | Declared in `wrangler.jsonc` |
 |---|---|
-| `DB` (`src/app.py:154`, `src/consumer/processor.py:245` and `:304`) | `keepfor_me_db` — **mismatch** |
+| `DB` (`src/app.py:194`, `src/consumer/processor.py:393` and `:452`) | `keepfor_me_db` — **mismatch** |
 | `BUCKET`, `VECTORIZE`, `AI`, `QUEUE` | match |
 
 Both call sites fall back through `DB` → `keepfor_me_db` → `D1`, so this mismatch is
@@ -97,7 +104,7 @@ currently harmless — but keep all three names in the chain if you touch it.
 
 R2 is also declared twice (`BUCKET` and `keepfor_me_bucket`); only `BUCKET` is referenced by code.
 
-`wrangler.jsonc` has no `database_id` for D1 (only `"remote": true`) — you must paste the id from `npx wrangler d1 create` before deploying.
+`wrangler.jsonc` binds the production D1 database ID (`46107ebb-e820-41e2-92f1-089c7eac4fbf`) with `"remote": true`.
 
 ## Configuration: `src/config.py` is dead code
 
@@ -107,7 +114,7 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 
 ## Auth invariants
 
-- The **first** user to register becomes `admin`; afterwards registration raises `RegistrationClosedError` unless the `ALLOW_PUBLIC_SIGNUPS` var is the *string* `"true"` (`src/app.py:719` does a literal string compare).
+- The **first** user to register becomes `admin`; afterwards registration raises `RegistrationClosedError` unless the `ALLOW_PUBLIC_SIGNUPS` var is the *string* `"true"` (`src/app.py:1611` does a literal string compare).
 - `GET /auth/login` and `GET /auth/register` **redirect (303) to `_safe_next(next)` when already signed in**, so the forms never render for an authenticated visitor. Any new auth page should do the same.
 - Passwords: PBKDF2-HMAC-SHA256, 100k iterations, stored as `salt$hex`.
 - PATs are prefixed `kfm_live_` / `rk_live_` and stored as a SHA-256 hash — never the raw token.
@@ -132,14 +139,12 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 - Still true of the splitter: no `;` inside **string literals** or trigger bodies. Comment handling is safe; quoted text is not.
 - Vectorize, Workers AI, R2, and Queue branches are **never executed in tests** (there is no Cloudflare `env`); they are guarded by `hasattr(env, ...)` / `is not None` checks. `src/consumer/processor.py` and `src/models/items.py` are effectively untested — review those by hand.
 - Entrypoint signatures in `src/worker.py` must accept the runtime's full dispatch: `fetch(self, request, env=None, ctx=None)`, `queue(self, batch, env=None, ctx=None)`. A narrower `queue(self, batch)` crashed **every** prod delivery with `TypeError: ... takes 2 positional arguments but 4 were given` (2026-10-03): 998 ingested, ~808 acked-and-dropped, zero items processed, zero `failed` rows. The `workers` package (and the failure) exists only on the runtime — `tests/test_worker_entrypoint.py` pins the contract but skips everywhere except prod.
-- `search_fts` and `search_vectorize` wrap their bodies in bare `except Exception` (`src/search/engine.py:37` and `:102`). Search **degrades silently to empty results** instead of raising. When search returns nothing, read the logs rather than expecting a traceback.
+- `search_fts` and `search_vectorize` wrap their bodies in bare `except Exception` (`src/search/engine.py:169`, `:190`, `:288`). Search **degrades silently to empty results** instead of raising. When search returns nothing, read the logs rather than expecting a traceback.
 
 ## Repo hygiene traps
 
-- 16 `*.pyc` files and `.DS_Store` are still **tracked** despite `.gitignore` listing them. `.gitignore` does not untrack anything — use `git rm --cached`.- `pylock.toml`, `python_modules/`, and `.venv-workers/` are gitignored Workers build artifacts (~200 MB on disk). The deployed dependency set is therefore **not locked in git**; `pyproject.toml` ranges are the only constraint.
-- `.wrangler/` (local dev-server state) is **not** gitignored, so `git status` stays dirty after any `pywrangler dev`. Don't commit it.
+- `pylock.toml`, `python_modules/`, and `.venv-workers/` are gitignored Workers build artifacts (~200 MB on disk). The deployed dependency set is therefore **not locked in git**; `pyproject.toml` ranges are the only constraint.
 - `/api/mcp` is a remote stateless Streamable HTTP MCP endpoint (no sessions, no SSE, Bearer PAT auth). There is deliberately no local stdio proxy/CLI anymore — `src/mcp/cli.py`, the `pyproject.toml` console scripts, and the `mcp-cli/` shim were removed.
-- CI runs Python 3.11; local venvs are 3.12/3.14. `src/utils/logging.py:39` uses `datetime.utcnow()`, deprecated on 3.12+ and noisy in test output.
 
 ## Layout
 

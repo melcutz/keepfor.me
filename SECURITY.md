@@ -2,26 +2,29 @@
 
 ## About this project
 
-Keepfor.me is a **self-hosted, single-tenant** application. There is no hosted
-SaaS, no multi-tenant data store, and no shared user database — each deployment
-has exactly one owner account (the first user to register claims admin, and
-registration then closes).
+Keepfor.me core is single-tenant by default. A separate hosted service is built
+on it through documented provider seams; multi-tenant isolation guarantees are
+enforced by `tests/isolation/` and `tests/test_sql_tenant_scope.py` (to be
+linked in T1.8).
 
-That shapes everything below: the realistic threat model is "someone obtained
-access to *my* deployment," not "an attacker is targeting all users of a public
-service."
+That shapes the baseline threat model: in self-hosted deployments, each
+deployment has exactly one owner account (the first user to register claims
+admin, and registration then closes).
 
 ## Supported Versions
 
-There are no tagged releases; the project is deployed straight from `main`.
+The latest minor release tag receives security fixes; older minor versions are
+unsupported. Fixes are developed on `main` and backported to the supported
+release.
 
 | Version | Supported |
 | ------- | --------- |
-| `main` (current `HEAD`) | :white_check_mark: |
-| Anything older than `HEAD` | :x: |
+| `1.1.x` (once tagged) | :white_check_mark: |
+| Older minor versions | :x: |
+| `main` | Best effort |
 
-Fixes land on `main` and reach a deployment on the next push (see
-`deploy.yml`). If you are self-hosting, update by pulling and redeploying.
+If you are self-hosting, update by pulling the latest release tag and
+redeploying.
 
 ## Security Model
 
@@ -87,10 +90,10 @@ report real issues.
 
 - **Use GitHub's private vulnerability reporting** on
   [`melcutz/keepfor.me`](https://github.com/melcutz/keepfor.me) (Security tab →
-  "Report a vulnerability"). This opens a private advisory visible only to the
-  maintainer.
+  "Report a vulnerability") as the preferred channel when enabled. This opens a
+  private advisory visible only to the maintainer.
 - Expect an acknowledgement within a few days and a fix or mitigation plan
-  shortly after. Because there are no releases, a fix means a commit on `main` —
+  shortly after. Security fixes will be tagged in a patch release —
   tell me if you self-host and need the patch sooner.
 
 Please do not open a public issue for an unpatched vulnerability.
