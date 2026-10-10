@@ -198,14 +198,19 @@ async def library_page(
     quick: bool = False,
 ):
     user = await deps.get_current_user(request)
-    db = deps.get_db(request)
     if not user:
-        # Check if any users exist to direct to register vs login
-        count_row = await db.query_first("SELECT COUNT(*) as count FROM users;")
-        if not count_row or count_row["count"] == 0:
-            return RedirectResponse(url="/auth/register", status_code=303)
+        # Without a user there is no tenant scope, so a multi-tenant provider
+        # has no database to open: send the visitor to login without touching
+        # get_db. Only the single-tenant default scope can ask whether any
+        # user exists yet, to send a fresh self-hosted install to register.
+        if deps.is_single_tenant(request):
+            db = deps.get_db(request)
+            count_row = await db.query_first("SELECT COUNT(*) as count FROM users;")
+            if not count_row or count_row["count"] == 0:
+                return RedirectResponse(url="/auth/register", status_code=303)
         return RedirectResponse(url="/auth/login", status_code=303)
 
+    db = deps.get_db(request)
     env = deps.get_env_from_request(request)
     scope = deps.get_scope(request)
     clean_status = status.strip() if status and status.strip() else None
