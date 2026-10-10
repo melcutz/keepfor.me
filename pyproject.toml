@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Thin read-it-later and personal library on Cloudflare Python Workers with MCP for keepfor.me"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "AGPL-3.0-only"
 dependencies = [
     "fastapi>=0.115.0",
     "pydantic>=2.9.0",

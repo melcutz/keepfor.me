@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """Tests for semantic text chunking."""
 
 from src.utils.chunker import recursive_character_split

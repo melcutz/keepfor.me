@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Claudiu Branzan
+
 // Shared fetch helpers. workerUrl normalized (no trailing slash). All calls use Bearer PAT.
 export function normBase(u) { return (u || "").trim().replace(/\/+$/, ""); }
 

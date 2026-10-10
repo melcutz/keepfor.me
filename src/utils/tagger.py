@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """Stdlib-only tag matching + keyphrase suggestion (no LLM, no new deps).
 
 Two halves (hybrid tagging):

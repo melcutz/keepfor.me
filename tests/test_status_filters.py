@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """Status filter pills + failed-cleanup tests (TDD RED)."""
 
 import uuid

@@ -6,7 +6,7 @@
 [![Runtime](https://img.shields.io/badge/runtime-Cloudflare%20Python%20Workers-f38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/runtime-apis/bindings/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Protocol](https://img.shields.io/badge/MCP-Streamable%20HTTP-000000)](https://modelcontextprotocol.io)
-[![License](https://img.shields.io/badge/license-MIT-64748b)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
 
 A thin, fast read-it-later and personal library application running entirely on Cloudflare Python Workers, D1 SQLite with FTS5, Vectorize, R2, and the Model Context Protocol (MCP).
 
@@ -268,6 +268,19 @@ Cold starts dominate perceived latency on Python Workers: page loads sit around
 
 ---
 
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our development workflow, testing, and pull request process.
+
+All contributors must sign our [Contributor License Agreement (CLA)](CLA.md). You retain copyright ownership of your work; the agreement grants us the license necessary to operate the hosted service and offer commercial licenses.
+
+---
+
 ## License
 
-MIT License. Open source and built for speed.
+Keepfor.me is licensed under the [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`).
+
+- **Self-Hosting**: You can self-host freely for personal or organizational use without restriction.
+- **Network Services**: If you modify Keepfor.me and offer it as a service over a network, you must publish your modified source code under the AGPL-3.0.
+- **Commercial Licensing**: Commercial licenses and alternative licensing agreements are available upon request to support proprietary, enterprise, or closed-source deployments. See [LICENSING.md](LICENSING.md) for details.
+- **Prior Releases**: Previous releases prior to this license change remain under the MIT License for anyone who already has them.

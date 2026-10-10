@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """Tests for URL canonicalization and normalization."""
 
 from src.utils.url import canonicalize_url, extract_url

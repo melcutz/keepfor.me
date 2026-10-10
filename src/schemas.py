@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """Pydantic models for request/response validation and MCP tool arguments."""
 
 from datetime import datetime

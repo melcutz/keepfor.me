@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Claudiu Branzan
+
 // Service worker: context menus -> single save + notification via chrome.notifications? No
 // notifications perm requested; use badge text + last-result in storage for popup/panel to show.
 chrome.runtime.onInstalled.addListener(() => {

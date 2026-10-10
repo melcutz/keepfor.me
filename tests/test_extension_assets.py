@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """The extension manifest references icon files; missing files mean a
 default puzzle-piece toolbar icon. Pure-stdlib PNG header checks."""
 

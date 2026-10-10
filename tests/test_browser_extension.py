@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """Reusable Playwright tests for the browser extension (MV3 popup).
 
 Runs against the live app as a normal user — no backdoors, no DB access.

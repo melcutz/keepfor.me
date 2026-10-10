@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 import re
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 

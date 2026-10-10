@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """Tests for authentication cryptography utilities."""
 
 from src.auth.crypto import (

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """PWA icon bytes (generated from the brand SVG; do not hand-edit)."""
 
 ICON_192_B64 = (

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
+
 """Rules tables exist and enforce uniqueness (migration 0004)."""
 
 import uuid
