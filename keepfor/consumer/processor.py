@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Claudiu Branzan
 
-import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -11,6 +10,11 @@ if TYPE_CHECKING:
 from keepfor.consumer.extractor import article_from_reader_markdown, extract_article
 from keepfor.models.db import Database
 from keepfor.utils.chunker import recursive_character_split
+from keepfor.utils.egress import (
+    fetch_limited,
+    policy_from_env,
+    validate_url,
+)
 from keepfor.utils.logging import logger
 
 USER_AGENT = (
@@ -59,40 +63,24 @@ class BlockedPageError(RuntimeError):
 
 
 async def fetch_page_html(url: str, headers: dict | None = None) -> str:
-    """Fetch URL HTML via pyfetch or urllib with a 20s timeout and 5MB cap."""
+    """Fetch URL HTML via pyfetch or urllib with egress limits and SSRF policy."""
+    policy = policy_from_env(None)
     try:
-        import pyodide.http
+        from keepfor.runtime import get_providers
 
-        response = await pyodide.http.pyfetch(
-            url,
-            headers=headers or BROWSER_HEADERS,
-            timeout=FETCH_TIMEOUT,
-        )
-        if response.status >= 400:
-            raise OriginHttpError(response.status, url)
-        # Read text with length check
-        text = await response.text()
-        return text[:MAX_HTML_BYTES]
-    except ImportError:
-        # Local development / standard Python runtime fallback
-        import urllib.error
-        import urllib.request
+        budget = get_providers().fetch_budget
+    except Exception:
+        budget = None
 
-        req = urllib.request.Request(url, headers=headers or BROWSER_HEADERS)
-        loop = asyncio.get_running_loop()
-
-        def _sync_fetch():
-            try:
-                with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
-                    if resp.status >= 400:
-                        raise OriginHttpError(resp.status, url)
-                    raw = resp.read(MAX_HTML_BYTES)
-                    return raw.decode("utf-8", errors="replace")
-            except urllib.error.HTTPError as exc:
-                # urlopen raises (instead of returning) for 4xx/5xx.
-                raise OriginHttpError(exc.code, url) from None
-
-        return await loop.run_in_executor(None, _sync_fetch)
+    res = await fetch_limited(
+        url,
+        headers=headers or BROWSER_HEADERS,
+        policy=policy,
+        budget=budget,
+    )
+    if res.status >= 400:
+        raise OriginHttpError(res.status, res.url or url)
+    return res.text
 
 
 async def fetch_jina_reader(url: str) -> str:
@@ -120,12 +108,16 @@ MAX_REDIRECT_HOPS = 2
 PROXY_FALLBACK_STATUSES = frozenset({403, 429, 530, 522, 520})
 
 
-async def _fetch_and_extract(url: str, item_id: str) -> tuple[dict, str | None]:
+async def _fetch_and_extract(
+    url: str,
+    item_id: str,
+) -> tuple[dict, str | None]:
     """Fetch + extract, following bounded redirect stubs and reader proxy.
 
     Returns (extracted, raw_html). raw_html is None for proxy-sourced items.
     Raises BlockedPageError when the payload is a wall rather than an article.
     """
+    policy = policy_from_env(None)
     current_url = url
     raw_html: str | None = None
     for hop in range(MAX_REDIRECT_HOPS + 1):
@@ -150,11 +142,12 @@ async def _fetch_and_extract(url: str, item_id: str) -> tuple[dict, str | None]:
         blocked = extracted.get("blocked_reason")
         # A redirect stub is worth one more hop; a wall is not.
         if redirect_url and hop < MAX_REDIRECT_HOPS:
+            normalized_redirect = validate_url(redirect_url, policy)
             logger.info(
                 f"Following redirect stub: item={item_id} "
-                f"{current_url} -> {redirect_url}"
+                f"{current_url} -> {normalized_redirect}"
             )
-            current_url = redirect_url
+            current_url = normalized_redirect
             continue
         if blocked:
             raise BlockedPageError(blocked)

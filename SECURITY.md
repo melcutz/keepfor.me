@@ -78,6 +78,15 @@ production.
   through an allowlist (`sanitize_clean_html`) that strips all scripts, styles,
   and event handlers, but reader output is rendered into the same origin as the
   app. Do not treat it as a hard boundary against a novel parser bypass.
+- **Outbound egress policy is lexical (no Workers DNS resolution).**
+  The egress hardening in `keepfor/utils/egress.py` prevents SSRF by validating
+  schemes, ports, userinfo, and private/loopback/link-local/multicast IP literals
+  (including decimal/hex/octal forms and IPv6-mapped IPv4 ranges), as well as
+  denying loopback/internal domain suffixes (`localhost`, `*.local`, `*.internal`,
+  `*.workers.dev`) and custom `EGRESS_DENY_HOSTS`. However, Cloudflare Workers do
+  not expose synchronous DNS resolution APIs to inspect the IP addresses that a
+  public hostname resolves to. Defenses against DNS rebinding must be enforced
+  at the network egress perimeter or Cloudflare Gateway.
 - **`ALLOW_PUBLIC_SIGNUPS` gates registration only.** If set to the string
   `"true"`, anyone who can reach the instance can create an account and, since
   the library is single-tenant, read everything already saved. Leave it
