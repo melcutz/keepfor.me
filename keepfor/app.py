@@ -5,7 +5,6 @@ import asyncio
 import base64
 import datetime
 import hashlib
-import os
 import time
 from typing import Any
 from urllib.parse import urlencode, urlparse
@@ -69,6 +68,7 @@ from keepfor.models.items import (
     update_user_notes,
 )
 from keepfor.models.stats import get_user_stats, intensity_bucket
+from keepfor.paths import templates_dir
 from keepfor.schemas import (
     CreatePATRequest,
     LoginRequest,
@@ -99,8 +99,10 @@ from keepfor.utils.rate_limit import (
 from keepfor.utils.url import extract_url
 
 # Initialize Jinja2 templates
-templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
-jinja_env = Environment(loader=FileSystemLoader(templates_dir), autoescape=True)
+templates_dir_path = templates_dir()
+jinja_env = Environment(
+    loader=FileSystemLoader(str(templates_dir_path)), autoescape=True
+)
 
 app = FastAPI(title="Keepfor.me API & UI", version="0.1.0")
 

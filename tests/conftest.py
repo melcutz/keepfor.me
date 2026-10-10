@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 import pytest
 
 from keepfor.models.db import Database
+from keepfor.paths import migrations_dir
 from keepfor.utils.logging import clear_context
 from tests.fakes import FakeAI, FakeEnv, FakeQueue, FakeR2Bucket, FakeVectorize
 
@@ -36,12 +37,12 @@ def sqlite_conn(db_path: str) -> sqlite3.Connection:
     # Apply every migration in filename order (0001_..., 0002_...).
     # Previously this hardcoded 0001 only, so later migrations (e.g. the
     # auth rate-limit table) were invisible to the entire suite.
-    migrations_dir = os.path.join(os.path.dirname(__file__), "..", "migrations")
-    schema_files = sorted(f for f in os.listdir(migrations_dir) if f.endswith(".sql"))
-    assert schema_files, f"no migrations found in {migrations_dir}"
+    mig_dir = str(migrations_dir())
+    schema_files = sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql"))
+    assert schema_files, f"no migrations found in {mig_dir}"
 
     for name in schema_files:
-        with open(os.path.join(migrations_dir, name), "r") as f:
+        with open(os.path.join(mig_dir, name), "r") as f:
             schema = f.read()
             # Strip `--` comment lines before splitting. A semicolon inside a
             # comment used to split mid-comment and leave unparseable SQL as
