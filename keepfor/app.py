@@ -389,8 +389,8 @@ async def library_page(
     category: str | None = None,
     quick: bool = False,
 ):
-    db = get_db(request)
     user = await get_current_user(request)
+    db = get_db(request)
     if not user:
         # Check if any users exist to direct to register vs login
         count_row = await db.query_first("SELECT COUNT(*) as count FROM users;")
