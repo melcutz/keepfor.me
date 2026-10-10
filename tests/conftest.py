@@ -6,12 +6,13 @@
 import os
 import sqlite3
 import tempfile
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 
 from src.models.db import Database
 from src.utils.logging import clear_context
+from tests.fakes import FakeAI, FakeEnv, FakeQueue, FakeR2Bucket, FakeVectorize
 
 
 @pytest.fixture
@@ -100,3 +101,48 @@ async def async_db(sqlite_conn: sqlite3.Connection) -> AsyncGenerator[Database, 
     """Async database fixture."""
     db = Database(sqlite_conn=sqlite_conn)
     yield db
+
+
+@pytest.fixture
+def fake_bucket() -> FakeR2Bucket:
+    """In-memory FakeR2Bucket fixture."""
+    return FakeR2Bucket()
+
+
+@pytest.fixture
+def fake_vectorize() -> FakeVectorize:
+    """In-memory FakeVectorize fixture."""
+    return FakeVectorize()
+
+
+@pytest.fixture
+def fake_ai() -> FakeAI:
+    """In-memory FakeAI fixture that resets script between tests."""
+    FakeAI.script(None)
+    ai = FakeAI()
+    yield ai
+    FakeAI.script(None)
+
+
+@pytest.fixture
+def fake_queue() -> FakeQueue:
+    """In-memory FakeQueue fixture."""
+    return FakeQueue()
+
+
+@pytest.fixture
+def fake_env(
+    db: Database,
+    fake_bucket: FakeR2Bucket,
+    fake_vectorize: FakeVectorize,
+    fake_ai: FakeAI,
+    fake_queue: FakeQueue,
+) -> FakeEnv:
+    """FakeEnv container composing fake bindings and test db."""
+    return FakeEnv(
+        db=db,
+        bucket=fake_bucket,
+        vectorize=fake_vectorize,
+        ai=fake_ai,
+        queue=fake_queue,
+    )
