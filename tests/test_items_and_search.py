@@ -452,3 +452,161 @@ async def test_delete_item_logs_warning_on_vectorize_and_r2_failure(
         messages = [r.message for r in caplog.records]
         assert any("Failed to delete vector embeddings" in m for m in messages)
         assert any("Failed to delete R2 snapshots" in m for m in messages)
+
+
+@pytest.mark.asyncio
+async def test_search_vectorize_passes_return_metadata_and_extracts_from_metadata():
+    """search_vectorize passes returnMetadata='all' and extracts item_id."""
+    mock_env = MagicMock()
+    mock_env.AI.run = AsyncMock(return_value={"data": [[0.1, 0.2, 0.3]]})
+    mock_matches = [
+        {
+            "id": "item_item-123_chunk_0",
+            "score": 0.95,
+            "metadata": {
+                "item_id": "item-123",
+                "user_id": "user-1",
+                "chunk_index": 0,
+            },
+        },
+        {
+            "id": "item_item-123_chunk_1",
+            "score": 0.80,
+            "metadata": {
+                "item_id": "item-123",
+                "user_id": "user-1",
+                "chunk_index": 1,
+            },
+        },
+        {
+            "id": "item_item-456_chunk_0",
+            "score": 0.88,
+            "metadata": {
+                "item_id": "item-456",
+                "user_id": "user-1",
+                "chunk_index": 0,
+            },
+        },
+    ]
+    vec_result = MagicMock()
+    vec_result.matches = mock_matches
+    mock_env.VECTORIZE.query = AsyncMock(return_value=vec_result)
+
+    results = await search_vectorize(mock_env, "user-1", "my query", limit=50)
+
+    # Verify query options
+    mock_env.VECTORIZE.query.assert_awaited_once()
+    args, kwargs = mock_env.VECTORIZE.query.call_args
+    options = args[1]
+    assert options.get("returnMetadata") == "all"
+    assert options.get("topK") == 50
+    # Vectorize filter should NOT be present so unindexed vectors are not dropped
+    assert "filter" not in options
+
+    # Verify extracted results deduplicated and sorted by max score
+    assert len(results) == 2
+    assert results[0] == {"item_id": "item-123", "score": 0.95}
+    assert results[1] == {"item_id": "item-456", "score": 0.88}
+
+
+@pytest.mark.asyncio
+async def test_search_vectorize_fallback_to_id_when_metadata_missing():
+    """search_vectorize falls back to extracting item_id from chunk id."""
+    mock_env = MagicMock()
+    mock_env.AI.run = AsyncMock(return_value={"data": [[0.1, 0.2, 0.3]]})
+    mock_matches = [
+        {
+            "id": "item_924707a9-2050-4664-aef3-bf4919e949d8_chunk_0",
+            "score": 0.92,
+            # No metadata returned
+        },
+        {
+            "id": "item_1d27bbb1-8876-46a0-9254-3f1381173645_chunk_3",
+            "score": 0.85,
+            "metadata": {},
+        },
+    ]
+    vec_result = MagicMock()
+    vec_result.matches = mock_matches
+    mock_env.VECTORIZE.query = AsyncMock(return_value=vec_result)
+
+    results = await search_vectorize(mock_env, "user-1", "test query")
+
+    assert len(results) == 2
+    assert results[0] == {
+        "item_id": "924707a9-2050-4664-aef3-bf4919e949d8",
+        "score": 0.92,
+    }
+    assert results[1] == {
+        "item_id": "1d27bbb1-8876-46a0-9254-3f1381173645",
+        "score": 0.85,
+    }
+
+
+@pytest.mark.asyncio
+async def test_search_vectorize_filters_out_different_user_when_metadata_present():
+    """search_vectorize excludes matches whose user_id belongs to another user."""
+    mock_env = MagicMock()
+    mock_env.AI.run = AsyncMock(return_value={"data": [[0.1, 0.2, 0.3]]})
+    mock_matches = [
+        {
+            "id": "item_mine_chunk_0",
+            "score": 0.90,
+            "metadata": {"item_id": "mine", "user_id": "user-1"},
+        },
+        {
+            "id": "item_theirs_chunk_0",
+            "score": 0.99,
+            "metadata": {"item_id": "theirs", "user_id": "user-2"},
+        },
+    ]
+    vec_result = MagicMock()
+    vec_result.matches = mock_matches
+    mock_env.VECTORIZE.query = AsyncMock(return_value=vec_result)
+
+    results = await search_vectorize(mock_env, "user-1", "query")
+
+    assert len(results) == 1
+    assert results[0] == {"item_id": "mine", "score": 0.90}
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_semantic_mode(user_with_env):
+    """hybrid_search with mode='semantic' retrieves items matching vector search."""
+    user, env, db = user_with_env
+    item, _ = await save_item(
+        db, env, user["id"], "https://example.com/vector-article", ["ai"]
+    )
+    await db.execute(
+        "UPDATE items SET title = 'Vector Search in Practice', status = 'ok' "
+        "WHERE id = ?;",
+        (item["id"],),
+    )
+
+    env.AI = MagicMock()
+    env.AI.run = AsyncMock(return_value={"data": [[0.1, 0.2, 0.3]]})
+
+    mock_matches = [
+        {
+            "id": f"item_{item['id']}_chunk_0",
+            "score": 0.94,
+            "metadata": {
+                "item_id": item["id"],
+                "user_id": user["id"],
+                "chunk_index": 0,
+            },
+        }
+    ]
+    vec_result = MagicMock()
+    vec_result.matches = mock_matches
+    env.VECTORIZE = MagicMock()
+    env.VECTORIZE.query = AsyncMock(return_value=vec_result)
+
+    results, total = await hybrid_search(
+        db, env, user["id"], query="Vector Search", mode="semantic"
+    )
+
+    assert total == 1
+    assert len(results) == 1
+    assert results[0]["id"] == item["id"]
+    assert results[0]["title"] == "Vector Search in Practice"

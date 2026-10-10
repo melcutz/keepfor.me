@@ -238,10 +238,18 @@ async def search_vectorize(
             return []
         query_vector = embeddings[0]
 
-        # Vectorize query
+        # Vectorize query with metadata requested (max topK is 50 when
+        # returnMetadata is 'all'). We do not filter by user_id in Vectorize
+        # directly because Cloudflare Vectorize requires a metadata index and
+        # does not backfill existing vectors into newly created metadata
+        # indexes. Downstream, D1 strictly enforces tenant isolation via
+        # `WHERE i.id IN (...) AND i.user_id = ?`, and matches with metadata
+        # are also checked below.
+        query_top_k = min(limit, 50)
         vec_res = await asyncio.wait_for(
             env.VECTORIZE.query(
-                query_vector, {"topK": limit, "filter": {"user_id": user_id}}
+                query_vector,
+                {"topK": query_top_k, "returnMetadata": "all"},
             ),
             timeout=VECTOR_SEARCH_TIMEOUT,
         )
@@ -252,18 +260,33 @@ async def search_vectorize(
         # Deduplicate matches by item_id, keeping highest score
         item_scores: dict[str, float] = {}
         for m in matches:
-            meta = m.get("metadata", {})
+            meta = m.get("metadata") or {}
+            match_user_id = meta.get("user_id")
+            if match_user_id and match_user_id != user_id:
+                continue
+
             item_id = meta.get("item_id")
+            if not item_id:
+                chunk_id = m.get("id", "")
+                if chunk_id.startswith("item_") and "_chunk_" in chunk_id:
+                    item_id = chunk_id[len("item_") : chunk_id.rfind("_chunk_")]
+
             score = m.get("score", 0.0)
             if item_id:
                 if item_id not in item_scores or score > item_scores[item_id]:
                     item_scores[item_id] = score
 
+        if matches and not item_scores:
+            logger.warning(
+                "Vector search returned %d matches but could not extract any item IDs",
+                len(matches),
+            )
+
         # Return sorted by score descending
         sorted_items = sorted(item_scores.items(), key=lambda x: x[1], reverse=True)
         return [{"item_id": item_id, "score": score} for item_id, score in sorted_items]
     except Exception as exc:
-        logger.warning("Vector search query failed: %s", exc)
+        logger.warning("Vector search query failed: %s", exc, exc_info=True)
         return []
 
 
