@@ -26,4 +26,4 @@ jobs:
           path-to-signatures: 'signatures/version1/cla.json'
           path-to-document: 'https://github.com/melcutz/keepfor.me/blob/main/CLA.md'
           branch: 'cla-signatures'
-          allowlist: melcutz,bot*
+          allowlist: melcutz,dependabot[bot],github-actions[bot],renovate[bot]
