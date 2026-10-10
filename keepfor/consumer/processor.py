@@ -11,6 +11,7 @@ from keepfor.consumer.extractor import article_from_reader_markdown, extract_art
 from keepfor.models.db import Database
 from keepfor.utils.chunker import recursive_character_split
 from keepfor.utils.egress import (
+    _get_env_val,
     fetch_limited,
     policy_from_env,
     validate_url,
@@ -38,11 +39,26 @@ BROWSER_HEADERS = {
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"Windows"',
 }
-JINA_READER_BASE = "https://r.jina.ai/"
 MAX_HTML_BYTES = 5 * 1024 * 1024  # 5MB
 FETCH_TIMEOUT = 20
 SUMMARY_TIMEOUT = 4.0
 SUMMARY_MODEL = "@cf/meta/llama-3.2-3b-instruct"
+
+
+def get_reader_proxy_base(env: Any = None) -> str:
+    """Return configured reader proxy base URL, normalized with trailing slash.
+
+    Returns an empty string if unset or invalid.
+    """
+    base = _get_env_val(env, "READER_PROXY_BASE")
+    if not base or not isinstance(base, str):
+        return ""
+    base = base.strip()
+    if not base:
+        return ""
+    if not base.endswith("/"):
+        base += "/"
+    return base
 
 
 class OriginHttpError(RuntimeError):
@@ -62,9 +78,16 @@ class BlockedPageError(RuntimeError):
     """
 
 
-async def fetch_page_html(url: str, headers: dict | None = None) -> str:
+async def fetch_page_html(
+    url: str,
+    headers: dict | None = None,
+    *,
+    action: str = "fetch",
+    tenant_id: str | None = None,
+    env: Any = None,
+) -> str:
     """Fetch URL HTML via pyfetch or urllib with egress limits and SSRF policy."""
-    policy = policy_from_env(None)
+    policy = policy_from_env(env)
     try:
         from keepfor.runtime import get_providers
 
@@ -77,16 +100,34 @@ async def fetch_page_html(url: str, headers: dict | None = None) -> str:
         headers=headers or BROWSER_HEADERS,
         policy=policy,
         budget=budget,
+        tenant_id=tenant_id,
+        action=action,
     )
     if res.status >= 400:
         raise OriginHttpError(res.status, res.url or url)
     return res.text
 
 
-async def fetch_jina_reader(url: str) -> str:
+async def fetch_jina_reader(
+    url: str,
+    *,
+    env: Any = None,
+    tenant_id: str | None = None,
+) -> str:
     """Fetch reader-proxy markdown for a URL blocked to direct fetching."""
+    proxy_base = get_reader_proxy_base(env)
+    if not proxy_base:
+        raise RuntimeError("READER_PROXY_BASE is not configured")
+    policy = policy_from_env(env)
+    validate_url(url, policy)
+    proxy_url = proxy_base + url
+    validate_url(proxy_url, policy)
     return await fetch_page_html(
-        JINA_READER_BASE + url, headers={**BROWSER_HEADERS, "Accept": "text/markdown"}
+        proxy_url,
+        headers={**BROWSER_HEADERS, "Accept": "text/markdown"},
+        action="reader_proxy",
+        tenant_id=tenant_id,
+        env=env,
     )
 
 
@@ -111,28 +152,47 @@ PROXY_FALLBACK_STATUSES = frozenset({403, 429, 530, 522, 520})
 async def _fetch_and_extract(
     url: str,
     item_id: str,
+    *,
+    env: Any = None,
+    tenant_id: str | None = None,
 ) -> tuple[dict, str | None]:
     """Fetch + extract, following bounded redirect stubs and reader proxy.
 
     Returns (extracted, raw_html). raw_html is None for proxy-sourced items.
     Raises BlockedPageError when the payload is a wall rather than an article.
     """
-    policy = policy_from_env(None)
+    policy = policy_from_env(env)
     current_url = url
     raw_html: str | None = None
     for hop in range(MAX_REDIRECT_HOPS + 1):
         try:
-            raw_html = await fetch_page_html(current_url)
+            try:
+                raw_html = await fetch_page_html(
+                    current_url, tenant_id=tenant_id, env=env
+                )
+            except TypeError:
+                raw_html = await fetch_page_html(current_url)
             extracted = extract_article(raw_html, current_url)
         except OriginHttpError as direct_err:
-            if direct_err.status_code not in PROXY_FALLBACK_STATUSES:
+            reader_proxy_base = get_reader_proxy_base(env)
+            if (
+                not reader_proxy_base
+                or direct_err.status_code not in PROXY_FALLBACK_STATUSES
+            ):
                 raise
+            # SSRF check: ensure target URL is not pointing to private/internal IPs
+            validate_url(current_url, policy)
             logger.info(
                 f"Direct fetch got {direct_err.status_code}, "
                 f"trying reader proxy: item={item_id}"
             )
             try:
-                proxy_md = await fetch_jina_reader(current_url)
+                try:
+                    proxy_md = await fetch_jina_reader(
+                        current_url, env=env, tenant_id=tenant_id
+                    )
+                except TypeError:
+                    proxy_md = await fetch_jina_reader(current_url)
             except Exception:
                 raise direct_err from None
             extracted = article_from_reader_markdown(current_url, proxy_md)
@@ -203,7 +263,15 @@ async def extract_and_store(
         # 1. Fetch raw HTML, following redirect stubs and falling back to a
         # reader proxy when the origin forbids datacenter fetches (403).
         # Other statuses and a failed proxy keep the original error.
-        extracted, raw_html = await _fetch_and_extract(url, item_id)
+        try:
+            extracted, raw_html = await _fetch_and_extract(
+                url,
+                item_id,
+                env=env,
+                tenant_id=scope.tenant_id if scope else user_id,
+            )
+        except TypeError:
+            extracted, raw_html = await _fetch_and_extract(url, item_id)
 
         # 2. Store raw snapshot in R2 (skipped for proxied markdown)
         blobs = scope.blobs(env)

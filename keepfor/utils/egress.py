@@ -369,6 +369,7 @@ async def _fetch_limited_urllib(
     *,
     budget: FetchBudget | None = None,
     tenant_id: str | None = None,
+    action: str = "fetch",
 ) -> FetchResult:
     """CPython fallback implementation using urllib."""
     current_url = validate_url(url, policy)
@@ -376,7 +377,12 @@ async def _fetch_limited_urllib(
 
     while True:
         if budget:
-            allowed = await budget.allow_fetch(tenant_id, current_url)
+            try:
+                allowed = await budget.allow_fetch(
+                    tenant_id, current_url, action=action
+                )
+            except TypeError:
+                allowed = await budget.allow_fetch(tenant_id, current_url)
             if not allowed:
                 raise EgressBlocked("budget")
 
@@ -394,7 +400,10 @@ async def _fetch_limited_urllib(
             continue
 
         if budget:
-            await budget.record_fetch(tenant_id, len(body_bytes))
+            try:
+                await budget.record_fetch(tenant_id, len(body_bytes), action=action)
+            except TypeError:
+                await budget.record_fetch(tenant_id, len(body_bytes))
 
         text = body_bytes.decode("utf-8", errors="replace")
         return FetchResult(
@@ -413,6 +422,7 @@ async def _fetch_limited_pyodide(
     *,
     budget: FetchBudget | None = None,
     tenant_id: str | None = None,
+    action: str = "fetch",
 ) -> FetchResult:
     """Cloudflare Workers Pyodide implementation using pyfetch and ReadableStream."""
     import pyodide.http
@@ -423,7 +433,12 @@ async def _fetch_limited_pyodide(
 
     while True:
         if budget:
-            allowed = await budget.allow_fetch(tenant_id, current_url)
+            try:
+                allowed = await budget.allow_fetch(
+                    tenant_id, current_url, action=action
+                )
+            except TypeError:
+                allowed = await budget.allow_fetch(tenant_id, current_url)
             if not allowed:
                 raise EgressBlocked("budget")
 
@@ -530,7 +545,10 @@ async def _fetch_limited_pyodide(
                 )
 
         if budget:
-            await budget.record_fetch(tenant_id, len(body_bytes))
+            try:
+                await budget.record_fetch(tenant_id, len(body_bytes), action=action)
+            except TypeError:
+                await budget.record_fetch(tenant_id, len(body_bytes))
 
         text = body_bytes.decode("utf-8", errors="replace")
         return FetchResult(
@@ -549,6 +567,7 @@ async def fetch_limited(
     *,
     budget: FetchBudget | None = None,
     tenant_id: str | None = None,
+    action: str = "fetch",
 ) -> FetchResult:
     """Fetch URL with SSRF validation, size capping, and budget tracking.
 
@@ -571,8 +590,8 @@ async def fetch_limited(
 
     if is_pyodide:
         return await _fetch_limited_pyodide(
-            url, headers, policy, budget=budget, tenant_id=tenant_id
+            url, headers, policy, budget=budget, tenant_id=tenant_id, action=action
         )
     return await _fetch_limited_urllib(
-        url, headers, policy, budget=budget, tenant_id=tenant_id
+        url, headers, policy, budget=budget, tenant_id=tenant_id, action=action
     )

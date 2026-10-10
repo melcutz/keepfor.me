@@ -134,9 +134,13 @@ class EntitlementDenied(Exception):  # noqa: N818
 
 @runtime_checkable
 class FetchBudget(Protocol):
-    async def allow_fetch(self, tenant_id: str | None, url: str) -> bool: ...
+    async def allow_fetch(
+        self, tenant_id: str | None, url: str, *, action: Action = "fetch"
+    ) -> bool: ...
 
-    async def record_fetch(self, tenant_id: str | None, bytes_read: int) -> None: ...
+    async def record_fetch(
+        self, tenant_id: str | None, bytes_read: int, *, action: Action = "fetch"
+    ) -> None: ...
 
 
 @runtime_checkable

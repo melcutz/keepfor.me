@@ -71,9 +71,7 @@ production.
 - **Third-party requests disclose saved URLs.** Two features contact external
   services with data derived from your library:
   - Item favicons are fetched from `google.com` / `icons.duckduckgo.com`,
-    which discloses every domain you have saved, at page-render time.
-  - On HTTP 403 only, the article URL is sent to `r.jina.ai` (reader proxy) to
-    recover bot-walled pages. The URL, never your credentials.
+  - URL egress is strictly bounded: 5MB max payload, 20s timeout, SSRF protection against private IP ranges. Reader proxy fallback is opt-in via READER_PROXY_BASE (default off).
 - **Article content is sanitized, not sandboxed.** Extracted HTML passes
   through an allowlist (`sanitize_clean_html`) that strips all scripts, styles,
   and event handlers, but reader output is rendered into the same origin as the

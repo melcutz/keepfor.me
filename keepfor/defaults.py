@@ -155,10 +155,14 @@ class NoopEventBus:
 class NoopFetchBudget:
     """Allows unlimited fetches for self-hosted instances."""
 
-    async def allow_fetch(self, tenant_id: str | None, url: str) -> bool:
+    async def allow_fetch(
+        self, tenant_id: str | None, url: str, *, action: Action = "fetch"
+    ) -> bool:
         return True
 
-    async def record_fetch(self, tenant_id: str | None, bytes_read: int) -> None:
+    async def record_fetch(
+        self, tenant_id: str | None, bytes_read: int, *, action: Action = "fetch"
+    ) -> None:
         pass
 
 

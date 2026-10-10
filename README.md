@@ -19,7 +19,7 @@ A thin, fast read-it-later and personal library application running entirely on 
 - **Installable PWA & Native Sharing**: Add to Home screen on Android and iOS. On Android, native Web Share Target integrates directly into the system share sheet. On iOS, 1-tap Apple Shortcuts integrate with the system share sheet using your Safari session, paired with smart clipboard detection in the PWA.
 - **Distraction-Free Reader**: Customizable themes (Light, Sepia, Dark), fonts (Sans, Serif, Mono), and font sizes.
 - **Hybrid Search**: Reciprocal Rank Fusion (RRF) combining D1 FTS5 BM25 keyword matching and Vectorize semantic embeddings (`bge-base-en-v1.5`). FTS and embedding calls run concurrently, and the vector path is time-bounded so a slow AI binding degrades to keyword-only instead of hanging.
-- **Resilient Content Extraction**: Automated body parsing via `trafilatura` with OpenGraph metadata fallback so bookmarks are never lost. Browser-identical request headers plus a reader-proxy fallback recover many bot-walled (HTTP 403) origins.
+- **Resilient Content Extraction**: Automated body parsing via `trafilatura` with OpenGraph metadata fallback so bookmarks are never lost. Browser-identical request headers plus an optional reader-proxy fallback (configurable via `READER_PROXY_BASE`, off by default) recover many bot-walled (HTTP 403) origins.
 - **Visible Extraction State**: Every item shows `Extracting…`, content, or a **failed reason** (e.g. `HTTP 403`) rather than silently stalling. Bulk imports fan out through the queue, never blocking the request.
 - **Dual Snapshots in R2**: Raw original HTML snapshot (`raw.html`) and sanitized reader HTML (`clean.html`).
 - **Zero-Config Single-Tenant Lock**: First registration automatically claims admin ownership and locks out external signups.
@@ -62,6 +62,16 @@ Two deliberate design choices:
 
 If messages are ever lost, **Settings → Re-queue stuck items** re-sends jobs for rows
 stuck in `queued` (skips fresh rows so live messages aren't duplicated).
+
+### Reader Proxy Fallback (`READER_PROXY_BASE`)
+
+By default, Keepfor.me does not route failed fetches to any third-party service. When an origin rejects a direct fetch (HTTP 403, 429, 530), the item is recorded as failed.
+
+To opt in to reader proxy fallback (e.g. using Jina Reader or a self-hosted readability proxy):
+- Configure `READER_PROXY_BASE` in `wrangler.jsonc` (`vars.READER_PROXY_BASE = "https://r.jina.ai/"`) or in `.dev.vars`.
+- **Privacy Notice**: When enabled, blocked article URLs will be transmitted to the configured proxy service. Private IP ranges (e.g., `127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`) and local domains are strictly blocked by SSRF egress policy and are never forwarded to any reader proxy.
+
+For full guidance on private / offline deployments and egress policies, see [docs/self-hosting.md](docs/self-hosting.md).
 
 ---
 
