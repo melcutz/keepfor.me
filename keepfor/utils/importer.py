@@ -103,8 +103,8 @@ async def export_library_json(db: Database, user_id: str) -> list[dict[str, Any]
         """
         SELECT it.item_id, t.name
         FROM item_tags it
-        JOIN tags t ON it.tag_id = t.id
-        WHERE t.user_id = ?;
+        JOIN items i ON i.id = it.item_id AND i.user_id = ?
+        JOIN tags t ON it.tag_id = t.id AND t.user_id = i.user_id;
         """,
         (user_id,),
     )

@@ -129,8 +129,8 @@ async def validate_pat(db: Database, raw_token: str) -> dict[str, Any] | None:
     # Update last_used_at asynchronously
     await db.execute(
         "UPDATE personal_access_tokens SET last_used_at = CURRENT_TIMESTAMP "
-        "WHERE id = ?;",
-        (row["pat_id"],),
+        "WHERE id = ? AND user_id = ?;",
+        (row["pat_id"], row["id"]),
     )
     return {"id": row["id"], "email": row["email"], "role": row["role"]}
 

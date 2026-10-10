@@ -57,7 +57,8 @@ def _category_clause(category: str | None, alias: str = "i") -> tuple[str, tuple
         placeholders = ",".join("?" for _ in REFERENCE_TAGS)
         return (
             f" AND (EXISTS (SELECT 1 FROM item_tags it_ref JOIN tags t_ref"
-            f" ON it_ref.tag_id = t_ref.id WHERE it_ref.item_id = {a}.id"
+            f" ON it_ref.tag_id = t_ref.id AND t_ref.user_id = {a}.user_id"
+            f" WHERE it_ref.item_id = {a}.id"
             f" AND LOWER(t_ref.name) IN ({placeholders}))"
             f" OR LOWER({a}.canonical_url) LIKE '%github.com%'"
             f" OR LOWER({a}.canonical_url) LIKE '%docs.%'"
@@ -120,28 +121,28 @@ async def get_status_counts(
     tag_list = [t.lower() for t in (tags or [])][:MAX_TAG_FILTERS]
     if tag_list:
         exists = " ".join(
-            "AND EXISTS (SELECT 1 FROM item_tags it%d JOIN tags t%d"
-            " ON it%d.tag_id = t%d.id WHERE it%d.item_id = items.id"
-            " AND LOWER(t%d.name) = LOWER(?))" % ((i,) * 6)
+            f"AND EXISTS (SELECT 1 FROM item_tags it{i} JOIN tags t{i}"
+            f" ON it{i}.tag_id = t{i}.id AND t{i}.user_id = items.user_id"
+            f" WHERE it{i}.item_id = items.id"
+            f" AND LOWER(t{i}.name) = LOWER(?))"
             for i in range(len(tag_list))
         )
-        scope = f" AND user_id = ?{cat_clause}{quick_clause} {exists}"
+        extra = f"{cat_clause}{quick_clause} {exists}"
         params: tuple = (user_id, *cat_params, *tag_list)
     elif untagged:
-        scope = (
-            " AND user_id = ?"
+        extra = (
             f"{cat_clause}{quick_clause}"
             " AND NOT EXISTS (SELECT 1 FROM item_tags itx"
             " WHERE itx.item_id = items.id)"
         )
         params = (user_id, *cat_params)
     else:
-        scope = f" AND user_id = ?{cat_clause}{quick_clause}"
+        extra = f"{cat_clause}{quick_clause}"
         params = (user_id, *cat_params)
-    # NOTE: no "WHERE" in scope fragments: GROUP BY query below supplies it.
-    where = scope.replace(" AND user_id", "user_id", 1)
+
     rows = await db.query_all(
-        f"SELECT status, COUNT(*) as count FROM items WHERE {where} GROUP BY status;",
+        f"SELECT status, COUNT(*) as count FROM items "
+        f"WHERE user_id = ? {extra} GROUP BY status;",
         params,
     )
     raw = {r["status"]: r["count"] for r in rows}
@@ -432,10 +433,11 @@ async def hybrid_search(
     tag_sql = f"""
         SELECT it.item_id, t.name as tag_name
         FROM item_tags it
-        JOIN tags t ON it.tag_id = t.id
+        JOIN items i ON i.id = it.item_id AND i.user_id = ?
+        JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
         WHERE it.item_id IN ({placeholders});
     """
-    tag_rows = await db.query_all(tag_sql, tuple(top_ids))
+    tag_rows = await db.query_all(tag_sql, (user_id, *top_ids))
     item_tags_map: dict[str, list[str]] = {}
     for tr in tag_rows:
         item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
@@ -537,10 +539,11 @@ async def get_recent_items(
     tag_sql = f"""
         SELECT it.item_id, t.name as tag_name
         FROM item_tags it
-        JOIN tags t ON it.tag_id = t.id
+        JOIN items i ON i.id = it.item_id AND i.user_id = ?
+        JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
         WHERE it.item_id IN ({placeholders});
     """
-    tag_rows = await db.query_all(tag_sql, tuple(item_ids))
+    tag_rows = await db.query_all(tag_sql, (user_id, *item_ids))
     item_tags_map: dict[str, list[str]] = {}
     for tr in tag_rows:
         item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
@@ -580,9 +583,10 @@ async def count_recent_items(
     if tag_list:
         tag_clause = status_clause.replace("status", "i.status")
         exists = " ".join(
-            "AND EXISTS (SELECT 1 FROM item_tags it%d JOIN tags t%d"
-            " ON it%d.tag_id = t%d.id WHERE it%d.item_id = i.id"
-            " AND LOWER(t%d.name) = LOWER(?))" % ((i,) * 6)
+            f"AND EXISTS (SELECT 1 FROM item_tags it{i} JOIN tags t{i}"
+            f" ON it{i}.tag_id = t{i}.id AND t{i}.user_id = i.user_id"
+            f" WHERE it{i}.item_id = i.id"
+            f" AND LOWER(t{i}.name) = LOWER(?))"
             for i in range(len(tag_list))
         )
         rows = await db.query_all(

@@ -1,0 +1,8 @@
+[
+  {
+    "file": "keepfor/auth/service.py",
+    "function": "logout_session",
+    "table": "sessions",
+    "reason": "Session logout deletes by bearer session token id (128-bit random token); user_id is not required"
+  }
+]

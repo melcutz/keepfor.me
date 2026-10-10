@@ -273,7 +273,10 @@ async def extract_and_store(
         )
 
         # 5. Update FTS5 virtual table
-        await db.execute("DELETE FROM items_fts WHERE item_id = ?;", (item_id,))
+        await db.execute(
+            "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
+            (item_id, user_id),
+        )
         await db.execute(
             "INSERT INTO items_fts (item_id, user_id, title, content_text) "
             "VALUES (?, ?, ?, ?);",
@@ -303,7 +306,9 @@ async def extract_and_store(
             )
             if matched.auto_apply:
                 await add_tags_to_item(db, user_id, item_id, matched.auto_apply)
-            already = set(await get_item_tags(db, item_id)) | set(matched.auto_apply)
+            already = set(await get_item_tags(db, user_id, item_id)) | set(
+                matched.auto_apply
+            )
             novel = _tagger.suggest_new_tags(
                 title=extracted.get("title") or "",
                 excerpt=extracted.get("excerpt") or "",
@@ -388,7 +393,10 @@ async def extract_and_store(
                     logger.warning("Entitlement record for embed failed: %s", exc)
 
             # Update D1 chunks tracking table
-            await db.execute("DELETE FROM chunks WHERE item_id = ?;", (item_id,))
+            await db.execute(
+                "DELETE FROM chunks WHERE item_id = ? AND user_id = ?;",
+                (item_id, user_id),
+            )
             for rec in chunk_records:
                 await db.execute(
                     "INSERT INTO chunks (id, item_id, user_id, chunk_index, "

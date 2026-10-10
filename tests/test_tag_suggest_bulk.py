@@ -84,4 +84,4 @@ async def test_bulk_ignores_foreign_items_and_caps_ids(db):
     await _seed(db, other["id"], "bx", "https://example.com/x", [])
     ids = ["bx"] + ["missing-%d" % i for i in range(150)]
     assert await bulk_update_tags(db, user["id"], ids, ["hi"], []) == 0
-    assert await get_item_tags(db, "bx") == []
+    assert await get_item_tags(db, other["id"], "bx") == []

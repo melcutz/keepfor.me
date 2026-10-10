@@ -46,7 +46,7 @@ async def save_item(
         # Merge new tags if provided
         if tags:
             await add_tags_to_item(db, user_id, item_id, tags)
-        item_tags = await get_item_tags(db, item_id)
+        item_tags = await get_item_tags(db, user_id, item_id)
         res = dict(existing)
         res["tags"] = item_tags
         logger.debug(f"Item already exists: {item_id}, user: {user_id}")
@@ -162,8 +162,10 @@ async def add_tags_to_item(
 
     link_stmts = [
         (
-            "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?);",
-            (item_id, tag_map[t]),
+            "INSERT OR IGNORE INTO item_tags (item_id, tag_id) "
+            "SELECT i.id, t.id FROM items i JOIN tags t ON t.user_id = i.user_id "
+            "WHERE i.id = ? AND i.user_id = ? AND t.id = ?;",
+            (item_id, user_id, tag_map[t]),
         )
         for t in clean_tags
         if t in tag_map
@@ -187,21 +189,24 @@ async def remove_tags_from_item(
         tag_ids = [r["id"] for r in rows]
         id_ph = ",".join("?" for _ in tag_ids)
         await db.execute(
-            f"DELETE FROM item_tags WHERE item_id = ? AND tag_id IN ({id_ph});",
-            (item_id, *tag_ids),
+            "DELETE FROM item_tags WHERE item_id IN "
+            "(SELECT id FROM items WHERE id = ? AND user_id = ?) "
+            f"AND tag_id IN ({id_ph});",
+            (item_id, user_id, *tag_ids),
         )
 
 
-async def get_item_tags(db: Database, item_id: str) -> list[str]:
+async def get_item_tags(db: Database, user_id: str, item_id: str) -> list[str]:
     rows = await db.query_all(
         """
         SELECT t.name
-        FROM tags t
-        JOIN item_tags it ON t.id = it.tag_id
+        FROM item_tags it
+        JOIN items i ON i.id = it.item_id AND i.user_id = ?
+        JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
         WHERE it.item_id = ?
         ORDER BY t.name ASC;
         """,
-        (item_id,),
+        (user_id, item_id),
     )
     return [r["name"] for r in rows]
 
@@ -213,7 +218,7 @@ async def get_item(db: Database, user_id: str, item_id: str) -> dict[str, Any] |
     if not row:
         return None
     item = dict(row)
-    item["tags"] = await get_item_tags(db, item_id)
+    item["tags"] = await get_item_tags(db, user_id, item_id)
     return item
 
 
@@ -287,7 +292,7 @@ async def delete_item(
 
     # 1. Fetch chunk IDs to delete from Vectorize
     chunk_rows = await db.query_all(
-        "SELECT id FROM chunks WHERE item_id = ?;", (item_id,)
+        "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;", (item_id, user_id)
     )
     chunk_ids = [r["id"] for r in chunk_rows]
 
@@ -315,7 +320,10 @@ async def delete_item(
     # 3. Delete from D1 (triggers cascade deletions on chunks, item_tags)
     await db.execute_batch(
         [
-            ("DELETE FROM items_fts WHERE item_id = ?;", (item_id,)),
+            (
+                "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
+                (item_id, user_id),
+            ),
             ("DELETE FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)),
         ]
     )
@@ -380,18 +388,31 @@ async def rename_tag(db: Database, user_id: str, old_name: str, new_name: str) -
     if new_row and new_row["id"] != old_row["id"]:
         # Merge: move item links onto the surviving tag, drop the source.
         linked = await db.query_all(
-            "SELECT item_id FROM item_tags WHERE tag_id = ?;", (old_row["id"],)
+            "SELECT it.item_id FROM item_tags it "
+            "JOIN tags t ON t.id = it.tag_id AND t.user_id = ? "
+            "WHERE it.tag_id = ?;",
+            (user_id, old_row["id"]),
         )
         for row in linked:
             await db.execute(
-                "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?);",
-                (row["item_id"], new_row["id"]),
+                "INSERT OR IGNORE INTO item_tags (item_id, tag_id) "
+                "SELECT i.id, t.id FROM items i JOIN tags t ON t.user_id = i.user_id "
+                "WHERE i.id = ? AND i.user_id = ? AND t.id = ?;",
+                (row["item_id"], user_id, new_row["id"]),
             )
-        await db.execute("DELETE FROM item_tags WHERE tag_id = ?;", (old_row["id"],))
-        await db.execute("DELETE FROM tags WHERE id = ?;", (old_row["id"],))
+        await db.execute(
+            "DELETE FROM item_tags WHERE tag_id IN "
+            "(SELECT id FROM tags WHERE id = ? AND user_id = ?);",
+            (old_row["id"], user_id),
+        )
+        await db.execute(
+            "DELETE FROM tags WHERE id = ? AND user_id = ?;",
+            (old_row["id"], user_id),
+        )
         return "merged"
     await db.execute(
-        "UPDATE tags SET name = ? WHERE id = ?;", (new_clean, old_row["id"])
+        "UPDATE tags SET name = ? WHERE id = ? AND user_id = ?;",
+        (new_clean, old_row["id"], user_id),
     )
     return "merged"
 
@@ -409,8 +430,15 @@ async def delete_tag(db: Database, user_id: str, raw_name: str) -> bool:
     if not row:
         return False
     # Explicit deletes (no reliance on ON DELETE CASCADE pragma state).
-    await db.execute("DELETE FROM item_tags WHERE tag_id = ?;", (row["id"],))
-    await db.execute("DELETE FROM tags WHERE id = ?;", (row["id"],))
+    await db.execute(
+        "DELETE FROM item_tags WHERE tag_id IN "
+        "(SELECT id FROM tags WHERE id = ? AND user_id = ?);",
+        (row["id"], user_id),
+    )
+    await db.execute(
+        "DELETE FROM tags WHERE id = ? AND user_id = ?;",
+        (row["id"], user_id),
+    )
     await db.execute(
         "UPDATE suggested_tags SET status = 'dismissed'"
         " WHERE user_id = ? AND phrase = ? AND status = 'pending';",
@@ -450,7 +478,10 @@ async def prune_unused_tags(db: Database, user_id: str) -> int:
         (user_id,),
     )
     for row in rows:
-        await db.execute("DELETE FROM tags WHERE id = ?;", (row["id"],))
+        await db.execute(
+            "DELETE FROM tags WHERE id = ? AND user_id = ?;",
+            (row["id"], user_id),
+        )
     return len(rows)
 
 
@@ -578,7 +609,9 @@ async def delete_rule(db: Database, user_id: str, rule_id: str) -> bool:
     )
     if not row:
         return False
-    await db.execute("DELETE FROM tag_rules WHERE id = ?;", (rule_id,))
+    await db.execute(
+        "DELETE FROM tag_rules WHERE id = ? AND user_id = ?;", (rule_id, user_id)
+    )
     return True
 
 
@@ -728,7 +761,8 @@ async def accept_suggestion(db: Database, user_id: str, sugg_id: str) -> bool:
         return False
     await add_tags_to_item(db, user_id, row["item_id"], [row["phrase"]])
     await db.execute(
-        "UPDATE suggested_tags SET status = 'accepted' WHERE id = ?;", (sugg_id,)
+        "UPDATE suggested_tags SET status = 'accepted' WHERE id = ? AND user_id = ?;",
+        (sugg_id, user_id),
     )
     return True
 
@@ -743,7 +777,8 @@ async def dismiss_suggestion(db: Database, user_id: str, sugg_id: str) -> bool:
     if not row:
         return False
     await db.execute(
-        "UPDATE suggested_tags SET status = 'dismissed' WHERE id = ?;", (sugg_id,)
+        "UPDATE suggested_tags SET status = 'dismissed' WHERE id = ? AND user_id = ?;",
+        (sugg_id, user_id),
     )
     return True
 
@@ -795,7 +830,10 @@ async def _refresh_fts_for_item(db: Database, user_id: str, item_id: str) -> Non
     combined = " ".join(
         p for p in [row["content_text"] or "", row["user_notes"] or ""] if p
     )
-    await db.execute("DELETE FROM items_fts WHERE item_id = ?;", (item_id,))
+    await db.execute(
+        "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
     await db.execute(
         "INSERT INTO items_fts (item_id, user_id, title, content_text)"
         " VALUES (?, ?, ?, ?);",
@@ -836,10 +874,11 @@ async def get_pinned_items(db: Database, user_id: str) -> list[dict[str, Any]]:
         f"""
         SELECT it.item_id, t.name as tag_name
         FROM item_tags it
-        JOIN tags t ON it.tag_id = t.id
+        JOIN items i ON i.id = it.item_id AND i.user_id = ?
+        JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
         WHERE it.item_id IN ({placeholders});
         """,
-        tuple(item_ids),
+        (user_id, *item_ids),
     )
     item_tags_map: dict[str, list[str]] = {}
     for tr in tag_rows:

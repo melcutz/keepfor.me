@@ -136,7 +136,7 @@ async def test_delete_tag_via_form(client, db, auth_headers):
     assert response.status_code in (303, 307, 308)
     from keepfor.models.items import get_item_tags
 
-    assert await get_item_tags(db, item_id) == ["stay"]
+    assert await get_item_tags(db, user_id, item_id) == ["stay"]
 
 
 @pytest.mark.asyncio
@@ -158,7 +158,7 @@ async def test_accept_suggestion_applies_tag(client, db, auth_headers):
     assert response.status_code in (303, 307, 308)
     from keepfor.models.items import get_item_tags
 
-    assert "edge caching" in await get_item_tags(db, item_id)
+    assert "edge caching" in await get_item_tags(db, user_id, item_id)
     row = await db.query_first(
         "SELECT status FROM suggested_tags WHERE id = ?;", (sugg_id,)
     )
