@@ -89,5 +89,5 @@ def test_version_match():
 
     pyproject_version = data["project"]["version"]
     assert pyproject_version == keepfor.__version__
-    assert keepfor.__version__ == "1.1.1"
+    assert keepfor.__version__ == "1.1.2"
     assert keepfor.CORE_API_VERSION == 1

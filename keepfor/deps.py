@@ -98,6 +98,13 @@ def get_scope(request: Request) -> TenantScope:
     return scope
 
 
+def is_single_tenant(request: Request) -> bool:
+    """True when the app runs with the default single-tenant scope provider."""
+    from keepfor.defaults import SingleTenantScopeProvider
+
+    return isinstance(get_providers(request).scope, SingleTenantScopeProvider)
+
+
 def get_db(request: Request) -> Database:
     """Get Database connection from tenant scope or single-tenant default."""
     state = getattr(request, "state", None)
