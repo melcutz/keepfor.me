@@ -35,7 +35,9 @@ async def api_save_item(request: Request, body: SaveItemRequest):
     if not clean_url:
         logger.warning(f"API save validation failed: invalid URL '{body.url}'")
         raise HTTPException(status_code=400, detail="Invalid URL")
-    item, is_new = await save_item(db, env, user["id"], clean_url, body.tags)
+    item, is_new = await save_item(
+        db, env, user["id"], clean_url, body.tags, scope=deps.get_scope(request)
+    )
     status_code = 202 if is_new else 200
     return JSONResponse(content={**item, "is_new": is_new}, status_code=status_code)
 
@@ -67,7 +69,9 @@ async def api_get_item_content(request: Request, item_id: str):
     user = await deps.require_user(request)
     db = deps.get_db(request)
     env = deps.get_env_from_request(request)
-    html = await get_item_clean_html(db, env, user["id"], item_id)
+    html = await get_item_clean_html(
+        db, env, user["id"], item_id, scope=deps.get_scope(request)
+    )
     return HTMLResponse(content=html)
 
 
@@ -76,7 +80,9 @@ async def api_delete_item(request: Request, item_id: str):
     user = await deps.require_user(request)
     db = deps.get_db(request)
     env = deps.get_env_from_request(request)
-    success = await delete_item(db, env, user["id"], item_id)
+    success = await delete_item(
+        db, env, user["id"], item_id, scope=deps.get_scope(request)
+    )
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
     # Empty HTML: the library card deletes via htmx outerHTML swap, which
@@ -129,7 +135,9 @@ async def mcp_endpoint(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-    response_payload = await process_mcp_request(body, db, env, user)
+    response_payload = await process_mcp_request(
+        body, db, env, user, scope=deps.get_scope(request)
+    )
     if response_payload is None:
         return Response(status_code=202)
     if body.get("method") == "initialize":

@@ -205,7 +205,9 @@ async def cleanup_failed_route(request: Request, pattern: str = Form("all")):
     deleted = 0
     for r in rows:
         try:
-            if await delete_item(db, env, user["id"], r["id"]):
+            if await delete_item(
+                db, env, user["id"], r["id"], scope=deps.get_scope(request)
+            ):
                 deleted += 1
         except Exception as exc:
             logger.warning(f"Cleanup delete failed: item={r['id']}: {exc}")

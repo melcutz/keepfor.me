@@ -3,7 +3,10 @@
 
 import asyncio
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from keepfor.spi import TenantScope
 
 from keepfor.consumer.extractor import article_from_reader_markdown, extract_article
 from keepfor.models.db import Database
@@ -175,7 +178,15 @@ async def _fetch_and_extract(url: str, item_id: str) -> tuple[dict, str | None]:
     raise BlockedPageError("redirect loop did not resolve to an article")
 
 
-async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> None:
+async def extract_and_store(
+    db: Database,
+    env: Any,
+    item_id: str,
+    url: str,
+    *,
+    scope: TenantScope | None = None,
+    user_id: str | None = None,
+) -> None:
     """Fetch, extract, upload snapshots to R2, and update D1 and Vectorize.
 
     Shared core used by both the queue consumer (via process_single_item,
@@ -189,7 +200,21 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
     if not item_row:
         logger.warning(f"Item not found for processing: {item_id}")
         return
-    user_id = item_row["user_id"]
+    row_user_id = item_row["user_id"]
+    if user_id is not None and row_user_id != user_id:
+        logger.warning(
+            "Mismatched user_id for item %s: message has %s, row has %s",
+            item_id,
+            user_id,
+            row_user_id,
+        )
+        return
+    user_id = row_user_id
+
+    if scope is None:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
 
     try:
         logger.info(f"Starting extraction: item={item_id}, url={url}")
@@ -199,20 +224,15 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
         extracted, raw_html = await _fetch_and_extract(url, item_id)
 
         # 2. Store raw snapshot in R2 (skipped for proxied markdown)
-        if raw_html is not None and hasattr(env, "BUCKET") and env.BUCKET is not None:
-            await env.BUCKET.put(
-                f"items/{item_id}/raw.html",
-                raw_html,
-                {"httpMetadata": {"contentType": "text/html; charset=utf-8"}},
-            )
+        blobs = scope.blobs(env)
+        if raw_html is not None:
+            await blobs.put_html(blobs.key("items", item_id, "raw.html"), raw_html)
 
         # 3. Store clean reader HTML in R2
-        if hasattr(env, "BUCKET") and env.BUCKET is not None:
-            await env.BUCKET.put(
-                f"items/{item_id}/clean.html",
-                extracted["clean_html"],
-                {"httpMetadata": {"contentType": "text/html; charset=utf-8"}},
-            )
+        await blobs.put_html(
+            blobs.key("items", item_id, "clean.html"),
+            extracted["clean_html"],
+        )
 
         # 4. Triage summary via Workers AI (fail-open, bounded).
         summary = await generate_triage_summary(
@@ -227,7 +247,7 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
                 excerpt = ?, content_text = ?, word_count = ?, is_fallback = ?,
                 image_url = ?, summary = ?,
                 status = 'ok', fail_reason = NULL, updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?;
+            WHERE id = ? AND user_id = ?;
             """,
             (
                 extracted["title"],
@@ -241,6 +261,7 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
                 extracted.get("image_url"),
                 summary,
                 item_id,
+                user_id,
             ),
         )
 
@@ -371,15 +392,17 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
         # the queue message would burn attempts on an unauthenticated fetch.
         reason = f"Blocked, no article content: {blocked} ({url})"
         await db.execute(
-            "UPDATE items SET status = 'failed', fail_reason = ? WHERE id = ?;",
-            (reason[:500], item_id),
+            "UPDATE items SET status = 'failed', fail_reason = ? "
+            "WHERE id = ? AND user_id = ?;",
+            (reason[:500], item_id, user_id),
         )
         logger.info(f"Blocked page, marked failed: item={item_id}: {blocked}")
     except Exception as exc:
         # Mark failure in D1
         await db.execute(
-            "UPDATE items SET status = 'failed', fail_reason = ? WHERE id = ?;",
-            (str(exc)[:500], item_id),
+            "UPDATE items SET status = 'failed', fail_reason = ? "
+            "WHERE id = ? AND user_id = ?;",
+            (str(exc)[:500], item_id, user_id),
         )
         logger.error(
             f"Extraction failed: item={item_id}, error={str(exc)}", exc_info=exc
@@ -387,15 +410,27 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
         raise exc
 
 
-async def process_single_item(item_id: str, url: str, env: Any) -> None:
-    """Queue-consumer entry point: builds Database from the D1 binding."""
-    d1 = (
-        getattr(env, "DB", None)
-        or getattr(env, "keepfor_me_db", None)
-        or getattr(env, "D1", None)
-    )
-    db = Database(d1_binding=d1)
-    await extract_and_store(db, env, item_id, url)
+async def process_single_item(
+    item_id: str, url: str, env: Any, user_id: str | None = None
+) -> None:
+    """Queue-consumer entry point: builds Database from scope or D1 binding."""
+    from keepfor.runtime import get_providers
+
+    providers = get_providers()
+    if user_id:
+        scope = await providers.scope.scope_for_tenant(user_id, env)
+        db = scope.db
+    else:
+        d1 = (
+            getattr(env, "DB", None)
+            or getattr(env, "keepfor_me_db", None)
+            or getattr(env, "D1", None)
+        )
+        sqlite_conn = getattr(env, "sqlite_conn", None)
+        db = Database(d1_binding=d1, sqlite_conn=sqlite_conn)
+        scope = None
+
+    await extract_and_store(db, env, item_id, url, scope=scope, user_id=user_id)
 
 
 async def process_queue_batch(batch: Any, env: Any) -> None:
@@ -426,8 +461,9 @@ async def process_queue_batch(batch: Any, env: Any) -> None:
                 continue
             item_id = body.get("item_id") if isinstance(body, dict) else None
             url = body.get("url") if isinstance(body, dict) else None
+            user_id = body.get("user_id") if isinstance(body, dict) else None
             if item_id and url:
-                await process_single_item(item_id, url, env)
+                await process_single_item(item_id, url, env, user_id=user_id)
             else:
                 # Never silently swallow: an acked skip is a lost message.
                 logger.warning(f"Skipping queue message with no item_id/url: {body!r}")
@@ -445,24 +481,20 @@ async def _process_import_batch(
     """Saves one bulk-import chunk; each save re-enqueues for extraction."""
     if not user_id or not bookmarks:
         return
-    # Lazy import: src.models.items lazily imports this module in save_item.
+    # Lazy import: keepfor.models.items lazily imports this module in save_item.
     from keepfor.models.items import save_item
+    from keepfor.runtime import get_providers
 
-    d1 = (
-        getattr(env, "DB", None)
-        or getattr(env, "keepfor_me_db", None)
-        or getattr(env, "D1", None)
-    )
-    if d1 is None and getattr(env, "sqlite_conn", None) is None:
-        logger.warning("Import batch dropped: no database binding available")
-        return
-    db = Database(d1_binding=d1, sqlite_conn=getattr(env, "sqlite_conn", None))
+    providers = get_providers()
+    scope = await providers.scope.scope_for_tenant(user_id, env)
+    db = scope.db
+
     for b in bookmarks:
         try:
             url = b.get("url") if isinstance(b, dict) else None
             if not url:
                 continue
             tags = b.get("tags", []) if isinstance(b, dict) else []
-            await save_item(db, env, user_id, url, tags)
+            await save_item(db, env, user_id, url, tags, scope=scope)
         except Exception:
             continue

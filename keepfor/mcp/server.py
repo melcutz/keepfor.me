@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Claudiu Branzan
 
+from __future__ import annotations
+
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
+
+if TYPE_CHECKING:
+    from keepfor.spi import TenantScope
 from keepfor.models.items import (
     add_tags_to_item,
     delete_item,
@@ -215,13 +220,15 @@ async def handle_tool_call(
     db: Database,
     env: Any,
     user: dict[str, Any],
+    *,
+    scope: TenantScope | None = None,
 ) -> Any:
     user_id = user["id"]
 
     if tool_name == "save_url":
         url = arguments.get("url")
         tags = arguments.get("tags", [])
-        item, is_new = await save_item(db, env, user_id, url, tags)
+        item, is_new = await save_item(db, env, user_id, url, tags, scope=scope)
         return {
             "id": item["id"],
             "url": item["url"],
@@ -311,7 +318,7 @@ async def handle_tool_call(
 
     elif tool_name == "delete_item":
         item_id = arguments.get("item_id")
-        success = await delete_item(db, env, user_id, item_id)
+        success = await delete_item(db, env, user_id, item_id, scope=scope)
         return {"id": item_id, "deleted": success}
 
     elif tool_name == "save_note":
@@ -321,7 +328,9 @@ async def handle_tool_call(
         is_pinned = bool(arguments.get("is_pinned", False))
         if not (title or "").strip() and not (content or "").strip():
             raise ValueError("save_note requires a title or content")
-        note = await save_note(db, env, user_id, title, content, tags, is_pinned)
+        note = await save_note(
+            db, env, user_id, title, content, tags, is_pinned, scope=scope
+        )
         return {
             "id": note["id"],
             "title": note["title"],
@@ -351,7 +360,12 @@ async def handle_tool_call(
 
 
 async def process_mcp_request(
-    body: dict[str, Any], db: Database, env: Any, user: dict[str, Any]
+    body: dict[str, Any],
+    db: Database,
+    env: Any,
+    user: dict[str, Any],
+    *,
+    scope: TenantScope | None = None,
 ) -> dict[str, Any] | None:
     """Handles an incoming JSON-RPC 2.0 MCP message.
 
@@ -362,6 +376,26 @@ async def process_mcp_request(
     """
     if "method" not in body or "id" not in body:
         return None
+
+    if scope is None:
+        from keepfor.runtime import get_providers
+        from keepfor.spi import Principal
+
+        providers = get_providers()
+        if providers.scope:
+            principal = Principal(
+                user_id=user["id"],
+                tenant_id=user.get("tenant_id", user["id"]),
+                email=user.get("email", ""),
+                role=user.get("role", "user"),
+                plan=user.get("plan", "self_hosted"),
+                scopes=frozenset(user.get("scopes", ["*"])),
+            )
+            scope = await providers.scope.scope_for_principal(principal, env)
+        else:
+            from keepfor.defaults import default_scope
+
+            scope = default_scope(db, env, user["id"])
 
     method = body.get("method")
     req_id = body.get("id")
@@ -398,7 +432,9 @@ async def process_mcp_request(
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
         try:
-            res = await handle_tool_call(tool_name, arguments, db, env, user)
+            res = await handle_tool_call(
+                tool_name, arguments, db, env, user, scope=scope
+            )
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,

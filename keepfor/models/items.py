@@ -1,20 +1,36 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Claudiu Branzan
 
+from __future__ import annotations
+
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
 from keepfor.utils.logging import logger
 from keepfor.utils.url import canonicalize_url
 
+if TYPE_CHECKING:
+    from keepfor.spi import TenantScope
+
 
 async def save_item(
-    db: Database, env: Any, user_id: str, url: str, tags: list[str] | None = None
+    db: Database,
+    env: Any,
+    user_id: str,
+    url: str,
+    tags: list[str] | None = None,
+    *,
+    scope: TenantScope | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Saves a URL to the user library with canonicalization and deduplication.
     Returns (item_dict, is_new).
     """
+    if scope is None:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
     clean_url = canonicalize_url(url)
     tags = [t.strip().lower() for t in (tags or []) if t.strip()]
 
@@ -53,14 +69,18 @@ async def save_item(
     # queue delivery, tests) extract inline so items never stick in 'queued'.
     queue = getattr(env, "QUEUE", None) if env is not None else None
     if queue is not None:
-        await queue.send({"item_id": item_id, "url": clean_url})
-        logger.info(f"Enqueued extraction: item={item_id}, url={clean_url}")
+        await queue.send({"item_id": item_id, "url": clean_url, "user_id": user_id})
+        logger.info(
+            f"Enqueued extraction: item={item_id}, url={clean_url}, user_id={user_id}"
+        )
     else:
         logger.warning(f"No QUEUE binding; extracting inline: item={item_id}")
         try:
             from keepfor.consumer.processor import extract_and_store
 
-            await extract_and_store(db, env, item_id, clean_url)
+            await extract_and_store(
+                db, env, item_id, clean_url, scope=scope, user_id=user_id
+            )
         except Exception as exc:
             # extract_and_store already marked the item failed in D1;
             # never fail the save itself because of extraction.
@@ -172,22 +192,32 @@ async def get_item(db: Database, user_id: str, item_id: str) -> dict[str, Any] |
 
 
 async def get_item_clean_html(
-    db: Database, env: Any, user_id: str, item_id: str
+    db: Database,
+    env: Any,
+    user_id: str,
+    item_id: str,
+    *,
+    scope: TenantScope | None = None,
 ) -> str:
     """Get clean reader HTML from R2, or format the stored content text."""
+    if scope is None:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
     # Verify ownership
     item = await get_item(db, user_id, item_id)
     if not item:
         return "<p>Article not found.</p>"
 
-    # Attempt fetch from R2
-    if hasattr(env, "BUCKET") and env.BUCKET is not None:
-        try:
-            obj = await env.BUCKET.get(f"items/{item_id}/clean.html")
-            if obj is not None:
-                return await obj.text()
-        except Exception:
-            pass
+    # Attempt fetch from blob store
+    try:
+        blobs = scope.blobs(env)
+        obj_text = await blobs.get_text(blobs.key("items", item_id, "clean.html"))
+        if obj_text is not None:
+            return obj_text
+    except Exception:
+        pass
 
     # Fallback to plain text / excerpt formatted into HTML paragraphs.
     # NOTE: title is NULL (not absent) until extraction completes, so
@@ -209,8 +239,20 @@ async def get_item_clean_html(
     return f"<h1>{heading}</h1>{paragraphs}"
 
 
-async def delete_item(db: Database, env: Any, user_id: str, item_id: str) -> bool:
+async def delete_item(
+    db: Database,
+    env: Any,
+    user_id: str,
+    item_id: str,
+    *,
+    scope: TenantScope | None = None,
+) -> bool:
     """Deletes item, its D1 records, R2 snapshots, and Vectorize chunks."""
+    if scope is None:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
     item = await db.query_first(
         "SELECT id FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
     )
@@ -232,14 +274,16 @@ async def delete_item(db: Database, env: Any, user_id: str, item_id: str) -> boo
             )
 
     # 2. Delete R2 snapshots
-    if hasattr(env, "BUCKET") and env.BUCKET is not None:
-        try:
-            await env.BUCKET.delete(f"items/{item_id}/raw.html")
-            await env.BUCKET.delete(f"items/{item_id}/clean.html")
-        except Exception as exc:
-            logger.warning(
-                "Failed to delete R2 snapshots for item %s: %s", item_id, exc
-            )
+    try:
+        blobs = scope.blobs(env)
+        await blobs.delete_many(
+            [
+                blobs.key("items", item_id, "raw.html"),
+                blobs.key("items", item_id, "clean.html"),
+            ]
+        )
+    except Exception as exc:
+        logger.warning("Failed to delete R2 snapshots for item %s: %s", item_id, exc)
 
     # 3. Delete from D1 (triggers cascade deletions on chunks, item_tags)
     await db.execute_batch(
@@ -795,8 +839,15 @@ async def save_note(
     content_text: str,
     tags: list[str] | None = None,
     is_pinned: bool = False,
+    *,
+    scope: TenantScope | None = None,
 ) -> dict[str, Any]:
     """Save a Markdown quick note sharing the unified FTS + vector pipeline."""
+    if scope is None:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
     first_line = (content_text or "").strip().split("\n")[0][:120]
     clean_title = (title or "").strip() or first_line or "Untitled note"
     body = (content_text or "").strip()

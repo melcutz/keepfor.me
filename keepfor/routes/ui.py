@@ -450,7 +450,9 @@ async def reader_page(
 
     background_tasks.add_task(_log_open_safely, db, user["id"], item_id)
 
-    clean_html = await get_item_clean_html(db, env, user["id"], item_id)
+    clean_html = await get_item_clean_html(
+        db, env, user["id"], item_id, scope=deps.get_scope(request)
+    )
     tag_styles = tag_styles_for(item.get("tags") or [])
     suggestions = await list_pending_suggestions(db, user["id"], item_id=item_id)
     template = jinja_env.get_template("reader.html")
@@ -491,7 +493,9 @@ async def create_note_form(
     db = deps.get_db(request)
     env = deps.get_env_from_request(request)
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    note = await save_note(db, env, user["id"], title, content, tag_list)
+    note = await save_note(
+        db, env, user["id"], title, content, tag_list, scope=deps.get_scope(request)
+    )
     return RedirectResponse(url=f"/items/{note['id']}", status_code=303)
 
 
@@ -591,7 +595,9 @@ async def save_form(request: Request, url: str = Form(...), tags: str = Form("")
         raise HTTPException(status_code=400, detail="Invalid URL")
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    await save_item(db, env, user["id"], clean_url, tag_list)
+    await save_item(
+        db, env, user["id"], clean_url, tag_list, scope=deps.get_scope(request)
+    )
     return RedirectResponse(url="/", status_code=303)
 
 
@@ -629,7 +635,9 @@ async def save_popup_post(
         logger.warning(f"Save popup validation failed: invalid URL '{url}'")
         raise HTTPException(status_code=400, detail="Invalid URL")
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    await save_item(db, env, user["id"], clean_url, tag_list)
+    await save_item(
+        db, env, user["id"], clean_url, tag_list, scope=deps.get_scope(request)
+    )
     template = jinja_env.get_template("save_popup.html")
     html = template.render(url=clean_url, title=title, success=True, source=source)
     return HTMLResponse(content=html)
