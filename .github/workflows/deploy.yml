@@ -1,9 +1,13 @@
+# Manual only. Self-hosters deploy to their own Cloudflare account; the owner deploys by running this workflow by hand.
 name: Deploy
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy" to deploy to the Cloudflare account configured in repository secrets'
+        required: true
+        default: ''
 
 # Least privilege: neither job needs to write to the repo. The deploy uses
 # CLOUDFLARE_API_TOKEN, not GITHUB_TOKEN. Without a workflow-level block
@@ -15,6 +19,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy to Cloudflare Workers
+    if: ${{ inputs.confirm == 'deploy' }}
     permissions:
       contents: read
     

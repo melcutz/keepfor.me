@@ -15,3 +15,5 @@ pylock.toml
 .worktrees/
 .superpowers/
 .wrangler/
+wrangler.local.jsonc
+.dev.vars

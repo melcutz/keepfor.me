@@ -16,7 +16,7 @@ ruff format --check src/ tests/
 
 - **Run pytest from the repo root.** From any subdirectory it dies with `ModuleNotFoundError: No module named 'src'` — `src` has no `__init__.py` and resolves as a namespace package only when the root is on `sys.path`. `pythonpath = src` in `pytest.ini` is not what makes it work.
 - All tests are **module-level functions**; there are no `Test*` classes. Node IDs are `tests/test_x.py::test_name`.
-- Deploy locally / to prod: `uvx --from workers-py pywrangler dev` / `... deploy`.
+- Local dev / deploy to prod: `uvx --from workers-py pywrangler dev --config wrangler.local.jsonc` (never run dev against `wrangler.jsonc` without `--config`) / manual deploy via `workflow_dispatch` or `pywrangler deploy`.
 
 ## What CI actually gates
 
@@ -28,11 +28,11 @@ Only the `lint` (ruff check **and** format) and `test` (pytest) jobs can fail a 
 
 **`ruff format` is load-bearing** — format your code before pushing or CI fails.
 
-## Pushing to main deploys to production
+## Deploys are manual (no auto-deploy on push)
 
-`deploy.yml` runs on every push to `main` and publishes to `app.keepfor.me/*` (also reachable at `keepfor-me.<subdomain>.workers.dev`; `workers_dev` stays on). Don't push casually. Needs `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets.
+`deploy.yml` requires manual triggering via `workflow_dispatch` with input `confirm: "deploy"` (or local `pywrangler deploy`). Deploys are manual: self-hosters deploy to their own Cloudflare account; the owner deploys by running the workflow by hand. Pushing to `main` does NOT auto-deploy. Needs `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets.
 
-**The post-deploy smoke test is useless as written — read this before trusting a green deploy.** It is `continue-on-error: true`, *and* it curls `https://keepfor.me/` (`deploy.yml:72`), the bare apex, which has no DNS record and returns `000`. Verified 2026-10-03: `app.keepfor.me` → 200, `*.workers.dev` → 200, `keepfor.me` → no response. So it cannot fail and it tests a dead URL. Check the deploy job log yourself, and repoint line 72 at `app.keepfor.me` next time you touch the workflow.
+**Warning about `"remote": true`:** `wrangler.jsonc` has `"remote": true` on D1, R2, and Vectorize bindings with the real production `database_id`. Never run local dev against `wrangler.jsonc` as it reads and writes remote production resources! For local simulation, copy `wrangler.local.example.jsonc` to `wrangler.local.jsonc` and use `pywrangler dev --config wrangler.local.jsonc`.
 
 ## Bundle size: the deploy will fail with "exceeded 64 MiB" if you aren't careful
 

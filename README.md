@@ -107,6 +107,11 @@ npx wrangler d1 migrations apply keepfor-me-db --local
 
 ### 4. Deploy
 
+Deploys are manual: self-hosters deploy to their own Cloudflare account via `pywrangler deploy` or GitHub Actions `workflow_dispatch` (with input `confirm: "deploy"`). Pushing to `main` does not auto-deploy.
+
+> [!WARNING]
+> `wrangler.jsonc` has `"remote": true` on D1, R2, and Vectorize bindings. Never run local dev against `wrangler.jsonc` as it interacts directly with remote resources. For local simulation, copy `wrangler.local.example.jsonc` to `wrangler.local.jsonc` and run `uvx --from workers-py pywrangler dev --config wrangler.local.jsonc`.
+
 PyWrangler bundles the Python dependencies declared in `pyproject.toml`.
 
 ```bash
