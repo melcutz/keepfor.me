@@ -3,7 +3,7 @@
 
 """Reusable Playwright tests for the drag-and-drop bookmarklet.
 
-Runs against the live app as a normal user — no backdoors, no DB access.
+Runs against the live app as a normal user - no backdoors, no DB access.
 Only the public settings page, the public /save-popup flow, and the
 bookmarklet JS any user can copy.
 
@@ -38,7 +38,7 @@ PASSWORD = os.environ.get("KFM_PASSWORD")  # never commit this
 HEADED = os.environ.get("KFM_HEADED", "0") == "1"
 
 needs_password = pytest.mark.skipif(
-    not PASSWORD, reason="KFM_PASSWORD not set — live prod tests skipped"
+    not PASSWORD, reason="KFM_PASSWORD not set - live prod tests skipped"
 )
 
 TEST_TAG = "pw-bkm-test"
@@ -176,7 +176,7 @@ def test_bookmarklet_unauthenticated_redirects_and_returns():
         )
         assert "/auth/login" in page.url
         assert "next=" in page.url
-        # NOTE: submit the form in place — navigating to plain /auth/login
+        # NOTE: submit the form in place: navigating to plain /auth/login
         # would drop the ?next= return address and land on "/" instead.
         page.fill('input[name="email"]', EMAIL)
         page.fill('input[name="password"]', PASSWORD or "")

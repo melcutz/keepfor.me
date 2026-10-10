@@ -8,9 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.1] - 2026-10-10
 
 ### Fixed
-- Fix `NameError` importing `keepfor.consumer.processor` (`TenantScope` was only imported under `TYPE_CHECKING` without `from __future__ import annotations`).
+- Fix `NameError` importing `keepfor.consumer.processor` (`TenantScope` was only imported under `TYPE_CHECKING` without `from __future__ import annotations`). This resolves a critical issue in v1.1.0 that prevented background extraction tasks from running.
 
 ## [1.1.0] - 2026-10-10
+
+> [!WARNING]
+> Release v1.1.0 is broken and should not be used. A missing runtime import of `TenantScope` in `keepfor/consumer/processor.py` caused background extraction tasks to crash with a `NameError`. Please use v1.1.1 or later.
 
 ### Breaking Changes
 - Package rename from `src` to `keepfor`: any custom scripts or external tooling importing from `src.*` must now import from `keepfor.*`.

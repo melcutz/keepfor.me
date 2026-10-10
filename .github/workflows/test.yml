@@ -51,7 +51,7 @@ jobs:
           pip install mypy pydantic fastapi
       
       - name: Type check with mypy
-        run: mypy keepfor/ --ignore-missing-imports --no-error-summary 2>&1 | head -50 || true
+        run: mypy keepfor/ --ignore-missing-imports
 
   security:
     runs-on: ubuntu-latest
@@ -70,7 +70,7 @@ jobs:
           pip install bandit
       
       - name: Security scan with bandit
-        run: bandit -r keepfor/ -f json -o bandit-report.json || true
+        run: bandit -r keepfor/ -f json -o bandit-report.json --exit-zero
       
       - name: Check bandit results
         run: |
@@ -78,13 +78,16 @@ jobs:
           import json
           with open('bandit-report.json') as f:
               data = json.load(f)
-              high_severity = [r for r in data.get('results', []) if r.get('severity') in ['HIGH', 'CRITICAL']]
+              high_severity = [
+                  r for r in data.get('results', [])
+                  if r.get('issue_severity') in ['HIGH', 'CRITICAL'] or r.get('severity') in ['HIGH', 'CRITICAL']
+              ]
               if high_severity:
                   print(f'Found {len(high_severity)} high/critical security issues')
                   for r in high_severity:
                       print(f'  - {r.get(\"issue_text\")}: {r.get(\"filename\")}:{r.get(\"line_number\")}')
                   exit(1)
-          " || true
+          "
 
   test:
     runs-on: ubuntu-latest
@@ -133,4 +136,4 @@ jobs:
           pip install pytest pytest-asyncio pytest-cov httpx
       
       - name: Run tests with coverage
-        run: pytest tests/ --cov=keepfor --cov-report=term-missing --cov-fail-under=75 || true
+        run: pytest tests/ --cov=keepfor --cov-report=term-missing --cov-fail-under=75

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from keepfor.spi import FetchBudget
+    from keepfor.spi import Action, FetchBudget
 
 
 @dataclass(frozen=True)
@@ -369,7 +369,7 @@ async def _fetch_limited_urllib(
     *,
     budget: FetchBudget | None = None,
     tenant_id: str | None = None,
-    action: str = "fetch",
+    action: Action = "fetch",
 ) -> FetchResult:
     """CPython fallback implementation using urllib."""
     current_url = validate_url(url, policy)
@@ -422,7 +422,7 @@ async def _fetch_limited_pyodide(
     *,
     budget: FetchBudget | None = None,
     tenant_id: str | None = None,
-    action: str = "fetch",
+    action: Action = "fetch",
 ) -> FetchResult:
     """Cloudflare Workers Pyodide implementation using pyfetch and ReadableStream."""
     import pyodide.http
@@ -567,7 +567,7 @@ async def fetch_limited(
     *,
     budget: FetchBudget | None = None,
     tenant_id: str | None = None,
-    action: str = "fetch",
+    action: Action = "fetch",
 ) -> FetchResult:
     """Fetch URL with SSRF validation, size capping, and budget tracking.
 

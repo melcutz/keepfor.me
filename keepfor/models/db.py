@@ -2,6 +2,7 @@
 # Copyright (C) 2026 Claudiu Branzan
 
 import sqlite3
+from collections.abc import Sequence
 from typing import Any
 
 
@@ -55,7 +56,9 @@ class Database:
         else:
             raise RuntimeError("No database connection available")
 
-    async def execute_batch(self, statements: list[tuple[str, tuple | list]]) -> None:
+    async def execute_batch(
+        self, statements: Sequence[tuple[str, Sequence[Any]]]
+    ) -> None:
         """Executes a list of (sql, params) queries."""
         if self.d1 is not None:
             prepared = []

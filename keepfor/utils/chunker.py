@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Claudiu Branzan
 
-from typing import NamedTuple
+from dataclasses import dataclass
 
 
-class TextChunk(NamedTuple):
+@dataclass(frozen=True)
+class TextChunk:
     index: int
     text: str
     token_count: int

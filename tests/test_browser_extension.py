@@ -3,7 +3,7 @@
 
 """Reusable Playwright tests for the browser extension (MV3 popup).
 
-Runs against the live app as a normal user — no backdoors, no DB access.
+Runs against the live app as a normal user - no backdoors, no DB access.
 Only the public UI + public API that any user (and the extension) can reach.
 
 Config (env vars, so no secrets are committed):
@@ -49,7 +49,7 @@ POPUP_HTML = EXT_DIR / "popup.html"
 POPUP_JS = EXT_DIR / "popup.js"
 
 needs_password = pytest.mark.skipif(
-    not PASSWORD, reason="KFM_PASSWORD not set — live prod tests skipped"
+    not PASSWORD, reason="KFM_PASSWORD not set - live prod tests skipped"
 )
 
 

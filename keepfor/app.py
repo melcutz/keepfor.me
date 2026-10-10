@@ -43,7 +43,7 @@ def create_app(
     include_settings_routes: bool = True,
     template_dirs: Sequence[Path] = (),
     template_globals: Mapping[str, Any] | None = None,
-    extra_middleware: Sequence[tuple[type, dict[str, Any]]] = (),
+    extra_middleware: Sequence[tuple[Any, dict[str, Any]]] = (),
     title: str = "Keepfor.me API & UI",
 ) -> FastAPI:
     prov = (providers or Providers()).resolved()

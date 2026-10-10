@@ -110,7 +110,7 @@ class BlobStore:
                 break
 
             cursor = getattr(res, "cursor", None)
-            if hasattr(cursor, "to_py"):
+            if cursor is not None and hasattr(cursor, "to_py"):
                 cursor = cursor.to_py()
             if not cursor:
                 break

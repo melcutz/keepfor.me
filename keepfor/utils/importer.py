@@ -26,10 +26,15 @@ def parse_netscape_bookmarks(html_content: str) -> list[dict[str, Any]]:
 
     for a in soup.find_all("a"):
         href = a.get("href")
-        if not href or not href.startswith(("http://", "https://")):
+        if (
+            not href
+            or not isinstance(href, str)
+            or not href.startswith(("http://", "https://"))
+        ):
             continue
         title = a.get_text().strip() or href
-        tags_raw = a.get("tags") or ""
+        tags_val = a.get("tags") or ""
+        tags_raw = tags_val if isinstance(tags_val, str) else str(tags_val)
         tags = [t.strip().lower() for t in tags_raw.split(",") if t.strip()]
         folder_header = a.find_previous("h3")
         if folder_header:

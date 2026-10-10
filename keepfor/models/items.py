@@ -252,7 +252,7 @@ async def get_item_clean_html(
 
     # Fallback to plain text / excerpt formatted into HTML paragraphs.
     # NOTE: title is NULL (not absent) until extraction completes, so
-    # .get('title', url) would render a literal "None" heading — use or.
+    # .get('title', url) would render a literal "None" heading: use or.
     heading = item.get("title") or item["url"]
     if item.get("status") == "failed":
         reason = item.get("fail_reason") or "unknown error"
@@ -684,10 +684,10 @@ async def suggest_rules(
             continue
         if not host or not row["canonical_url"]:
             continue
-        key = (host, row["name"])
-        if row["canonical_url"] not in pair_urls.setdefault(key, set()):
-            pair_urls[key].add(row["canonical_url"])
-            pair[key] += 1
+        pair_key = (host, row["name"])
+        if row["canonical_url"] not in pair_urls.setdefault(pair_key, set()):
+            pair_urls[pair_key].add(row["canonical_url"])
+            pair[pair_key] += 1
     existing = {
         (r["field"], r["substr"], r["tag"]) for r in await list_rules(db, user_id)
     }
@@ -704,12 +704,12 @@ async def suggest_rules(
             continue
         total = len(per_host_urls.get(host, set()))
         precision = (support / total) if total else 0.0
-        key = f"domain:{host}:{tag}"
+        rule_key = f"domain:{host}:{tag}"
         if (
             support >= min_support
             and precision >= min_precision
             and ("domain", host, tag) not in existing
-            and key not in dismissed
+            and rule_key not in dismissed
         ):
             out.append(
                 {
@@ -717,7 +717,7 @@ async def suggest_rules(
                     "tag": tag,
                     "precision": round(precision, 3),
                     "support": support,
-                    "key": key,
+                    "key": rule_key,
                 }
             )
     return out[:20]

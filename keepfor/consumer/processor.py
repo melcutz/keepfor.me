@@ -7,7 +7,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from keepfor.spi import TenantScope
+    from keepfor.spi import Action, TenantScope
 
 from keepfor.consumer.extractor import article_from_reader_markdown, extract_article
 from keepfor.models.db import Database
@@ -84,7 +84,7 @@ async def fetch_page_html(
     url: str,
     headers: dict | None = None,
     *,
-    action: str = "fetch",
+    action: Action = "fetch",
     tenant_id: str | None = None,
     env: Any = None,
 ) -> str:
@@ -137,7 +137,7 @@ async def generate_triage_summary(env: Any, plain_text: str) -> str | None:
     """Generate a 2-bullet triage summary with Workers AI (fail-open).
 
     Returns None when AI is unavailable, text is too short, or inference
-    fails/times out — extraction must never fail because of summarization.
+    fails/times out - extraction must never fail because of summarization.
     """
     try:
         from keepfor.runtime import get_providers
@@ -553,7 +553,7 @@ async def process_queue_batch(batch: Any, env: Any) -> None:
     messages = getattr(batch, "messages", [])
     # Support len() on real batches; be defensive about unexpected shapes.
     try:
-        batch_size = len(messages)
+        batch_size: int | str = len(messages)
     except TypeError:
         batch_size = "?"
     logger.info(f"Processing queue batch: size={batch_size}")

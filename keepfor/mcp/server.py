@@ -227,7 +227,11 @@ async def handle_tool_call(
 
     if tool_name == "save_url":
         url = arguments.get("url")
-        tags = arguments.get("tags", [])
+        if not url or not isinstance(url, str):
+            raise ValueError("save_url requires a valid url")
+        tags = arguments.get("tags") or []
+        if not isinstance(tags, list):
+            tags = [str(tags)]
         item, is_new = await save_item(db, env, user_id, url, tags, scope=scope)
         return {
             "id": item["id"],
@@ -272,25 +276,29 @@ async def handle_tool_call(
 
     elif tool_name == "get_item":
         item_id = arguments.get("item_id")
-        item = await get_item(db, user_id, item_id)
-        if not item:
+        if not item_id or not isinstance(item_id, str):
+            raise ValueError("item_id is required")
+        found_item = await get_item(db, user_id, item_id)
+        if not found_item:
             raise ValueError(f"Item not found with id: {item_id}")
         return {
-            "id": item["id"],
-            "title": item.get("title"),
-            "url": item["url"],
-            "byline": item.get("byline"),
-            "published_date": item.get("published_date"),
-            "site_name": item.get("site_name"),
-            "word_count": item.get("word_count"),
-            "tags": item.get("tags", []),
-            "content_text": item.get("content_text") or item.get("excerpt") or "",
-            "item_type": item.get("item_type", "url"),
-            "is_pinned": bool(item.get("is_pinned", 0)),
-            "user_notes": item.get("user_notes"),
-            "summary": item.get("summary"),
-            "image_url": item.get("image_url"),
-            "read_state": item.get("read_state", "unread"),
+            "id": found_item["id"],
+            "title": found_item.get("title"),
+            "url": found_item["url"],
+            "byline": found_item.get("byline"),
+            "published_date": found_item.get("published_date"),
+            "site_name": found_item.get("site_name"),
+            "word_count": found_item.get("word_count"),
+            "tags": found_item.get("tags", []),
+            "content_text": (
+                found_item.get("content_text") or found_item.get("excerpt") or ""
+            ),
+            "item_type": found_item.get("item_type", "url"),
+            "is_pinned": bool(found_item.get("is_pinned", 0)),
+            "user_notes": found_item.get("user_notes"),
+            "summary": found_item.get("summary"),
+            "image_url": found_item.get("image_url"),
+            "read_state": found_item.get("read_state", "unread"),
         }
 
     elif tool_name == "list_items":
@@ -314,17 +322,26 @@ async def handle_tool_call(
 
     elif tool_name == "tag_item":
         item_id = arguments.get("item_id")
-        add_tags = arguments.get("add_tags", [])
-        remove_tags = arguments.get("remove_tags", [])
+        if not item_id or not isinstance(item_id, str):
+            raise ValueError("item_id is required")
+        add_tags = arguments.get("add_tags") or []
+        if not isinstance(add_tags, list):
+            add_tags = [str(add_tags)]
+        remove_tags = arguments.get("remove_tags") or []
+        if not isinstance(remove_tags, list):
+            remove_tags = [str(remove_tags)]
         if add_tags:
             await add_tags_to_item(db, user_id, item_id, add_tags)
         if remove_tags:
             await remove_tags_from_item(db, user_id, item_id, remove_tags)
-        item = await get_item(db, user_id, item_id)
-        return {"id": item_id, "tags": item.get("tags", []) if item else []}
+        tag_item_res = await get_item(db, user_id, item_id)
+        tags = tag_item_res.get("tags", []) if tag_item_res else []
+        return {"id": item_id, "tags": tags}
 
     elif tool_name == "delete_item":
         item_id = arguments.get("item_id")
+        if not item_id or not isinstance(item_id, str):
+            raise ValueError("item_id is required")
         success = await delete_item(db, env, user_id, item_id, scope=scope)
         return {"id": item_id, "deleted": success}
 
@@ -348,17 +365,19 @@ async def handle_tool_call(
 
     elif tool_name == "pin_item":
         item_id = arguments.get("item_id")
+        if not item_id or not isinstance(item_id, str):
+            raise ValueError("item_id is required")
         pinned = arguments.get("pinned")
         if pinned is None:
             new_state = await toggle_pin_item(db, user_id, item_id)
             if new_state is None:
                 raise ValueError(f"Item not found with id: {item_id}")
             return {"id": item_id, "is_pinned": new_state}
-        item = await get_item(db, user_id, item_id)
-        if not item:
+        target_item = await get_item(db, user_id, item_id)
+        if not target_item:
             raise ValueError(f"Item not found with id: {item_id}")
         want = bool(pinned)
-        if bool(item.get("is_pinned", 0)) != want:
+        if bool(target_item.get("is_pinned", 0)) != want:
             await toggle_pin_item(db, user_id, item_id)
         return {"id": item_id, "is_pinned": want}
 
@@ -377,7 +396,7 @@ async def process_mcp_request(
     """Handles an incoming JSON-RPC 2.0 MCP message.
 
     Returns the response payload for requests, or None for notifications
-    and JSON-RPC responses, which carry no reply — the HTTP transport
+    and JSON-RPC responses, which carry no reply: the HTTP transport
     answers those with 202 and an empty body (stateless server: nothing
     to cancel or correlate, so they are accepted and ignored).
     """

@@ -174,18 +174,30 @@ class AIProvider(Protocol):
     ) -> str | None: ...
 
 
-@dataclass
+@dataclass(init=False)
 class Providers:
-    auth: AuthProvider | None = (
-        None  # None means keepfor.defaults.SessionPatAuthProvider
-    )
-    scope: ScopeProvider | None = (
-        None  # None means keepfor.defaults.SingleTenantScopeProvider
-    )
-    entitlements: Entitlements | None = None  # None means AllowAllEntitlements
-    fetch_budget: FetchBudget | None = None  # None means NoopFetchBudget
-    events: EventBus | None = None  # None means NoopEventBus
-    ai: AIProvider | None = None  # None means WorkersAIProvider
+    auth: AuthProvider
+    scope: ScopeProvider
+    entitlements: Entitlements
+    fetch_budget: FetchBudget
+    events: EventBus
+    ai: AIProvider
+
+    def __init__(
+        self,
+        auth: AuthProvider | None = None,
+        scope: ScopeProvider | None = None,
+        entitlements: Entitlements | None = None,
+        fetch_budget: FetchBudget | None = None,
+        events: EventBus | None = None,
+        ai: AIProvider | None = None,
+    ) -> None:
+        self.auth = auth  # type: ignore[assignment]
+        self.scope = scope  # type: ignore[assignment]
+        self.entitlements = entitlements  # type: ignore[assignment]
+        self.fetch_budget = fetch_budget  # type: ignore[assignment]
+        self.events = events  # type: ignore[assignment]
+        self.ai = ai  # type: ignore[assignment]
 
     def resolved(self) -> Providers:
         """Returns a copy with defaults filled in."""

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from typing import Any
+from typing import Any, TypedDict
 from urllib.parse import urlparse
 
 from fastapi import Response
@@ -16,7 +16,16 @@ from keepfor.templating import jinja_env
 PER_PAGE_OPTIONS = [10, 20, 30, 50]
 
 
-def _pager_context(page: int, per_page: int, total: int) -> dict[str, int | list[int]]:
+class PagerContext(TypedDict):
+    page: int
+    per_page: int
+    total_pages: int
+    pages: list[int]
+    shown_from: int
+    shown_to: int
+
+
+def _pager_context(page: int, per_page: int, total: int) -> PagerContext:
     """Clamp page/per_page and build pager template context."""
     per_page = per_page if per_page in PER_PAGE_OPTIONS else 20
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -67,7 +76,7 @@ def _safe_next(value: str | None, default: str = "/") -> str:
     Hence the explicit backslash and control-character rejections below, plus a
     structural parse so the rule does not depend on prefix guessing alone.
     """
-    return value if _is_safe_path(value) else default
+    return value if value is not None and _is_safe_path(value) else default
 
 
 TAG_PILL_CLASSES = [
@@ -95,7 +104,7 @@ TAG_DOT_CLASSES = [
 
 def tag_palette_index(tag: str) -> int:
     """Deterministic 0-7 palette slot for a tag name (md5, stable across processes)."""
-    return hashlib.md5(tag.encode("utf-8")).digest()[0] % 8
+    return hashlib.md5(tag.encode("utf-8"), usedforsecurity=False).digest()[0] % 8
 
 
 def tag_styles_for(tags: list[str]) -> dict[str, tuple[str, str]]:

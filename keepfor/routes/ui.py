@@ -514,6 +514,8 @@ async def toggle_pin_route(request: Request, item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
     if request.headers.get("hx-request"):
         item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
         tag_styles = tag_styles_for(item.get("tags") or [])
         template = jinja_env.get_template("partials/item_card.html")
         return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
@@ -544,6 +546,8 @@ async def update_notes_route(
         raise HTTPException(status_code=404, detail="Item not found")
     if request.headers.get("hx-request"):
         item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
         tag_styles = tag_styles_for(item.get("tags") or [])
         template = jinja_env.get_template("partials/item_card.html")
         return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
@@ -573,6 +577,8 @@ async def unarchive_route(request: Request, item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
     if request.headers.get("hx-request"):
         item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
         tag_styles = tag_styles_for(item.get("tags") or [])
         template = jinja_env.get_template("partials/item_card.html")
         return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
