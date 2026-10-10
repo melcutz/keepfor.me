@@ -181,8 +181,10 @@
       }
     }
   </script>
+  {% block head_extra %}{% endblock %}
 </head>
 <body class="h-full flex flex-col font-sans">
+  {% block banner %}{% endblock %}
   <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-slate-900 focus:text-white focus:rounded-md focus:text-xs focus:font-semibold focus:shadow-md">Skip to content</a>
   {% if current_user %}
   <header id="site-header" class="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-slate-200 px-4 sm:px-8 py-3 flex items-center justify-between" style="padding-top: max(0.75rem, env(safe-area-inset-top));">
@@ -196,6 +198,7 @@
         <a href="/tags" class="hover:text-slate-900 transition">Tags</a>
         <a href="/stats" class="hover:text-slate-900 transition">Stats</a>
         <a href="/settings" class="hover:text-slate-900 transition">Settings & API</a>
+        {% block nav_extra %}{% endblock %}
       </nav>
     </div>
 
@@ -535,5 +538,6 @@
       });
     }
   </script>
+  {% block footer_extra %}{% endblock %}
 </body>
 </html>
