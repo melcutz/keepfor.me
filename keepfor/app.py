@@ -20,7 +20,6 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from jinja2 import Environment, FileSystemLoader
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from keepfor.auth.service import (
@@ -68,7 +67,6 @@ from keepfor.models.items import (
     update_user_notes,
 )
 from keepfor.models.stats import get_user_stats, intensity_bucket
-from keepfor.paths import templates_dir
 from keepfor.schemas import (
     CreatePATRequest,
     LoginRequest,
@@ -82,6 +80,7 @@ from keepfor.search.engine import (
     hybrid_search,
     parse_tag_filter,
 )
+from keepfor.templating import jinja_env
 from keepfor.utils.importer import (
     export_library_html,
     export_library_json,
@@ -97,12 +96,6 @@ from keepfor.utils.rate_limit import (
     record_failure,
 )
 from keepfor.utils.url import extract_url
-
-# Initialize Jinja2 templates
-templates_dir_path = templates_dir()
-jinja_env = Environment(
-    loader=FileSystemLoader(str(templates_dir_path)), autoescape=True
-)
 
 app = FastAPI(title="Keepfor.me API & UI", version="0.1.0")
 
