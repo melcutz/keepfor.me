@@ -40,7 +40,184 @@ SQL_KEYWORDS = re.compile(
 TABLE_REGEX = re.compile(
     r"\b(?:DELETE\s+FROM|FROM|JOIN|INTO|UPDATE)\s+([a-zA-Z0-9_]+)", re.IGNORECASE
 )
-USER_ID_REGEX = re.compile(r"\buser_id\b", re.IGNORECASE)
+
+
+def strip_sql(sql: str) -> str:
+    """Strip SQL comments and replace string literal contents."""
+    # 1. Strip line comments (-- ...)
+    sql = re.sub(r"--[^\r\n]*", " ", sql)
+    # 2. Strip block comments (/* ... */)
+    sql = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
+    # 3. Replace single-quoted string literals with dummy placeholder
+    sql = re.sub(r"'(?:''|[^'])*'", " '__STR__' ", sql)
+    return sql
+
+
+def tokenize(sql: str) -> list[str]:
+    """Tokenize stripped SQL into identifier, operator, and punctuation tokens."""
+    clean = strip_sql(sql)
+    token_spec = r"[a-zA-Z_][a-zA-Z0-9_]*|\?|=|!=|<=|>=|<|>|\(|\)|,|;|\.|\S+"
+    return re.findall(token_spec, clean)
+
+
+def check_insert_scope(tokens: list[str], scope_cols: set[str]) -> bool:
+    """Check INSERT/REPLACE INTO table (cols) VALUES (vals) for scope col bound to ?."""
+    for i, tok in enumerate(tokens):
+        if tok.upper() in ("INSERT", "REPLACE"):
+            col_start = -1
+            col_end = -1
+            for j in range(i + 1, len(tokens)):
+                if tokens[j] == "(":
+                    col_start = j
+                    break
+                if tokens[j].upper() == "VALUES":
+                    break
+            if col_start != -1:
+                depth = 1
+                for j in range(col_start + 1, len(tokens)):
+                    if tokens[j] == "(":
+                        depth += 1
+                    elif tokens[j] == ")":
+                        depth -= 1
+                        if depth == 0:
+                            col_end = j
+                            break
+            if col_start != -1 and col_end != -1:
+                col_tokens = tokens[col_start + 1 : col_end]
+                cols = [t.lower() for t in col_tokens if t != ","]
+                val_start = -1
+                val_end = -1
+                for j in range(col_end + 1, len(tokens)):
+                    if tokens[j].upper() == "VALUES":
+                        for k in range(j + 1, len(tokens)):
+                            if tokens[k] == "(":
+                                val_start = k
+                                break
+                        break
+                if val_start != -1:
+                    depth = 1
+                    for k in range(val_start + 1, len(tokens)):
+                        if tokens[k] == "(":
+                            depth += 1
+                        elif tokens[k] == ")":
+                            depth -= 1
+                            if depth == 0:
+                                val_end = k
+                                break
+                if val_start != -1 and val_end != -1:
+                    val_tokens = tokens[val_start + 1 : val_end]
+                    vals = []
+                    cur_val = []
+                    v_depth = 0
+                    for vt in val_tokens:
+                        if vt == "(":
+                            v_depth += 1
+                            cur_val.append(vt)
+                        elif vt == ")":
+                            v_depth -= 1
+                            cur_val.append(vt)
+                        elif vt == "," and v_depth == 0:
+                            vals.append("".join(cur_val).strip())
+                            cur_val = []
+                        else:
+                            cur_val.append(vt)
+                    if cur_val:
+                        vals.append("".join(cur_val).strip())
+
+                    for idx, c in enumerate(cols):
+                        if c in scope_cols and idx < len(vals) and vals[idx] == "?":
+                            return True
+    return False
+
+
+def check_where_on_scope(tokens: list[str], scope_cols: set[str]) -> bool:
+    """Check WHERE or ON clauses for <alias.>scope_col = ? (or ? = <alias.>scope_col)."""
+    clause_keywords = {
+        "SELECT",
+        "FROM",
+        "JOIN",
+        "ON",
+        "WHERE",
+        "SET",
+        "VALUES",
+        "GROUP",
+        "ORDER",
+        "LIMIT",
+        "HAVING",
+        "UNION",
+        "EXCEPT",
+        "INTERSECT",
+        "WITH",
+    }
+
+    clause_stack = ["START"]
+
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        u = tok.upper()
+
+        if tok == "(":
+            clause_stack.append(clause_stack[-1])
+            i += 1
+            continue
+        if tok == ")":
+            if len(clause_stack) > 1:
+                clause_stack.pop()
+            i += 1
+            continue
+
+        if u in clause_keywords:
+            clause_stack[-1] = u
+            i += 1
+            continue
+
+        cur_clause = clause_stack[-1]
+        if cur_clause in ("WHERE", "ON"):
+            # Pattern 1: scope_col = ?
+            if (
+                tok.lower() in scope_cols
+                and i + 2 < len(tokens)
+                and tokens[i + 1] == "="
+                and tokens[i + 2] == "?"
+            ):
+                return True
+            # Pattern 2: <alias> . scope_col = ?
+            if (
+                i + 4 < len(tokens)
+                and tokens[i + 1] == "."
+                and tokens[i + 2].lower() in scope_cols
+                and tokens[i + 3] == "="
+                and tokens[i + 4] == "?"
+            ):
+                return True
+            # Pattern 3: ? = scope_col
+            if tok == "?":
+                if (
+                    i + 2 < len(tokens)
+                    and tokens[i + 1] == "="
+                    and tokens[i + 2].lower() in scope_cols
+                ):
+                    return True
+                if (
+                    i + 4 < len(tokens)
+                    and tokens[i + 1] == "="
+                    and tokens[i + 3] == "."
+                    and tokens[i + 4].lower() in scope_cols
+                ):
+                    return True
+        i += 1
+    return False
+
+
+def is_scoped_sql(sql: str, scope_cols: set[str] | None = None) -> bool:
+    """Return True if sql satisfies strict scope requirements."""
+    if scope_cols is None:
+        scope_cols = {"user_id"}
+    tokens = tokenize(sql)
+    if check_insert_scope(tokens, scope_cols):
+        return True
+    return bool(check_where_on_scope(tokens, scope_cols))
 
 
 @dataclass
@@ -51,14 +228,18 @@ class AuditFinding:
     sql_text: str
     tables_touched: list[str]
     tenant_tables: list[str]
-    has_user_id: bool
+    has_valid_scope: bool
     is_allowlisted: bool = False
     allowlist_reason: str | None = None
 
     @property
+    def has_user_id(self) -> bool:
+        return self.has_valid_scope
+
+    @property
     def is_violation(self) -> bool:
         return bool(
-            self.tenant_tables and not self.has_user_id and not self.is_allowlisted
+            self.tenant_tables and not self.has_valid_scope and not self.is_allowlisted
         )
 
 
@@ -108,13 +289,13 @@ class SqlAuditVisitor(ast.NodeVisitor):
 
         tables = [t.lower() for t in TABLE_REGEX.findall(text)]
         tenant_tables = [t for t in tables if t in TENANT_TABLES]
-        has_user_id = bool(USER_ID_REGEX.search(text))
+        has_valid_scope = is_scoped_sql(text, {"user_id"})
         current_func = self.scope_stack[-1] if self.scope_stack else "<module>"
 
         is_allowlisted = False
         allowlist_reason = None
 
-        if tenant_tables and not has_user_id:
+        if tenant_tables and not has_valid_scope:
             norm_file = self.filename.replace("\\", "/")
             for entry in self.allowlist:
                 entry_file = entry.get("file", "").replace("\\", "/")
@@ -138,7 +319,7 @@ class SqlAuditVisitor(ast.NodeVisitor):
                 sql_text=text.strip(),
                 tables_touched=tables,
                 tenant_tables=tenant_tables,
-                has_user_id=has_user_id,
+                has_valid_scope=has_valid_scope,
                 is_allowlisted=is_allowlisted,
                 allowlist_reason=allowlist_reason,
             )

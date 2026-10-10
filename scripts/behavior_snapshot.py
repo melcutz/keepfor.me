@@ -154,20 +154,10 @@ class MockEnv:
         self.ALLOW_PUBLIC_SIGNUPS = "false"
         self.READER_PROXY_BASE = ""
 
-if mode == "main":
-    from src.models.db import Database
-    import src.app as app_module
-
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    db = Database(sqlite_conn=conn)
-    env = MockEnv(db)
-
-    app_module.get_db = lambda req: db
-    app_module.get_env_from_request = lambda req: env
-
-    app = app_module.app
-else:
+# Note: This runner imports keepfor.* for current code.
+# When comparing against the pre-rename tree (commit 01e1c16 or earlier),
+# a git worktree of that commit will provide the legacy src.* package.
+try:
     from keepfor.models.db import Database
     import keepfor.deps as deps
     from keepfor.app import create_app
@@ -181,6 +171,20 @@ else:
     deps.get_env_from_request = lambda req: env
 
     app = create_app()
+except ImportError:
+    # Fallback when running inside a git worktree targeting pre-rename tree (where package was src.*)
+    from src.models.db import Database
+    import src.app as app_module
+
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    db = Database(sqlite_conn=conn)
+    env = MockEnv(db)
+
+    app_module.get_db = lambda req: db
+    app_module.get_env_from_request = lambda req: env
+
+    app = app_module.app
 
 client = TestClient(app)
 

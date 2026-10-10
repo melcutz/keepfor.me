@@ -1,8 +1,26 @@
 [
   {
     "file": "keepfor/auth/service.py",
+    "function": "validate_session",
+    "table": "sessions",
+    "reason": "Lookup by bearer session token id to authenticate user and resolve user_id"
+  },
+  {
+    "file": "keepfor/auth/service.py",
+    "function": "validate_pat",
+    "table": "personal_access_tokens",
+    "reason": "Lookup by bearer PAT token hash to authenticate user and resolve user_id"
+  },
+  {
+    "file": "keepfor/auth/service.py",
     "function": "logout_session",
     "table": "sessions",
     "reason": "Session logout deletes by bearer session token id (128-bit random token); user_id is not required"
+  },
+  {
+    "file": "keepfor/consumer/processor.py",
+    "function": "extract_and_store",
+    "table": "items",
+    "reason": "Queue worker reads item owner by id to detect and log cross-tenant spoofing before processing"
   }
 ]
