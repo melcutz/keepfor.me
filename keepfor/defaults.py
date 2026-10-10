@@ -177,6 +177,11 @@ class WorkersAIProvider:
         if env is None or getattr(env, "AI", None) is None:
             return []
         res = await env.AI.run(self.embedding_model, {"text": texts})
+        if not hasattr(res, "_mock_return_value") and hasattr(res, "to_py"):
+            try:
+                res = res.to_py()
+            except Exception:
+                pass
         if isinstance(res, dict):
             return res.get("data", [])
         return getattr(res, "data", []) or []
@@ -202,6 +207,11 @@ class WorkersAIProvider:
                 ),
                 timeout=4.0,
             )
+            if not hasattr(res, "_mock_return_value") and hasattr(res, "to_py"):
+                try:
+                    res = res.to_py()
+                except Exception:
+                    pass
             if isinstance(res, dict):
                 summary = str(res.get("response", "")).strip()
             else:

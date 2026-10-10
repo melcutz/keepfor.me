@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from keepfor import deps, runtime
 from keepfor.middleware import LoggingMiddleware, SecurityHeadersMiddleware
@@ -30,7 +31,7 @@ from keepfor.routes.settings import (
     FAIL_GROUP_ORDER,
     get_fail_group_counts,
 )
-from keepfor.spi import Providers
+from keepfor.spi import EntitlementDenied, Providers
 from keepfor.templating import configure_templates
 
 
@@ -70,6 +71,34 @@ def create_app(
 
     app.include_router(api_router)
     app.include_router(ui_router)
+
+    @app.exception_handler(EntitlementDenied)
+    async def entitlement_denied_handler(
+        request: Request, exc: EntitlementDenied
+    ) -> HTMLResponse | JSONResponse:
+        decision = exc.decision
+        accept = request.headers.get("accept", "")
+        if request.url.path.startswith("/api/") or "application/json" in accept:
+            return JSONResponse(
+                status_code=402,
+                content={
+                    "error": "entitlement_denied",
+                    "reason": decision.reason,
+                    "upgrade_url": decision.upgrade_url,
+                },
+            )
+        from keepfor.templating import jinja_env
+
+        is_htmx = bool(request.headers.get("hx-request"))
+        base_tmpl = "partials/fragment.html" if is_htmx else "base.html"
+        template = jinja_env.get_template("limit_reached.html")
+        html = template.render(
+            reason=decision.reason,
+            upgrade_url=decision.upgrade_url,
+            base_template=base_tmpl,
+            is_htmx=is_htmx,
+        )
+        return HTMLResponse(content=html, status_code=402)
 
     return app
 

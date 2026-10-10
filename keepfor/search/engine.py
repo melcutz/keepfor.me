@@ -229,21 +229,19 @@ async def search_vectorize(
             getattr(env, "VECTORIZE", None) if env else None, namespace=None
         )
     )
-    if not hasattr(env, "AI") or env.AI is None or vectors.index is None:
+    if vectors.index is None:
         return []
+
+    from keepfor.runtime import get_providers
+
+    providers = get_providers()
 
     try:
         # Bound the embedding + vector query so a slow AI binding cannot hang
         # search; on timeout we degrade to FTS-only results instead of erroring.
-        ai_res = await asyncio.wait_for(
-            env.AI.run("@cf/baai/bge-base-en-v1.5", {"text": [query]}),
+        embeddings = await asyncio.wait_for(
+            providers.ai.embed(env, [query]),
             timeout=VECTOR_SEARCH_TIMEOUT,
-        )
-        raw_data = getattr(ai_res, "data", ai_res)
-        if hasattr(raw_data, "to_py"):
-            raw_data = raw_data.to_py()
-        embeddings = (
-            raw_data.get("data", raw_data) if isinstance(raw_data, dict) else raw_data
         )
         if not embeddings:
             return []

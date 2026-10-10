@@ -97,6 +97,16 @@ def clear_logging_context():
     clear_context()
 
 
+@pytest.fixture(autouse=True)
+def reset_providers_state():
+    """Reset the runtime providers before and after each test."""
+    from keepfor.runtime import reset_providers
+
+    reset_providers()
+    yield
+    reset_providers()
+
+
 @pytest.fixture
 async def async_db(sqlite_conn: sqlite3.Connection) -> AsyncGenerator[Database, None]:
     """Async database fixture."""

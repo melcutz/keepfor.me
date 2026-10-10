@@ -137,11 +137,28 @@ async def mcp_endpoint(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-    response_payload = await process_mcp_request(
-        body, db, env, user, scope=deps.get_scope(request)
-    )
+    scope = deps.get_scope(request)
+    providers = deps.get_providers(request)
+    decision = await providers.entitlements.check(scope.tenant_id, "mcp_call", qty=1)
+    if not decision.allowed:
+        req_id = body.get("id") if isinstance(body, dict) else None
+        return JSONResponse(
+            content={
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32001, "message": "limit"},
+            }
+        )
+
+    response_payload = await process_mcp_request(body, db, env, user, scope=scope)
     if response_payload is None:
         return Response(status_code=202)
+
+    try:
+        await providers.entitlements.record(scope.tenant_id, "mcp_call", qty=1)
+    except Exception as exc:
+        logger.warning("Failed to record entitlement for mcp_call: %s", exc)
+
     if body.get("method") == "initialize":
         if "result" in response_payload:
             return JSONResponse(

@@ -297,6 +297,18 @@ async def import_route(
     else:
         bookmarks = parse_netscape_bookmarks(content)
 
+    # Check entitlements before enqueueing or background task
+    if bookmarks:
+        scope = deps.get_scope(request)
+        providers = deps.get_providers(request)
+        decision = await providers.entitlements.check(
+            scope.tenant_id, "import", qty=len(bookmarks)
+        )
+        if not decision.allowed:
+            from keepfor.spi import EntitlementDenied
+
+            raise EntitlementDenied(decision)
+
     # Never bulk-insert inside the request: 972 bookmarks x per-item D1
     # writes (+inline fetches without a queue) outlasts both the browser's
     # patience and the Worker's request limit. Fan out through the queue in
@@ -313,4 +325,13 @@ async def import_route(
             )
     elif bookmarks:
         background_tasks.add_task(import_bookmarks, db, env, user["id"], bookmarks)
+
+    if bookmarks:
+        try:
+            await providers.entitlements.record(
+                scope.tenant_id, "import", qty=len(bookmarks)
+            )
+        except Exception as exc:
+            logger.warning("Failed to record entitlement for import: %s", exc)
+
     return RedirectResponse(url="/", status_code=303)

@@ -52,6 +52,15 @@ async def save_item(
         logger.debug(f"Item already exists: {item_id}, user: {user_id}")
         return res, False
 
+    # Check entitlements before inserting
+    from keepfor.runtime import get_providers
+    from keepfor.spi import EntitlementDenied
+
+    providers = get_providers()
+    decision = await providers.entitlements.check(scope.tenant_id, "save_item", qty=1)
+    if not decision.allowed:
+        raise EntitlementDenied(decision)
+
     # Create new item
     item_id = str(uuid.uuid4())
     await db.execute(
@@ -61,6 +70,23 @@ async def save_item(
         """,
         (item_id, user_id, url.strip(), clean_url),
     )
+
+    try:
+        await providers.entitlements.record(scope.tenant_id, "save_item", qty=1)
+    except Exception as exc:
+        logger.warning("Failed to record entitlement for save_item: %s", exc)
+
+    try:
+        await providers.events.publish(
+            "item.saved",
+            {
+                "tenant_id": scope.tenant_id,
+                "user_id": user_id,
+                "item_id": item_id,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Failed to publish item.saved event for %s: %s", item_id, exc)
 
     if tags:
         await add_tags_to_item(db, user_id, item_id, tags)
@@ -293,6 +319,21 @@ async def delete_item(
             ("DELETE FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)),
         ]
     )
+    from keepfor.runtime import get_providers
+
+    providers = get_providers()
+    try:
+        await providers.events.publish(
+            "item.deleted",
+            {
+                "tenant_id": scope.tenant_id,
+                "user_id": user_id,
+                "item_id": item_id,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Failed to publish item.deleted event for %s: %s", item_id, exc)
+
     return True
 
 
@@ -883,26 +924,16 @@ async def save_note(
     # Best-effort single-chunk Vectorize embedding (fail-open; no AI in tests).
     try:
         vectors = scope.vectors(env)
-        if (
-            env is not None
-            and getattr(env, "AI", None) is not None
-            and vectors.index is not None
-            and body
-        ):
+        if vectors.index is not None and body:
+            from keepfor.runtime import get_providers
             from keepfor.utils.chunker import recursive_character_split
 
+            providers = get_providers()
             chunks = recursive_character_split(
                 body, target_tokens=400, overlap_tokens=50
             )[:1]
             if chunks:
-                ai_res = await env.AI.run(
-                    "@cf/baai/bge-base-en-v1.5",
-                    {"text": [chunks[0].text]},
-                )
-                raw = getattr(ai_res, "data", ai_res)
-                if hasattr(raw, "to_py"):
-                    raw = raw.to_py()
-                vecs = raw.get("data", raw) if isinstance(raw, dict) else raw
+                vecs = await providers.ai.embed(env, [chunks[0].text])
                 if vecs:
                     chunk_id = f"item_{item_id}_chunk_0"
                     await vectors.upsert(

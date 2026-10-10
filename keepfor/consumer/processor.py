@@ -109,24 +109,9 @@ async def generate_triage_summary(env: Any, plain_text: str) -> str | None:
     fails/times out — extraction must never fail because of summarization.
     """
     try:
-        if env is None or getattr(env, "AI", None) is None:
-            return None
-        text = (plain_text or "").strip()
-        if len(text) < 300:
-            return None
-        prompt = (
-            "Extract the core thesis and 2 key takeaways from this text"
-            " in under 40 words total:\n\n" + text[:2000]
-        )
-        res = await asyncio.wait_for(
-            env.AI.run(SUMMARY_MODEL, {"prompt": prompt, "max_tokens": 80}),
-            timeout=SUMMARY_TIMEOUT,
-        )
-        if isinstance(res, dict):
-            summary = str(res.get("response", "")).strip()
-        else:
-            summary = str(getattr(res, "response", "") or "").strip()
-        return summary or None
+        from keepfor.runtime import get_providers
+
+        return await get_providers().ai.summarize(env, plain_text, max_words=40)
     except Exception:
         return None
 
@@ -216,6 +201,10 @@ async def extract_and_store(
 
         scope = default_scope(db, env, user_id)
 
+    from keepfor.runtime import get_providers
+
+    providers = get_providers()
+
     try:
         logger.info(f"Starting extraction: item={item_id}, url={url}")
         # 1. Fetch raw HTML, following redirect stubs and falling back to a
@@ -235,9 +224,27 @@ async def extract_and_store(
         )
 
         # 4. Triage summary via Workers AI (fail-open, bounded).
-        summary = await generate_triage_summary(
-            env, extracted.get("content_text") or ""
-        )
+        summary = None
+        summarize_allowed = False
+        try:
+            decision = await providers.entitlements.check(
+                scope.tenant_id, "summarize", qty=1
+            )
+            summarize_allowed = decision.allowed
+        except Exception as exc:
+            logger.warning("Entitlement check for summarize failed: %s", exc)
+
+        if summarize_allowed:
+            summary = await generate_triage_summary(
+                env, extracted.get("content_text") or ""
+            )
+            if summary:
+                try:
+                    await providers.entitlements.record(
+                        scope.tenant_id, "summarize", qty=1
+                    )
+                except Exception as exc:
+                    logger.warning("Entitlement record for summarize failed: %s", exc)
 
         # 4b. Update items in D1
         await db.execute(
@@ -333,12 +340,17 @@ async def extract_and_store(
         )
 
         vectors = scope.vectors(env)
-        if (
-            chunks
-            and hasattr(env, "AI")
-            and env.AI is not None
-            and vectors.index is not None
-        ):
+        can_embed = False
+        if chunks and vectors.index is not None:
+            try:
+                decision = await providers.entitlements.check(
+                    scope.tenant_id, "embed", qty=len(chunks)
+                )
+                can_embed = decision.allowed
+            except Exception as exc:
+                logger.warning("Entitlement check for embed failed: %s", exc)
+
+        if can_embed:
             # Batch embeddings in groups of 10
             vectors_to_upsert = []
             chunk_records = []
@@ -346,16 +358,7 @@ async def extract_and_store(
             for i in range(0, len(chunks), 10):
                 batch_chunks = chunks[i : i + 10]
                 texts = [c.text for c in batch_chunks]
-                ai_res = await env.AI.run("@cf/baai/bge-base-en-v1.5", {"text": texts})
-                raw_data = getattr(ai_res, "data", ai_res)
-                if hasattr(raw_data, "to_py"):
-                    raw_data = raw_data.to_py()
-
-                embeddings = (
-                    raw_data.get("data", raw_data)
-                    if isinstance(raw_data, dict)
-                    else raw_data
-                )
+                embeddings = await providers.ai.embed(env, texts)
 
                 for chunk, vector in zip(batch_chunks, embeddings):
                     chunk_id = f"item_{item_id}_chunk_{chunk.index}"
@@ -377,6 +380,12 @@ async def extract_and_store(
             # Upsert into Vectorize
             if vectors_to_upsert:
                 await vectors.upsert(vectors_to_upsert)
+                try:
+                    await providers.entitlements.record(
+                        scope.tenant_id, "embed", qty=len(vectors_to_upsert)
+                    )
+                except Exception as exc:
+                    logger.warning("Entitlement record for embed failed: %s", exc)
 
             # Update D1 chunks tracking table
             await db.execute("DELETE FROM chunks WHERE item_id = ?;", (item_id,))
@@ -386,6 +395,19 @@ async def extract_and_store(
                     "token_count) VALUES (?, ?, ?, ?, ?);",
                     rec,
                 )
+
+        # 7. Publish item.extracted event
+        try:
+            await providers.events.publish(
+                "item.extracted",
+                {
+                    "tenant_id": scope.tenant_id,
+                    "user_id": user_id,
+                    "item_id": item_id,
+                },
+            )
+        except Exception as exc:
+            logger.warning("Failed to publish item.extracted event: %s", exc)
 
     except BlockedPageError as blocked:
         # Recorded, not raised: a wall is a permanent condition, so retrying
@@ -397,6 +419,17 @@ async def extract_and_store(
             (reason[:500], item_id, user_id),
         )
         logger.info(f"Blocked page, marked failed: item={item_id}: {blocked}")
+        try:
+            await providers.events.publish(
+                "item.failed",
+                {
+                    "tenant_id": scope.tenant_id,
+                    "user_id": user_id,
+                    "item_id": item_id,
+                },
+            )
+        except Exception as exc:
+            logger.warning("Failed to publish item.failed event: %s", exc)
     except Exception as exc:
         # Mark failure in D1
         await db.execute(
@@ -407,6 +440,17 @@ async def extract_and_store(
         logger.error(
             f"Extraction failed: item={item_id}, error={str(exc)}", exc_info=exc
         )
+        try:
+            await providers.events.publish(
+                "item.failed",
+                {
+                    "tenant_id": scope.tenant_id,
+                    "user_id": user_id,
+                    "item_id": item_id,
+                },
+            )
+        except Exception as pub_exc:
+            logger.warning("Failed to publish item.failed event: %s", pub_exc)
         raise exc
 
 
