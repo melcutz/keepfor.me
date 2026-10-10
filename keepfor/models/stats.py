@@ -110,7 +110,7 @@ def format_reading_metrics(words: int) -> tuple[str, str]:
 
 async def get_user_stats(db, user_id: str) -> dict:
     """Everything the stats page needs; every query scoped to the user."""
-    from src.models.items import list_user_tags
+    from keepfor.models.items import list_user_tags
 
     today = datetime.datetime.now(datetime.timezone.utc).date()
     cutoff = today - datetime.timedelta(days=STATS_WINDOW_DAYS - 1)

@@ -13,7 +13,7 @@ Two halves (hybrid tagging):
 
 Only `re`, `math` and `collections` are used so this module never grows
 the Worker cold-start import graph (same rule as the lazy parser imports
-in src/consumer/extractor.py).
+in keepfor/consumer/extractor.py).
 """
 
 import re
@@ -57,7 +57,7 @@ class Suggestion(NamedTuple):
 
 
 def normalize_tag(tag: str) -> str:
-    """Lowercase + strip (matches src/models/items.py save normalization)."""
+    """Lowercase + strip (matches keepfor/models/items.py save normalization)."""
     return tag.strip().lower()
 
 

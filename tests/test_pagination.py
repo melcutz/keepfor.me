@@ -5,9 +5,9 @@
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import save_item
-from src.search.engine import count_recent_items, hybrid_search
+from keepfor.auth.service import register_user
+from keepfor.models.items import save_item
+from keepfor.search.engine import count_recent_items, hybrid_search
 
 
 class FakeQueue:
@@ -50,7 +50,7 @@ async def test_browse_offset_and_total(user_with_items):
 
 
 async def test_count_recent_items_matches(user_with_items):
-    from src.models.items import add_tags_to_item
+    from keepfor.models.items import add_tags_to_item
 
     user, env, db = user_with_items
     assert await count_recent_items(db, user["id"]) == 7

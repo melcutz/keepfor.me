@@ -8,8 +8,8 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from src.app import app
-from src.auth.service import register_user
+from keepfor.app import app
+from keepfor.auth.service import register_user
 
 
 class FakeQueue:
@@ -35,14 +35,14 @@ def client(db, monkeypatch):
     def mock_get_db(request):
         return db
 
-    monkeypatch.setattr("src.app.get_db", mock_get_db)
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: MockEnv())
+    monkeypatch.setattr("keepfor.app.get_db", mock_get_db)
+    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: MockEnv())
     return TestClient(app)
 
 
 @pytest.fixture
 async def auth_headers(db):
-    from src.auth.service import login_user
+    from keepfor.auth.service import login_user
 
     await register_user(db, "tags@keepfor.me", "password123")
     user, session_id = await login_user(db, "tags@keepfor.me", "password123")
@@ -54,7 +54,7 @@ def _login(client, auth_headers):
 
 
 async def _seed_item(db, user_id, url, tags):
-    from src.models.items import add_tags_to_item
+    from keepfor.models.items import add_tags_to_item
 
     item_id = str(uuid.uuid4())
     await db.execute(
@@ -134,7 +134,7 @@ async def test_delete_tag_via_form(client, db, auth_headers):
         "/tags/delete", data={"name": "goner"}, follow_redirects=False
     )
     assert response.status_code in (303, 307, 308)
-    from src.models.items import get_item_tags
+    from keepfor.models.items import get_item_tags
 
     assert await get_item_tags(db, item_id) == ["stay"]
 
@@ -156,7 +156,7 @@ async def test_accept_suggestion_applies_tag(client, db, auth_headers):
         follow_redirects=False,
     )
     assert response.status_code in (303, 307, 308)
-    from src.models.items import get_item_tags
+    from keepfor.models.items import get_item_tags
 
     assert "edge caching" in await get_item_tags(db, item_id)
     row = await db.query_first(
@@ -211,7 +211,7 @@ async def test_merge_tags_via_form(client, db, auth_headers):
         follow_redirects=False,
     )
     assert response.status_code in (200, 303, 307, 308)
-    from src.models.items import list_user_tags
+    from keepfor.models.items import list_user_tags
 
     names = {t["name"]: t["count"] for t in await list_user_tags(db, user_id)}
     assert names == {"tech": 2}
@@ -222,12 +222,12 @@ async def test_prune_tags_via_form(client, db, auth_headers):
     _login(client, auth_headers)
     user_id = auth_headers["admin_user"]["id"]
     await _seed_item(db, user_id, "https://a.example/", ["used"])
-    from src.models.items import create_tag
+    from keepfor.models.items import create_tag
 
     await create_tag(db, user_id, "empty")
     response = client.post("/tags/prune", follow_redirects=False)
     assert response.status_code in (200, 303, 307, 308)
-    from src.models.items import list_user_tags
+    from keepfor.models.items import list_user_tags
 
     assert [t["name"] for t in await list_user_tags(db, user_id)] == ["used"]
 

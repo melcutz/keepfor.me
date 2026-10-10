@@ -3,7 +3,7 @@
 
 """Tests for semantic text chunking."""
 
-from src.utils.chunker import recursive_character_split
+from keepfor.utils.chunker import recursive_character_split
 
 
 def test_short_text_single_chunk():

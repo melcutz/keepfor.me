@@ -5,9 +5,9 @@
 
 import pytest
 
-from src.auth.service import register_user
-from src.consumer.extractor import extract_article, extract_image_url
-from src.models.items import (
+from keepfor.auth.service import register_user
+from keepfor.consumer.extractor import extract_article, extract_image_url
+from keepfor.models.items import (
     archive_item,
     get_item,
     get_pinned_items,
@@ -17,7 +17,7 @@ from src.models.items import (
     unarchive_item,
     update_user_notes,
 )
-from src.search.engine import get_recent_items, hybrid_search
+from keepfor.search.engine import get_recent_items, hybrid_search
 
 
 class FakeQueue:
@@ -173,7 +173,7 @@ def test_extractor_cover_image():
 @pytest.mark.asyncio
 async def test_copy_markdown_endpoint(user_with_env):
     user, env, db = user_with_env
-    from src.app import build_ai_markdown
+    from keepfor.app import build_ai_markdown
 
     item, _ = await save_item(db, env, user["id"], "https://example.com/m", ["ai"])
     await update_user_notes(db, user["id"], item["id"], "Because reasons")
@@ -188,7 +188,7 @@ async def test_copy_markdown_endpoint(user_with_env):
 @pytest.mark.asyncio
 async def test_mcp_save_note_and_pin(user_with_env):
     user, env, db = user_with_env
-    from src.mcp.server import handle_tool_call
+    from keepfor.mcp.server import handle_tool_call
 
     res = await handle_tool_call(
         "save_note",

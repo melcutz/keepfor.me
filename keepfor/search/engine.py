@@ -4,8 +4,8 @@
 import asyncio
 from typing import Any
 
-from src.models.db import Database
-from src.utils.logging import logger
+from keepfor.models.db import Database
+from keepfor.utils.logging import logger
 
 RRF_K = 60  # Standard RRF constant
 # Bound on the embedding call and the vector query. Search must stay

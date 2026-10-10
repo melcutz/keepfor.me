@@ -88,7 +88,7 @@ flowchart TD
 2. **Dynamic Theme Color**:
    * Update `<meta name="theme-color">` to match system light/dark and reader mode states (Light: `#f8fafc`, Sepia: `#fbf0d9`, Dark: `#0f172a`).
 3. **Lightweight Service Worker**:
-   * Serve a lightweight `sw.js` endpoint from `src/app.py` (served with `Service-Worker-Allowed: /`) to satisfy PWA installability requirements and cache core navigation shell without inflating deployment bundle size.
+   * Serve a lightweight `sw.js` endpoint from `keepfor/app.py` (served with `Service-Worker-Allowed: /`) to satisfy PWA installability requirements and cache core navigation shell without inflating deployment bundle size.
    * Register the service worker in `templates/base.html`.
 
 ### Phase 2: Navigation & Save Drawer
@@ -127,7 +127,7 @@ flowchart TD
 ## 4. Verification & Constraints Checklist
 
 * [ ] `python3 -m pytest tests/ -q` passes without regressions.
-* [ ] `ruff check src/ tests/ --select=E,W,F,I,N` passes.
-* [ ] `ruff format --check src/ tests/` passes.
+* [ ] `ruff check keepfor/ tests/ --select=E,W,F,I,N` passes.
+* [ ] `ruff format --check keepfor/ tests/` passes.
 * [ ] Bundle size check: verify zero static asset inflation; deploy dry-run stays within the 58,000 KiB budget gate.
 * [ ] Responsive verification: tested across desktop widths (1200px+), tablet (768px), and mobile (375px/390px with notch safe areas).

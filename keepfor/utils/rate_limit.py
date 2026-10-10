@@ -31,8 +31,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from src.models.db import Database
-from src.utils.logging import logger
+from keepfor.models.db import Database
+from keepfor.utils.logging import logger
 
 # Window length and caps. Tuned for a single-user instance on a phone: enough
 # room for real typos and re-tries, far too few for guessing.

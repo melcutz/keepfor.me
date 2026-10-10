@@ -7,8 +7,8 @@ import io
 import time
 from typing import Any
 
-from src.models.db import Database
-from src.models.items import save_item
+from keepfor.models.db import Database
+from keepfor.models.items import save_item
 
 
 def parse_netscape_bookmarks(html_content: str) -> list[dict[str, Any]]:

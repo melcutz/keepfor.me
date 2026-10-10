@@ -4,9 +4,9 @@
 import uuid
 from typing import Any
 
-from src.models.db import Database
-from src.utils.logging import logger
-from src.utils.url import canonicalize_url
+from keepfor.models.db import Database
+from keepfor.utils.logging import logger
+from keepfor.utils.url import canonicalize_url
 
 
 async def save_item(
@@ -58,7 +58,7 @@ async def save_item(
     else:
         logger.warning(f"No QUEUE binding; extracting inline: item={item_id}")
         try:
-            from src.consumer.processor import extract_and_store
+            from keepfor.consumer.processor import extract_and_store
 
             await extract_and_store(db, env, item_id, clean_url)
         except Exception as exc:
@@ -253,7 +253,7 @@ async def delete_item(db: Database, env: Any, user_id: str, item_id: str) -> boo
 
 async def create_tag(db: Database, user_id: str, raw_name: str) -> str | None:
     """Creates an empty tag (zero items allowed); idempotent. Returns name or None."""
-    from src.utils.tagger import validate_tag_name
+    from keepfor.utils.tagger import validate_tag_name
 
     clean = validate_tag_name(raw_name or "")
     if not clean:
@@ -275,7 +275,7 @@ async def rename_tag(db: Database, user_id: str, old_name: str, new_name: str) -
 
     Returns 'merged', 'unchanged', 'not_found' or 'invalid'.
     """
-    from src.utils.tagger import normalize_tag, validate_tag_name
+    from keepfor.utils.tagger import normalize_tag, validate_tag_name
 
     old_clean = normalize_tag(old_name or "")
     new_clean = validate_tag_name(new_name or "")
@@ -312,7 +312,7 @@ async def rename_tag(db: Database, user_id: str, old_name: str, new_name: str) -
 
 async def delete_tag(db: Database, user_id: str, raw_name: str) -> bool:
     """Deletes a tag; items survive untagged. Also dismisses pending suggestions."""
-    from src.utils.tagger import normalize_tag
+    from keepfor.utils.tagger import normalize_tag
 
     clean = normalize_tag(raw_name or "")
     if not clean:
@@ -340,7 +340,7 @@ async def merge_tags(
 
     Returns 'merged', 'unchanged', 'not_found' or 'invalid'.
     """
-    from src.utils.tagger import validate_tag_name
+    from keepfor.utils.tagger import validate_tag_name
 
     if not validate_tag_name(new_name or ""):
         return "invalid"
@@ -447,7 +447,7 @@ async def create_rule(
     db: Database, user_id: str, field: str, substr: str, tag: str
 ) -> str | None:
     """Creates a tagging rule; returns id or None when invalid/capped."""
-    from src.utils.tagger import validate_tag_name
+    from keepfor.utils.tagger import validate_tag_name
 
     field = (field or "").strip().lower()
     clean_sub = (substr or "").strip().lower()
@@ -612,7 +612,7 @@ async def add_suggestions(
     limit: int = 8,
 ) -> int:
     """Records pending tag suggestions; idempotent per (item, phrase)."""
-    from src.utils.tagger import normalize_tag
+    from keepfor.utils.tagger import normalize_tag
 
     inserted = 0
     for raw_phrase, score in phrases[:limit]:
@@ -836,7 +836,7 @@ async def save_note(
             and getattr(env, "VECTORIZE", None) is not None
             and body
         ):
-            from src.utils.chunker import recursive_character_split
+            from keepfor.utils.chunker import recursive_character_split
 
             chunks = recursive_character_split(
                 body, target_tokens=400, overlap_tokens=50

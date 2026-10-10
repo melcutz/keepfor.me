@@ -5,8 +5,8 @@
 
 import pytest
 
-from src.auth.service import register_user
-from src.consumer.extractor import extract_article, sanitize_clean_html
+from keepfor.auth.service import register_user
+from keepfor.consumer.extractor import extract_article, sanitize_clean_html
 
 
 class MockEnv:
@@ -164,7 +164,7 @@ def _article_html(title: str, body: str = "x" * 400) -> str:
 @pytest.mark.asyncio
 async def test_processor_follows_redirect_stub(db, monkeypatch):
     """A JS/meta redirect stub must be followed, not stored as the article."""
-    from src.consumer import processor
+    from keepfor.consumer import processor
 
     user = await register_user(db, "u@test.local", "password123")
     item_id = "11111111-1111-1111-1111-111111111111"
@@ -197,7 +197,7 @@ async def test_processor_follows_redirect_stub(db, monkeypatch):
 @pytest.mark.asyncio
 async def test_processor_marks_login_wall_failed_without_raising(db, monkeypatch):
     """Walls are recorded as failed and swallowed: retrying cannot help."""
-    from src.consumer import processor
+    from keepfor.consumer import processor
 
     user = await register_user(db, "u2@test.local", "password123")
     item_id = "22222222-2222-2222-2222-222222222222"
@@ -226,7 +226,7 @@ async def test_processor_marks_login_wall_failed_without_raising(db, monkeypatch
 @pytest.mark.asyncio
 async def test_processor_still_raises_on_origin_error(db, monkeypatch):
     """Real origin errors keep raising so the queue retries them."""
-    from src.consumer import processor
+    from keepfor.consumer import processor
 
     user = await register_user(db, "u3@test.local", "password123")
     item_id = "33333333-3333-3333-3333-333333333333"
@@ -369,7 +369,7 @@ def force_bs4_fallback(monkeypatch):
     Trafilatura's minimum-length threshold varies by version, so tests of
     the fallback must not depend on it failing on their fixture.
     """
-    from src.consumer import extractor
+    from keepfor.consumer import extractor
 
     extractor._load_parsers()  # ensure _soup_cls is populated
     monkeypatch.setattr(extractor, "_trafilatura", None)
@@ -440,7 +440,7 @@ def test_nav_junk_marked_as_fallback():
 
 def test_genuine_content_not_flagged_as_nav_junk():
     """Normal article content should not be flagged as nav junk."""
-    from src.consumer.extractor import _is_nav_junk
+    from keepfor.consumer.extractor import _is_nav_junk
 
     text = (
         "The quick brown fox jumps over the lazy dog near the river bank"
@@ -456,7 +456,7 @@ def test_genuine_content_not_flagged_as_nav_junk():
 
 def test_soft_404_with_error_body():
     """Pages with 'ERROR 404' body text should be detected as blocked."""
-    from src.consumer.extractor import detect_blocked_page
+    from keepfor.consumer.extractor import detect_blocked_page
 
     reason = detect_blocked_page(
         "Videolectures",
@@ -468,7 +468,7 @@ def test_soft_404_with_error_body():
 
 def test_is_youtube_url_domain_boundaries():
     """Ensure YouTube URL detection checks proper domain boundaries."""
-    from src.consumer.extractor import _is_youtube_url
+    from keepfor.consumer.extractor import _is_youtube_url
 
     assert _is_youtube_url("https://youtube.com/watch?v=123") is True
     assert _is_youtube_url("https://www.youtube.com/watch?v=123") is True

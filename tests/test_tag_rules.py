@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from src.auth.service import register_user
+from keepfor.auth.service import register_user
 
 
 @pytest.mark.asyncio
@@ -31,7 +31,7 @@ async def test_tag_rules_tables_exist(db):
 
 @pytest.mark.asyncio
 async def test_rule_crud_roundtrip(db):
-    from src.models.items import create_rule, delete_rule, list_rules
+    from keepfor.models.items import create_rule, delete_rule, list_rules
 
     user = await register_user(db, "rc@keepfor.me", "password123")
     assert await create_rule(db, user["id"], "domain", "ArXiv.ORG ", "research")
@@ -46,7 +46,7 @@ async def test_rule_crud_roundtrip(db):
 
 
 def test_match_rules_fields():
-    from src.models.items import match_rules
+    from keepfor.models.items import match_rules
 
     rules = [
         {"field": "domain", "substr": "arxiv.org", "tag": "research"},
@@ -62,7 +62,7 @@ def test_match_rules_fields():
 
 @pytest.mark.asyncio
 async def test_miner_proposes_high_precision_domain(db):
-    from src.models.items import add_tags_to_item, suggest_rules
+    from keepfor.models.items import add_tags_to_item, suggest_rules
 
     user = await register_user(db, "mn@keepfor.me", "password123")
     for i in range(5):
@@ -86,7 +86,7 @@ async def test_miner_proposes_high_precision_domain(db):
 
 @pytest.mark.asyncio
 async def test_miner_ignores_untagged_same_host_items(db):
-    from src.models.items import add_tags_to_item, suggest_rules
+    from keepfor.models.items import add_tags_to_item, suggest_rules
 
     user = await register_user(db, "mn2@keepfor.me", "password123")
     for i in range(5):
@@ -110,7 +110,7 @@ async def test_miner_ignores_untagged_same_host_items(db):
 
 @pytest.mark.asyncio
 async def test_dismiss_roundtrip_hides_suggestion(db):
-    from src.models.items import add_tags_to_item, suggest_rules
+    from keepfor.models.items import add_tags_to_item, suggest_rules
 
     user = await register_user(db, "mn3@keepfor.me", "password123")
     for i in range(5):
@@ -132,7 +132,7 @@ async def test_dismiss_roundtrip_hides_suggestion(db):
 
 @pytest.mark.asyncio
 async def test_duplicate_create_returns_existing_id(db):
-    from src.models.items import create_rule
+    from keepfor.models.items import create_rule
 
     user = await register_user(db, "mn4@keepfor.me", "password123")
     first = await create_rule(db, user["id"], "domain", "arxiv.org", "research")

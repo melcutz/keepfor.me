@@ -235,15 +235,15 @@ python3 -m pip install -e . pytest pytest-asyncio pytest-cov httpx
 python3 -m pytest tests/ -q
 ```
 
-Run pytest **from the repo root** — `src` resolves as a namespace package only
+Run pytest **from the repo root** — `keepfor` resolves as a namespace package only
 when the root is on `sys.path`.
 
 Lint and format exactly as CI does (bare `ruff check .` uses different rules and
 will pass on things CI rejects):
 
 ```bash
-ruff check src/ tests/ --select=E,W,F,I,N
-ruff format --check src/ tests/
+ruff check keepfor/ tests/ --select=E,W,F,I,N
+ruff format --check keepfor/ tests/
 ```
 
 To run the local Worker preview with its Python dependencies:

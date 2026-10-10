@@ -12,7 +12,7 @@
 
 ## File map
 
-- Modify `src/app.py` — add `hashlib` import, `TAG_PILL_CLASSES`, `TAG_DOT_CLASSES`, `tag_palette_index()`, `tag_styles_for()`; pass `tag_styles` in `library_page`, `search_htmx`, `reader_page`.
+- Modify `keepfor/app.py` — add `hashlib` import, `TAG_PILL_CLASSES`, `TAG_DOT_CLASSES`, `tag_palette_index()`, `tag_styles_for()`; pass `tag_styles` in `library_page`, `search_htmx`, `reader_page`.
 - Modify `templates/base.html` — SVG favicon link in `<head>`; header logo becomes portal mark + split-tone wordmark.
 - Modify `templates/library.html` — `Library` headline + count subline; sidebar board rows with color dots + count badges; search box gets `⌘K` chip + blue focus ring.
 - Modify `templates/partials/item_card.html` — favicon with two-stage fallback over first-tag-color letter tile; categorical tag pills; title hover blue.
@@ -64,7 +64,7 @@ git commit -m "docs: favicon via data URI, no static route"
 ### Task 1: Tag palette helper + unit test
 
 **Files:**
-- Modify: `src/app.py`
+- Modify: `keepfor/app.py`
 - Test: `tests/test_endpoints.py` (append at end of file)
 
 - [ ] **Step 1: Write the failing test**
@@ -72,7 +72,7 @@ git commit -m "docs: favicon via data URI, no static route"
 ```python
 def test_tag_palette_index_is_deterministic():
     """Palette slot is stable per tag and covers all eight slots."""
-    from src.app import TAG_DOT_CLASSES, TAG_PILL_CLASSES, tag_palette_index
+    from keepfor.app import TAG_DOT_CLASSES, TAG_PILL_CLASSES, tag_palette_index
 
     assert len(TAG_PILL_CLASSES) == 8
     assert len(TAG_DOT_CLASSES) == 8
@@ -90,7 +90,7 @@ Expected: FAIL with `ImportError` (names do not exist yet)
 
 - [ ] **Step 3: Add the import**
 
-Old (`src/app.py`, lines 1–4):
+Old (`keepfor/app.py`, lines 1–4):
 
 ```python
 import os
@@ -156,13 +156,13 @@ Expected: PASS (1 passed)
 
 - [ ] **Step 6: Lint**
 
-Run: `ruff check src/ tests/ --select=E,W,F,I,N && ruff format --check src/ tests/`
+Run: `ruff check keepfor/ tests/ --select=E,W,F,I,N && ruff format --check keepfor/ tests/`
 Expected: `All checks passed!` + `files already formatted`
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/app.py tests/test_endpoints.py
+git add keepfor/app.py tests/test_endpoints.py
 git commit -m "feat: deterministic tag-to-palette mapping with tests"
 ```
 
@@ -239,7 +239,7 @@ git commit -m "feat: portal-mark header lockup and SVG favicon"
 ### Task 3: Library page (headline, sidebar, search, item cards)
 
 **Files:**
-- Modify: `src/app.py` (`library_page`, `search_htmx`)
+- Modify: `keepfor/app.py` (`library_page`, `search_htmx`)
 - Modify: `templates/library.html`, `templates/partials/item_card.html`
 - Test: `tests/test_endpoints.py` (append at end of file)
 
@@ -251,8 +251,8 @@ async def test_search_results_show_favicons_and_tag_colors(
     client, db, auth_headers
 ):
     """Item cards render favicon with fallback and palette-colored tags."""
-    from src.app import TAG_PILL_CLASSES, tag_palette_index
-    from src.models.items import save_item
+    from keepfor.app import TAG_PILL_CLASSES, tag_palette_index
+    from keepfor.models.items import save_item
 
     user = auth_headers["admin_user"]
     await save_item(db, None, user["id"], "https://example.com/article", ["design"])
@@ -270,9 +270,9 @@ async def test_search_results_show_favicons_and_tag_colors(
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `python3 -m pytest tests/test_endpoints.py::test_search_results_show_favicons_and_tag_colors -q`
-Expected: FAIL (`s2/favicons` not in current card markup). If it fails earlier (empty search results), debug `hybrid_search` keyword mode with `env=None` in `src/search/engine.py` — FTS must return the saved item. Empty query exercises the recent-items path so no FTS rows (and no engine changes) are needed.
+Expected: FAIL (`s2/favicons` not in current card markup). If it fails earlier (empty search results), debug `hybrid_search` keyword mode with `env=None` in `keepfor/search/engine.py` — FTS must return the saved item. Empty query exercises the recent-items path so no FTS rows (and no engine changes) are needed.
 
-- [ ] **Step 3: Wire `tag_styles` into both handlers in `src/app.py`**
+- [ ] **Step 3: Wire `tag_styles` into both handlers in `keepfor/app.py`**
 
 In `library_page`, after `tags = await list_user_tags(db, user["id"])`, add:
 
@@ -421,13 +421,13 @@ Expected: PASS, 52 tests (49 existing + 3 new)
 
 - [ ] **Step 7: Lint**
 
-Run: `ruff check src/ tests/ --select=E,W,F,I,N && ruff format --check src/ tests/`
+Run: `ruff check keepfor/ tests/ --select=E,W,F,I,N && ruff format --check keepfor/ tests/`
 Expected: `All checks passed!` + `files already formatted`
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/app.py templates/library.html templates/partials/item_card.html tests/test_endpoints.py
+git add keepfor/app.py templates/library.html templates/partials/item_card.html tests/test_endpoints.py
 git commit -m "feat: warm library page with favicons and tag colors"
 ```
 
@@ -436,7 +436,7 @@ git commit -m "feat: warm library page with favicons and tag colors"
 ### Task 4: Reader tightening
 
 **Files:**
-- Modify: `src/app.py` (`reader_page`), `templates/reader.html`
+- Modify: `keepfor/app.py` (`reader_page`), `templates/reader.html`
 
 - [ ] **Step 1: Wire `tag_styles` into `reader_page`** — after `item = await get_item(...)` (and its 404 check), add:
 
@@ -489,7 +489,7 @@ Expected: PASS (52 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app.py templates/reader.html
+git add keepfor/app.py templates/reader.html
 git commit -m "feat: tighten reader headline and tag pills"
 ```
 
@@ -633,7 +633,7 @@ Expected: 53 passed
 
 - [ ] **Step 2: CI lint forms, exactly**
 
-Run: `ruff check src/ tests/ --select=E,W,F,I,N && ruff format --check src/ tests/`
+Run: `ruff check keepfor/ tests/ --select=E,W,F,I,N && ruff format --check keepfor/ tests/`
 Expected: `All checks passed!` + `files already formatted`
 
 - [ ] **Step 3: Review the diff**

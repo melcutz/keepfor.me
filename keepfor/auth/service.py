@@ -4,7 +4,7 @@
 import uuid
 from typing import Any
 
-from src.auth.crypto import (
+from keepfor.auth.crypto import (
     generate_pat,
     generate_session_token,
     get_session_expiry,
@@ -12,8 +12,8 @@ from src.auth.crypto import (
     hash_token,
     verify_password,
 )
-from src.models.db import Database
-from src.utils.logging import logger
+from keepfor.models.db import Database
+from keepfor.utils.logging import logger
 
 
 class AuthError(Exception):

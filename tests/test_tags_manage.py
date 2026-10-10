@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from src.models import items as items_model
+from keepfor.models import items as items_model
 
 
 async def _seed_item_with_tags(db, user_id, url, tags):

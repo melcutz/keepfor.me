@@ -24,7 +24,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from jinja2 import Environment, FileSystemLoader
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.auth.service import (
+from keepfor.auth.service import (
     InvalidCredentialsError,
     RegistrationClosedError,
     create_pat,
@@ -36,9 +36,9 @@ from src.auth.service import (
     validate_pat,
     validate_session,
 )
-from src.mcp.server import process_mcp_request
-from src.models.db import Database
-from src.models.items import (
+from keepfor.mcp.server import process_mcp_request
+from keepfor.models.db import Database
+from keepfor.models.items import (
     accept_suggestion,
     add_tags_to_item,
     archive_item,
@@ -68,35 +68,35 @@ from src.models.items import (
     unarchive_item,
     update_user_notes,
 )
-from src.models.stats import get_user_stats, intensity_bucket
-from src.schemas import (
+from keepfor.models.stats import get_user_stats, intensity_bucket
+from keepfor.schemas import (
     CreatePATRequest,
     LoginRequest,
     RegisterRequest,
     SaveItemRequest,
     SearchRequest,
 )
-from src.search.engine import (
+from keepfor.search.engine import (
     get_recent_items,
     get_status_counts,
     hybrid_search,
     parse_tag_filter,
 )
-from src.utils.importer import (
+from keepfor.utils.importer import (
     export_library_html,
     export_library_json,
     import_bookmarks,
     parse_csv_bookmarks,
     parse_netscape_bookmarks,
 )
-from src.utils.logging import get_request_id, logger
-from src.utils.rate_limit import (
+from keepfor.utils.logging import get_request_id, logger
+from keepfor.utils.rate_limit import (
     check_allowed,
     clear_account,
     rate_limited_html,
     record_failure,
 )
-from src.utils.url import extract_url
+from keepfor.utils.url import extract_url
 
 # Initialize Jinja2 templates
 templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
@@ -336,21 +336,21 @@ def _pwa_icon_response(b64: str):
 
 @app.get("/icon-192.png")
 async def pwa_icon_192():
-    from src import pwa_icons
+    from keepfor import pwa_icons
 
     return _pwa_icon_response(pwa_icons.ICON_192_B64)
 
 
 @app.get("/icon-512.png")
 async def pwa_icon_512():
-    from src import pwa_icons
+    from keepfor import pwa_icons
 
     return _pwa_icon_response(pwa_icons.ICON_512_B64)
 
 
 @app.get("/icon-maskable.png")
 async def pwa_icon_maskable():
-    from src import pwa_icons
+    from keepfor import pwa_icons
 
     return _pwa_icon_response(pwa_icons.ICON_MASKABLE_B64)
 

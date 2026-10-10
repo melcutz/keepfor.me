@@ -9,8 +9,8 @@ import time
 
 import pytest
 
-from src.auth.service import register_user
-from src.mcp.server import process_mcp_request
+from keepfor.auth.service import register_user
+from keepfor.mcp.server import process_mcp_request
 
 
 class FakeQueue:
@@ -167,7 +167,7 @@ async def test_hybrid_search_runs_fts_and_vector_concurrently(monkeypatch):
     Sequential awaits made hybrid ~0.6s (FTS round-trip + ~0.39s embedding
     paid back to back). Concurrently, total time tracks the slower branch.
     """
-    from src.search import engine
+    from keepfor.search import engine
 
     async def slow_fts(*args, **kwargs):
         await asyncio.sleep(0.20)
@@ -189,7 +189,7 @@ async def test_hybrid_search_runs_fts_and_vector_concurrently(monkeypatch):
 @pytest.mark.asyncio
 async def test_vector_search_timeout_degrades_to_keyword(monkeypatch):
     """A hanging AI binding must not hang search; it falls back to FTS."""
-    from src.search import engine
+    from keepfor.search import engine
 
     async def fast_fts(*args, **kwargs):
         return [{"item_id": "i1", "rank": 0.1, "snippet": "x"}]
@@ -214,7 +214,7 @@ def mcp_client(db, monkeypatch):
     """TestClient with DB/env pinned, mirroring test_endpoints.client."""
     from fastapi.testclient import TestClient
 
-    from src import app as app_module
+    from keepfor import app as app_module
 
     monkeypatch.setattr(app_module, "get_db", lambda request: db)
     monkeypatch.setattr(app_module, "get_env_from_request", lambda request: MockEnv())
@@ -225,7 +225,7 @@ def mcp_client(db, monkeypatch):
 @pytest.fixture
 async def pat_headers(db):
     """Bearer headers for a fresh PAT."""
-    from src.auth.service import create_pat, register_user
+    from keepfor.auth.service import create_pat, register_user
 
     user = await register_user(db, "mcphttp@example.com", "password123")
     pat = await create_pat(db, user["id"], "Test MCP PAT")
@@ -355,7 +355,7 @@ async def test_mcp_rejects_foreign_origin(mcp_client, pat_headers):
 def test_heavy_extraction_libs_are_not_imported_at_module_load():
     """bs4/lxml/trafilatura must stay out of the request import path.
 
-    They are only needed by the extraction consumer, but src.worker imports
+    They are only needed by the extraction consumer, but keepfor.worker imports
     that chain at module scope -- eager imports made every request (even
     /auth/login) pay to load the article-parsing stack.
     """
@@ -363,7 +363,7 @@ def test_heavy_extraction_libs_are_not_imported_at_module_load():
     import sys
 
     code = (
-        "import sys, src.worker;"
+        "import sys, keepfor.worker;"
         "print(','.join(m for m in ('trafilatura','bs4','lxml') if m in sys.modules))"
     )
     out = subprocess.run(

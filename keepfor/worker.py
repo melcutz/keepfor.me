@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Claudiu Branzan
 
-from src.app import app
-from src.consumer.processor import process_queue_batch
+from keepfor.app import app
+from keepfor.consumer.processor import process_queue_batch
 
 try:
     from workers import WorkerEntrypoint, asgi

@@ -5,10 +5,10 @@ import asyncio
 import json
 from typing import Any
 
-from src.consumer.extractor import article_from_reader_markdown, extract_article
-from src.models.db import Database
-from src.utils.chunker import recursive_character_split
-from src.utils.logging import logger
+from keepfor.consumer.extractor import article_from_reader_markdown, extract_article
+from keepfor.models.db import Database
+from keepfor.utils.chunker import recursive_character_split
+from keepfor.utils.logging import logger
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -255,12 +255,12 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
         # 5b. Automatic tagging (fail-open: a tagger defect must never
         # flip an extracted item to failed).
         try:
-            from src.models.items import (
+            from keepfor.models.items import (
                 add_suggestions,
                 add_tags_to_item,
                 get_item_tags,
             )
-            from src.utils import tagger as _tagger
+            from keepfor.utils import tagger as _tagger
 
             vocab_rows = await db.query_all(
                 "SELECT name FROM tags WHERE user_id = ?;", (user_id,)
@@ -294,7 +294,7 @@ async def extract_and_store(db: Database, env: Any, item_id: str, url: str) -> N
                 "SELECT field, substr, tag FROM tag_rules WHERE user_id = ?;",
                 (user_id,),
             )
-            from src.models.items import match_rules as _match_rules
+            from keepfor.models.items import match_rules as _match_rules
 
             rule_tags = _match_rules(
                 [dict(r) for r in rules_rows],
@@ -446,7 +446,7 @@ async def _process_import_batch(
     if not user_id or not bookmarks:
         return
     # Lazy import: src.models.items lazily imports this module in save_item.
-    from src.models.items import save_item
+    from keepfor.models.items import save_item
 
     d1 = (
         getattr(env, "DB", None)

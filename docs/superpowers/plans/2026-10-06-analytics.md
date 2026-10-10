@@ -4,18 +4,18 @@
 
 **Goal:** Ship a habit-first `/stats` page (Keep Score, streak, contributions graph) backed by a new `item_opens` log table written on every reader visit.
 
-**Architecture:** Migration adds the table (auto-loaded by the conftest glob, applied to prod D1 by hand). New `src/models/stats.py` holds pure scoring functions plus aggregate queries. `GET /items/{id}` gains a `BackgroundTasks` insert (established pattern at `app.py:1328`). New `GET /stats` route renders server-side HTML grid, no JS chart libs.
+**Architecture:** Migration adds the table (auto-loaded by the conftest glob, applied to prod D1 by hand). New `keepfor/models/stats.py` holds pure scoring functions plus aggregate queries. `GET /items/{id}` gains a `BackgroundTasks` insert (established pattern at `app.py:1328`). New `GET /stats` route renders server-side HTML grid, no JS chart libs.
 
-**Tech Stack:** FastAPI + Jinja + sqlite3/D1 dual-backend (`src/models/db.py`), htmx only, Tailwind CDN (existing), pytest.
+**Tech Stack:** FastAPI + Jinja + sqlite3/D1 dual-backend (`keepfor/models/db.py`), htmx only, Tailwind CDN (existing), pytest.
 
 ---
 
 ## File map
 
 - Create `migrations/0007_item_opens.sql` — table + index.
-- Create `src/models/stats.py` — weights, bucketing, streak, aggregate queries.
-- Modify `src/models/items.py` — add `record_open()` (one INSERT, dual-backend safe via existing `db.execute`).
-- Modify `src/app.py` — `reader_page` gains `background_tasks` param + insert call; new `GET /stats` route; import stats helpers.
+- Create `keepfor/models/stats.py` — weights, bucketing, streak, aggregate queries.
+- Modify `keepfor/models/items.py` — add `record_open()` (one INSERT, dual-backend safe via existing `db.execute`).
+- Modify `keepfor/app.py` — `reader_page` gains `background_tasks` param + insert call; new `GET /stats` route; import stats helpers.
 - Create `templates/stats.html` — banner, year grid, week strip, rhythm bars, inbox health, top tags/domains.
 - Modify `templates/base.html` — add "Stats" to desktop nav (`:131-135`) and mobile nav grid (`:158-177`, `grid-cols-4` → `grid-cols-5` with a Stats tab).
 - Create `tests/test_stats.py` — all new tests live here (module-level functions only, no Test* classes).
@@ -26,7 +26,7 @@
 
 **Files:**
 - Create: `migrations/0007_item_opens.sql`
-- Modify: `src/models/items.py` (append near `archive_item`, ~line 891)
+- Modify: `keepfor/models/items.py` (append near `archive_item`, ~line 891)
 - Test: `tests/test_stats.py` (new file)
 
 - [ ] **Step 1: Write the migration**
@@ -59,8 +59,8 @@ def test_item_opens_table_exists(db):
 
 
 def test_record_open_inserts_row(db, test_user_data, test_item_data):
-    from src.auth.service import create_user
-    from src.models.items import record_open, save_item
+    from keepfor.auth.service import create_user
+    from keepfor.models.items import record_open, save_item
 
     user = create_user(db, test_user_data["email"], test_user_data["password"])
     item = save_item(db, user["id"], test_item_data["url"], title="T")
@@ -71,14 +71,14 @@ def test_record_open_inserts_row(db, test_user_data, test_item_data):
     assert rows[0]["item_id"] == item["id"]
 ```
 
-(Verify `create_user`/`save_item` signatures against `src/auth/service.py` and `src/models/items.py:25` before running; adjust kwargs to match.)
+(Verify `create_user`/`save_item` signatures against `keepfor/auth/service.py` and `keepfor/models/items.py:25` before running; adjust kwargs to match.)
 
 - [ ] **Step 3: Run tests to verify they fail**
 
 Run: `python3 -m pytest tests/test_stats.py -q`
 Expected: FAIL — `no such table: item_opens` / `record_open` undefined. (Migration files are loaded alphabetically by conftest, so creating the file is enough for sqlite; D1 prod needs the manual `migrations apply` later, not in this task.)
 
-- [ ] **Step 4: Add `record_open` to `src/models/items.py`**
+- [ ] **Step 4: Add `record_open` to `keepfor/models/items.py`**
 
 ```python
 def record_open(db, user_id: int, item_id: int) -> None:
@@ -100,7 +100,7 @@ Expected: PASS (2 passed).
 - [ ] **Step 6: Commit**
 
 ```bash
-git add migrations/0007_item_opens.sql src/models/items.py tests/test_stats.py
+git add migrations/0007_item_opens.sql keepfor/models/items.py tests/test_stats.py
 git commit -m "feat(stats): item_opens log table + record_open"
 ```
 
@@ -109,7 +109,7 @@ git commit -m "feat(stats): item_opens log table + record_open"
 ### Task 2: Pure scoring functions
 
 **Files:**
-- Create: `src/models/stats.py`
+- Create: `keepfor/models/stats.py`
 - Test: `tests/test_stats.py` (append)
 
 Scoring contract (from spec): per-event weights save=1, tag/note/pin=1, archive=2, deduped open=3; daily cap 10 per action type; streak = consecutive UTC days with score > 0 ending today or yesterday; intensity bucket 0–4 relative to user's median active day.
@@ -118,7 +118,7 @@ Scoring contract (from spec): per-event weights save=1, tag/note/pin=1, archive=
 
 ```python
 def test_score_day_weights_and_caps():
-    from src.models.stats import score_day
+    from keepfor.models.stats import score_day
 
     events = {"save": 12, "tag": 3, "note": 0, "pin": 1, "archive": 4, "open": 2}
     # saves capped at 10: 10*1 + 3*1 + 0 + 1*1 + 4*2 + 2*3 = 28
@@ -126,7 +126,7 @@ def test_score_day_weights_and_caps():
 
 
 def test_intensity_bucket_self_scales():
-    from src.models.stats import intensity_bucket
+    from keepfor.models.stats import intensity_bucket
 
     assert intensity_bucket(0, median=5) == 0
     assert intensity_bucket(5, median=5) == 2
@@ -135,7 +135,7 @@ def test_intensity_bucket_self_scales():
 
 
 def test_streak_ending_yesterday_stays_alive():
-    from src.models.stats import current_streak
+    from keepfor.models.stats import current_streak
     import datetime
 
     today = datetime.date.today()
@@ -146,7 +146,7 @@ def test_streak_ending_yesterday_stays_alive():
 - [ ] **Step 2: Run to verify failure**
 
 Run: `python3 -m pytest tests/test_stats.py -q`
-Expected: FAIL — `src.models.stats` does not exist.
+Expected: FAIL — `keepfor.models.stats` does not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -199,7 +199,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/models/stats.py tests/test_stats.py
+git add keepfor/models/stats.py tests/test_stats.py
 git commit -m "feat(stats): pure Keep Score functions"
 ```
 
@@ -208,7 +208,7 @@ git commit -m "feat(stats): pure Keep Score functions"
 ### Task 3: Reader hook (BackgroundTasks insert)
 
 **Files:**
-- Modify: `src/app.py` (`reader_page`, `src/app.py:589-620`)
+- Modify: `keepfor/app.py` (`reader_page`, `keepfor/app.py:589-620`)
 - Test: `tests/test_stats.py` (append)
 
 Follow the existing `BackgroundTasks` pattern (`app.py:11` import exists, `app.py:1328` usage). TestClient runs background tasks before the response returns, so assertions are deterministic.
@@ -217,8 +217,8 @@ Follow the existing `BackgroundTasks` pattern (`app.py:11` import exists, `app.p
 
 ```python
 def test_reader_visit_logs_open(client, test_user_data, test_item_data):
-    from src.models.items import save_item
-    from src.app import get_db
+    from keepfor.models.items import save_item
+    from keepfor.app import get_db
 
     # client fixture pattern: reuse the authed-client helper from test_endpoints.py
     # (register + login, then save via POST /save). Adjust to match that helper.
@@ -248,7 +248,7 @@ async def reader_page(request: Request, item_id: str, background_tasks: Backgrou
     ...
 ```
 
-And a module-level helper in `src/app.py` (near `reader_page`):
+And a module-level helper in `keepfor/app.py` (near `reader_page`):
 
 ```python
 def _log_open_safely(db, user_id: int, item_id: str) -> None:
@@ -258,7 +258,7 @@ def _log_open_safely(db, user_id: int, item_id: str) -> None:
         logger.warning("item_opens insert failed", exc_info=True)
 ```
 
-(`logger` — check the existing logger name in `app.py` and reuse it; do not create a new one. `record_open` import from `src.models.items` alongside the existing `get_item` import.)
+(`logger` — check the existing logger name in `app.py` and reuse it; do not create a new one. `record_open` import from `keepfor.models.items` alongside the existing `get_item` import.)
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -268,7 +268,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app.py tests/test_stats.py
+git add keepfor/app.py tests/test_stats.py
 git commit -m "feat(stats): log reader opens via BackgroundTasks"
 ```
 
@@ -277,7 +277,7 @@ git commit -m "feat(stats): log reader opens via BackgroundTasks"
 ### Task 4: Aggregate queries (`get_user_stats`)
 
 **Files:**
-- Modify: `src/models/stats.py` (append query layer)
+- Modify: `keepfor/models/stats.py` (append query layer)
 - Test: `tests/test_stats.py` (append)
 
 One function returning everything `stats.html` needs, all `WHERE user_id = ?`:
@@ -309,7 +309,7 @@ SQL notes: day buckets via `DATE(created_at)` on `items`/`item_tags`/`item_opens
 ### Task 5: `GET /stats` route + template + nav
 
 **Files:**
-- Modify: `src/app.py` (new route after the `/tags` section, ~line 823)
+- Modify: `keepfor/app.py` (new route after the `/tags` section, ~line 823)
 - Create: `templates/stats.html`
 - Modify: `templates/base.html` (desktop nav + mobile nav `grid-cols-4` → `grid-cols-5`)
 - Test: `tests/test_stats.py` (append)
@@ -342,7 +342,7 @@ Template sections in order: streak banner (4 numbers) → year grid (server-rend
 
 - [ ] **Step 1: Run the CI gates exactly**
 
-Run: `ruff check src/ tests/ --select=E,W,F,I,N && ruff format --check src/ tests/ && python3 -m pytest tests/ -q`
+Run: `ruff check keepfor/ tests/ --select=E,W,F,I,N && ruff format --check keepfor/ tests/ && python3 -m pytest tests/ -q`
 Expected: all green (suite currently 252 passed, 15 skipped).
 
 - [ ] **Step 2: Manual visual check** — desktop wide + 375px: streak banner, grid, no page-level h-scrollbar (the library-scoped `overflow-x: clip` does not cover `/stats`; add the same one-line guard in `stats.html`'s style block — already in the Task 5 template spec).

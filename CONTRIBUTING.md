@@ -38,7 +38,7 @@ Run the test suite from the repository root:
 python3 -m pytest tests/ -q
 ```
 
-> **Note**: Always run `pytest` from the repo root. Subdirectories will fail to resolve `src` imports as `src` is a namespace package.
+> **Note**: Always run `pytest` from the repo root. Subdirectories will fail to resolve `keepfor` imports as `keepfor` is a namespace package.
 
 ### 3. Code Style & Formatting
 
@@ -46,16 +46,16 @@ CI enforces strict formatting and linting rules. Before pushing code or submitti
 
 ```bash
 # Check linting (must include import sorting: -I)
-ruff check src/ tests/ --select=E,W,F,I,N
+ruff check keepfor/ tests/ --select=E,W,F,I,N
 
 # Check formatting
-ruff format --check src/ tests/
+ruff format --check keepfor/ tests/
 ```
 
 To auto-format code, run:
 
 ```bash
-ruff format src/ tests/
+ruff format keepfor/ tests/
 ```
 
 ### 4. License Headers

@@ -21,7 +21,7 @@ def test_worker_entrypoint_accepts_env_and_ctx():
     import inspect
 
     assert hasattr(workers, "WorkerEntrypoint")
-    from src.worker import KeepForMeWorker
+    from keepfor.worker import KeepForMeWorker
 
     queue_params = list(inspect.signature(KeepForMeWorker.queue).parameters)
     assert queue_params == ["self", "batch", "env", "ctx"]

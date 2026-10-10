@@ -14,9 +14,9 @@
 
 | File | Responsibility |
 |---|---|
-| `src/search/engine.py` | `count_recent_items()` helper; `hybrid_search(..., offset)` returns `(items, total)` |
-| `src/app.py` | `library_page` + `search_htmx` pagination params; new `POST /items/{item_id}/tags` |
-| `src/mcp/server.py` | Unwrap `hybrid_search` tuple (one line) |
+| `keepfor/search/engine.py` | `count_recent_items()` helper; `hybrid_search(..., offset)` returns `(items, total)` |
+| `keepfor/app.py` | `library_page` + `search_htmx` pagination params; new `POST /items/{item_id}/tags` |
+| `keepfor/mcp/server.py` | Unwrap `hybrid_search` tuple (one line) |
 | `templates/partials/pager.html` | New: pager bar + result count + per-page select (create) |
 | `templates/library.html` | Hidden page/per_page inputs, pager include, draggable tags, tag-mode toggle, inline script |
 | `templates/partials/item_card.html` | Card data attrs, pill restructure with `×` button |
@@ -31,7 +31,7 @@ Pager state rule (applies everywhere): changing per-page, tag, status, or query 
 ### Task 1: Engine pagination + totals
 
 **Files:**
-- Modify: `src/search/engine.py:137-250` (`hybrid_search`), append `count_recent_items` after `get_recent_items` (ends at line 314)
+- Modify: `keepfor/search/engine.py:137-250` (`hybrid_search`), append `count_recent_items` after `get_recent_items` (ends at line 314)
 - Test: `tests/test_pagination.py` (create)
 
 - [ ] **Step 1: Write the failing tests.** Create `tests/test_pagination.py` with the full fixture copy below (do not import from other test modules):
@@ -41,9 +41,9 @@ Pager state rule (applies everywhere): changing per-page, tag, status, or query 
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import save_item
-from src.search.engine import count_recent_items, hybrid_search
+from keepfor.auth.service import register_user
+from keepfor.models.items import save_item
+from keepfor.search.engine import count_recent_items, hybrid_search
 
 
 class FakeQueue:
@@ -84,7 +84,7 @@ async def test_browse_offset_and_total(user_with_items):
 
 
 async def test_count_recent_items_matches(user_with_items):
-    from src.models.items import add_tags_to_item
+    from keepfor.models.items import add_tags_to_item
 
     user, env, db = user_with_items
     assert await count_recent_items(db, user["id"]) == 7
@@ -98,7 +98,7 @@ async def test_count_recent_items_matches(user_with_items):
 Run: `python3 -m pytest tests/test_pagination.py -q` (from repo root)
 Expected: FAIL — `hybrid_search` takes no `offset`, returns list (unpack error), `count_recent_items` undefined.
 
-- [ ] **Step 3: Implement.** In `src/search/engine.py`, change the signature and empty-query path:
+- [ ] **Step 3: Implement.** In `keepfor/search/engine.py`, change the signature and empty-query path:
 
 ```python
 async def hybrid_search(
@@ -189,7 +189,7 @@ Expected: PASS (2 passed). Other suites still fail on tuple unpack — fixed in 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add src/search/engine.py tests/test_pagination.py
+git add keepfor/search/engine.py tests/test_pagination.py
 git commit -m "feat: hybrid_search offset pagination and totals"
 ```
 
@@ -198,20 +198,20 @@ git commit -m "feat: hybrid_search offset pagination and totals"
 ### Task 2: Update existing `hybrid_search` callers
 
 **Files:**
-- Modify: `src/mcp/server.py:193`, `src/app.py:1191` (`api_search`), `tests/test_items_and_search.py:89`, `tests/test_mcp.py:176,197`
+- Modify: `keepfor/mcp/server.py:193`, `keepfor/app.py:1191` (`api_search`), `tests/test_items_and_search.py:89`, `tests/test_mcp.py:176,197`
 
 No new tests (existing tests cover behavior; they just need unwrapping).
 
 - [ ] **Step 1: Unwrap the tuple at all 5 sites.** Exact edits:
 
-`src/mcp/server.py:193`:
+`keepfor/mcp/server.py:193`:
 ```python
         items, _ = await hybrid_search(
             db, env, user_id, query, mode=mode, tag=tag, limit=limit
         )
 ```
 
-`src/app.py` `api_search` body:
+`keepfor/app.py` `api_search` body:
 ```python
     results, _ = await hybrid_search(
         db,
@@ -244,7 +244,7 @@ Expected: all PASS.
 - [ ] **Step 3: Commit.**
 
 ```bash
-git add src/mcp/server.py src/app.py tests/test_items_and_search.py tests/test_mcp.py
+git add keepfor/mcp/server.py keepfor/app.py tests/test_items_and_search.py tests/test_mcp.py
 git commit -m "feat: unwrap hybrid_search items/total tuple at callers"
 ```
 
@@ -297,11 +297,11 @@ git commit -m "feat: unwrap hybrid_search items/total tuple at callers"
 </div>
 ```
 
-Notes for the worker: `hx-swap-oob="true"` on the full-page render is inert (htmx only processes OOB on swaps) and active on `/search` responses. `urlencode` is already imported in `src/app.py:8`. Touch targets use `min-w-11 min-h-11` (44px) collapsing to natural size on desktop.
+Notes for the worker: `hx-swap-oob="true"` on the full-page render is inert (htmx only processes OOB on swaps) and active on `/search` responses. `urlencode` is already imported in `keepfor/app.py:8`. Touch targets use `min-w-11 min-h-11` (44px) collapsing to natural size on desktop.
 
 - [ ] **Step 2: Verify template parses.**
 
-Run: `python3 -c "from src.app import jinja_env; jinja_env.get_template('partials/pager.html'); print('pager ok')"` (from repo root)
+Run: `python3 -c "from keepfor.app import jinja_env; jinja_env.get_template('partials/pager.html'); print('pager ok')"` (from repo root)
 Expected: `pager ok`, no exception.
 
 - [ ] **Step 3: Commit.**
@@ -316,10 +316,10 @@ git commit -m "feat: pager partial with OOB swap and push-url buttons"
 ### Task 4: Route pagination (`library_page` + `search_htmx`)
 
 **Files:**
-- Modify: `src/app.py:322-406`
+- Modify: `keepfor/app.py:322-406`
 - Modify: `templates/library.html:60-78` (hidden inputs, search reset, pager include)
 
-- [ ] **Step 1: Add a shared pagination helper** above `library_page` in `src/app.py`:
+- [ ] **Step 1: Add a shared pagination helper** above `library_page` in `keepfor/app.py`:
 
 ```python
 PER_PAGE_OPTIONS = [10, 20, 30, 50]
@@ -466,7 +466,7 @@ Status-pill `onclick` handlers gain `document.getElementById('active-page-input'
 - [ ] **Step 6: Commit.**
 
 ```bash
-git add src/app.py templates/library.html
+git add keepfor/app.py templates/library.html
 git commit -m "feat: paginated library routes and template wiring"
 ```
 
@@ -475,10 +475,10 @@ git commit -m "feat: paginated library routes and template wiring"
 ### Task 5: Tag mutation endpoint
 
 **Files:**
-- Modify: `src/app.py` (append after `tags_delete`, ~line 553)
+- Modify: `keepfor/app.py` (append after `tags_delete`, ~line 553)
 - Test: `tests/test_library_paging.py` (create; fixture code included in Task 6 — write the endpoint first, tests next task)
 
-- [ ] **Step 1: Add the endpoint** after `tags_delete` in `src/app.py`:
+- [ ] **Step 1: Add the endpoint** after `tags_delete` in `keepfor/app.py`:
 
 ```python
 @app.post("/items/{item_id}/tags", response_class=HTMLResponse)
@@ -507,7 +507,7 @@ async def item_tags_update(
     return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
 ```
 
-`add_tags_to_item`, `remove_tags_from_item`, `get_item` are already imported in `src/app.py` (lines 38-50). `Form` is imported (line 14).
+`add_tags_to_item`, `remove_tags_from_item`, `get_item` are already imported in `keepfor/app.py` (lines 38-50). `Form` is imported (line 14).
 
 - [ ] **Step 2: Quick manual check.**
 
@@ -517,7 +517,7 @@ Expected: PASS (endpoint added, nothing broken).
 - [ ] **Step 3: Commit.**
 
 ```bash
-git add src/app.py
+git add keepfor/app.py
 git commit -m "feat: POST /items/{id}/tags returns re-rendered card"
 ```
 
@@ -536,9 +536,9 @@ git commit -m "feat: POST /items/{id}/tags returns re-rendered card"
 import pytest
 from fastapi.testclient import TestClient
 
-from src import app as app_module
-from src.auth.service import create_pat, register_user
-from src.models.items import save_item
+from keepfor import app as app_module
+from keepfor.auth.service import create_pat, register_user
+from keepfor.models.items import save_item
 
 
 class FakeQueue:
@@ -579,7 +579,7 @@ async def paging_setup(db):
 
 
 async def _login(client, db, email="paging@keepfor.me"):
-    from src.auth.service import login_user
+    from keepfor.auth.service import login_user
 
     _, session_id = await login_user(db, email, "password123")
     client.cookies["kfm_session"] = session_id
@@ -621,7 +621,7 @@ async def test_search_returns_oob_pager(client, db, paging_setup):
 
 async def test_tag_add_and_remove_roundtrip(client, db, paging_setup):
     await _login(client, db)
-    from src.models.items import get_item
+    from keepfor.models.items import get_item
 
     page = client.get("/", params={"per_page": 10})
     item_id = page.text.split('id="item-card-')[1].split('"')[0]
@@ -887,7 +887,7 @@ Expected: all pass (baseline before this plan: 193 passed, 1 skipped).
 
 - [ ] **Step 2: CI lint, exact form.**
 
-Run: `ruff check src/ tests/ --select=E,W,F,I,N` then `ruff format --check src/ tests/`
+Run: `ruff check keepfor/ tests/ --select=E,W,F,I,N` then `ruff format --check keepfor/ tests/`
 Expected: `All checks passed!` and no `Would reformat` lines. If reformatting is needed, run `ruff format` on the listed files and re-run Step 1 for the touched areas.
 
 - [ ] **Step 3: PWA spot-checks** (by hand, in a 360px viewport + installed PWA if available):

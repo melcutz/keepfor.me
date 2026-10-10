@@ -4,8 +4,8 @@
 import json
 from typing import Any
 
-from src.models.db import Database
-from src.models.items import (
+from keepfor.models.db import Database
+from keepfor.models.items import (
     add_tags_to_item,
     delete_item,
     get_item,
@@ -14,7 +14,7 @@ from src.models.items import (
     save_note,
     toggle_pin_item,
 )
-from src.search.engine import get_recent_items, hybrid_search
+from keepfor.search.engine import get_recent_items, hybrid_search
 
 # Protocol versions this server speaks, newest first. Streamable HTTP clients
 # propose one in initialize params; the server echoes it back when supported.

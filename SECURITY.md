@@ -31,7 +31,7 @@ redeploying.
 | Concern | Implementation |
 | ------- | -------------- |
 | Passwords | PBKDF2-HMAC-SHA256, 100,000 iterations, stored as `salt$hex`. There is a pure-Python fallback for runtimes without `hashlib.pbkdf2_hmac`, using the same parameters. |
-| Sessions | Opaque random tokens (`secrets.token_hex(32)`, in `src/auth/crypto.py`) stored server-side in the `sessions` table. Cookies are `HttpOnly`, `Secure`, `SameSite=Lax`. **Not** signed — the `SESSION_SECRET` var in `wrangler.jsonc` is never read. |
+| Sessions | Opaque random tokens (`secrets.token_hex(32)`, in `keepfor/auth/crypto.py`) stored server-side in the `sessions` table. Cookies are `HttpOnly`, `Secure`, `SameSite=Lax`. **Not** signed — the `SESSION_SECRET` var in `wrangler.jsonc` is never read. |
 | Personal Access Tokens | Prefixed `kfm_live_` / `rk_live_`; only a SHA-256 hash is stored. The raw token is displayed exactly once, at creation. |
 | Password reset | **Not implemented.** There is no recovery flow; rotate the PATs and re-register on a fresh instance if you lose access. |
 | Privilege | Single tenant. Every authenticated user can read, tag, and delete the whole library. There is no per-item authorization. |
@@ -43,7 +43,7 @@ production.
 
 - **Login attempts are rate limited.** `/auth/login` and `/auth/register` throttle
   failed attempts, tracked in D1 so the limit is shared across all Worker
-  isolates (see `src/utils/rate_limit.py`). Two independent caps apply: **20
+  isolates (see `keepfor/utils/rate_limit.py`). Two independent caps apply: **20
   failures per IP** and **10 failures per account** per 15-minute window. The
   account cap is what stops distributed credential stuffing, and it holds even
   when the attacker rotates IPs. Only failures count, and a successful sign-in

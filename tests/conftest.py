@@ -10,8 +10,8 @@ from collections.abc import AsyncGenerator
 
 import pytest
 
-from src.models.db import Database
-from src.utils.logging import clear_context
+from keepfor.models.db import Database
+from keepfor.utils.logging import clear_context
 from tests.fakes import FakeAI, FakeEnv, FakeQueue, FakeR2Bucket, FakeVectorize
 
 
