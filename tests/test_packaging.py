@@ -61,6 +61,9 @@ def test_wheel_contents():
 
             # Must contain core code and assets
             assert "keepfor/app.py" in names
+            assert "keepfor/spi.py" in names
+            assert "keepfor/defaults.py" in names
+            assert "keepfor/runtime.py" in names
             assert "keepfor/templates/base.html" in names
             assert "keepfor/migrations/0001_initial_schema.sql" in names
 
@@ -71,3 +74,20 @@ def test_wheel_contents():
             # Must not contain tests or src
             assert not any(n.startswith("tests/") for n in names)
             assert not any(n.startswith("src/") for n in names)
+
+
+def test_version_match():
+    """Verify that pyproject.toml version matches keepfor.__version__."""
+    import tomllib
+
+    import keepfor
+
+    repo_root = Path(__file__).resolve().parent.parent
+    pyproject_path = repo_root / "pyproject.toml"
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+
+    pyproject_version = data["project"]["version"]
+    assert pyproject_version == keepfor.__version__
+    assert keepfor.__version__ == "1.1.0"
+    assert keepfor.CORE_API_VERSION == 1
