@@ -35,8 +35,8 @@ def client(db, monkeypatch):
     def mock_get_db(request):
         return db
 
-    monkeypatch.setattr("keepfor.app.get_db", mock_get_db)
-    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: MockEnv())
+    monkeypatch.setattr("keepfor.deps.get_db", mock_get_db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
     return TestClient(app)
 
 

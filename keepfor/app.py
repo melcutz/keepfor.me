@@ -22,6 +22,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from keepfor import deps
 from keepfor.auth.service import (
     InvalidCredentialsError,
     RegistrationClosedError,
@@ -31,8 +32,6 @@ from keepfor.auth.service import (
     login_user,
     logout_session,
     register_user,
-    validate_pat,
-    validate_session,
 )
 from keepfor.mcp.server import process_mcp_request
 from keepfor.models.db import Database
@@ -178,47 +177,28 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 def get_env_from_request(request: Request) -> Any:
     """Extracts Cloudflare env bindings from ASGI scope or fallback."""
-    return request.scope.get("env", None)
+    return deps.get_env_from_request(request)
 
 
-def get_db(request: Request) -> Database:
-    env = get_env_from_request(request)
-    d1 = None
-    if env:
-        d1 = (
-            getattr(env, "DB", None)
-            or getattr(env, "keepfor_me_db", None)
-            or getattr(env, "D1", None)
-        )
-    return Database(d1_binding=d1)
+def get_providers(request: Request):
+    """Get providers from request state, app state, or runtime fallback."""
+    return deps.get_providers(request)
 
 
 async def get_current_user(request: Request) -> dict[str, Any] | None:
-    db = get_db(request)
-
-    # 1. Check Bearer PAT
-    auth_header = request.headers.get("Authorization")
-    if auth_header and auth_header.startswith("Bearer "):
-        token = auth_header[7:].strip()
-        user = await validate_pat(db, token)
-        if user:
-            return user
-
-    # 2. Check Session Cookie
-    session_id = request.cookies.get("kfm_session") or request.cookies.get("rk_session")
-    if session_id:
-        user = await validate_session(db, session_id)
-        if user:
-            return user
-
-    return None
+    return await deps.get_current_user(request)
 
 
 async def require_user(request: Request) -> dict[str, Any]:
-    user = await get_current_user(request)
-    if not user:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    return user
+    return await deps.require_user(request)
+
+
+def get_scope(request: Request):
+    return deps.get_scope(request)
+
+
+def get_db(request: Request) -> Database:
+    return deps.get_db(request)
 
 
 def _is_safe_path(value: str | None) -> bool:

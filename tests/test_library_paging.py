@@ -31,8 +31,8 @@ class MockEnv:
 
 @pytest.fixture
 def client(db, monkeypatch):
-    monkeypatch.setattr(app_module, "get_db", lambda request: db)
-    monkeypatch.setattr(app_module, "get_env_from_request", lambda request: MockEnv())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
     return TestClient(app_module.app)
 
 

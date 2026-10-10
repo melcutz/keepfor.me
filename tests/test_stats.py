@@ -48,10 +48,10 @@ def client(db, monkeypatch):
     def mock_get_db(request):
         return db
 
-    monkeypatch.setattr("keepfor.app.get_db", mock_get_db)
+    monkeypatch.setattr("keepfor.deps.get_db", mock_get_db)
     # Pin a queue-bearing env so request handlers enqueue instead of
     # extracting inline over the real network (TestClient scope has no env).
-    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: MockEnv())
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
 
     return TestClient(app)
 

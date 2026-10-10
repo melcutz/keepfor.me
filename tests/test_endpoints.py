@@ -42,10 +42,10 @@ def client(db, monkeypatch):
     def mock_get_db(request):
         return db
 
-    monkeypatch.setattr("keepfor.app.get_db", mock_get_db)
+    monkeypatch.setattr("keepfor.deps.get_db", mock_get_db)
     # Pin a queue-bearing env so request handlers enqueue instead of
     # extracting inline over the real network (TestClient scope has no env).
-    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: MockEnv())
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
 
     return TestClient(app)
 
@@ -663,7 +663,7 @@ async def test_import_csv_bookmarks(client, db, auth_headers, monkeypatch):
     """CSV upload fans out into chunked queue messages and redirects fast."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
     env = MockEnv()
-    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     rows = "\n".join(f"https://example.com/{i},Example {i},tech" for i in range(27))
     csv_content = f"url,title,tags\n{rows}\n"
@@ -685,7 +685,7 @@ async def test_import_netscape_bookmarks(client, db, auth_headers, monkeypatch):
     """Netscape HTML upload fans out into a single queue message."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
     env = MockEnv()
-    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     html_content = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
     <DL><p>
@@ -714,7 +714,7 @@ async def test_import_without_queue_runs_in_background(
     client.cookies["kfm_session"] = auth_headers["admin_session"]
     env = MockEnv()
     env.QUEUE = None
-    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     async def fake_fetch(url: str) -> str:
         return (
@@ -748,7 +748,7 @@ async def test_admin_requeue_resends_stuck_items(client, db, auth_headers, monke
 
     user = auth_headers["admin_user"]
     env = MockEnv()
-    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     async def add_item(url, created_at, status="queued"):
         item_id = str(uuid.uuid4())
@@ -779,7 +779,7 @@ async def test_admin_requeue_needs_queue(client, db, auth_headers, monkeypatch):
     """Without a QUEUE binding the requeue reports 503 instead of hanging."""
     env = MockEnv()
     env.QUEUE = None
-    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     client.cookies["kfm_session"] = auth_headers["admin_session"]
     response = client.post("/admin/requeue")

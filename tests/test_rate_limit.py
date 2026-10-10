@@ -34,8 +34,8 @@ def client(db, monkeypatch):
         BUCKET = None
         DB = None
 
-    monkeypatch.setattr("keepfor.app.get_db", lambda request: db)
-    monkeypatch.setattr("keepfor.app.get_env_from_request", lambda request: Env())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: Env())
     return TestClient(app)
 
 

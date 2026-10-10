@@ -32,22 +32,9 @@ class SessionPatAuthProvider:
     def _resolve_db(self, request: Request) -> Database:
         if self._db is not None:
             return self._db
-        state_db = getattr(getattr(request, "state", None), "db", None)
-        if state_db is not None:
-            return state_db
-        env = (
-            getattr(request, "scope", {}).get("env")
-            if hasattr(request, "scope")
-            else None
-        )
-        d1 = None
-        if env:
-            d1 = (
-                getattr(env, "DB", None)
-                or getattr(env, "keepfor_me_db", None)
-                or getattr(env, "D1", None)
-            )
-        return Database(d1_binding=d1)
+        from keepfor import deps
+
+        return deps.get_db(request)
 
     async def authenticate(self, request: Request) -> Principal | None:
         db = self._resolve_db(request)
@@ -90,13 +77,15 @@ class SessionPatAuthProvider:
 
 def _db_from_env(env: Any) -> Database:
     d1 = None
+    sqlite_conn = None
     if env:
         d1 = (
             getattr(env, "DB", None)
             or getattr(env, "keepfor_me_db", None)
             or getattr(env, "D1", None)
         )
-    return Database(d1_binding=d1)
+        sqlite_conn = getattr(env, "sqlite_conn", None)
+    return Database(d1_binding=d1, sqlite_conn=sqlite_conn)
 
 
 def default_scope(db: Database, env: Any = None, user_id: str = "") -> TenantScope:
