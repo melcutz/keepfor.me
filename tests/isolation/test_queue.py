@@ -1,4 +1,5 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
 """Tenant isolation tests for Queue consumers and extraction processing.
 
 Enforces:
@@ -40,14 +41,11 @@ class FakeQueueBatch:
 
 
 @pytest.mark.asyncio
-async def test_queue_isolation(harness: IsolationHarness):
-    """Queue consumer tenant isolation verification."""
+async def test_queue_mismatched_user_id(harness: IsolationHarness):
+    """Queue message {item_id: a.html_item_id, user_id: B} writes nothing & acks."""
     a = harness.tenant_a
     b = harness.tenant_b
 
-    # =========================================================================
-    # Part 1: Message {item_id: a.html_item_id, user_id: B} writes nothing & acks
-    # =========================================================================
     snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
     snap_b_before = await snapshot(b.db, b.user["id"], env=harness.env, scope=b.scope)
     bucket_keys_before = set(getattr(harness.env.BUCKET, "store", {}).keys())
@@ -78,9 +76,15 @@ async def test_queue_isolation(harness: IsolationHarness):
     bucket_keys_after = set(getattr(harness.env.BUCKET, "store", {}).keys())
     assert bucket_keys_after == bucket_keys_before
 
-    # =========================================================================
-    # Part 2: Message with correct user writes only A's rows & R2 keys under A's prefix
-    # =========================================================================
+
+@pytest.mark.asyncio
+async def test_queue_legitimate_processing(harness: IsolationHarness):
+    """Queue message with correct user writes only A's rows & R2 keys under
+    A's prefix.
+    """
+    a = harness.tenant_a
+    b = harness.tenant_b
+
     # Save a new pending item for tenant A
     new_url_a = "https://example.com/tenant-a-fresh-article"
     new_item_a, _ = await save_item(
@@ -154,9 +158,13 @@ async def test_queue_isolation(harness: IsolationHarness):
     )
     assert row_b is None
 
-    # =========================================================================
-    # Part 3: Import batch for Tenant B never creates rows for Tenant A
-    # =========================================================================
+
+@pytest.mark.asyncio
+async def test_queue_import_batch_isolation(harness: IsolationHarness):
+    """Import batch for Tenant B never creates rows for Tenant A."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
     snap_a_before_import = await snapshot(
         a.db, a.user["id"], env=harness.env, scope=a.scope
     )

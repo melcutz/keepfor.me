@@ -31,7 +31,7 @@ redeploying.
 | Concern | Implementation |
 | ------- | -------------- |
 | Passwords | PBKDF2-HMAC-SHA256, 100,000 iterations, stored as `salt$hex`. There is a pure-Python fallback for runtimes without `hashlib.pbkdf2_hmac`, using the same parameters. |
-| Sessions | Opaque random tokens (`secrets.token_hex(32)`, in `keepfor/auth/crypto.py`) stored server-side in the `sessions` table. Cookies are `HttpOnly`, `Secure`, `SameSite=Lax`. **Not** signed — the `SESSION_SECRET` var in `wrangler.jsonc` is never read. |
+| Sessions | Opaque random tokens (`secrets.token_hex(32)`, in `keepfor/auth/crypto.py`) stored server-side in the `sessions` table. Cookies are `HttpOnly`, `Secure`, `SameSite=Lax`. **Not** signed (the `SESSION_SECRET` var in `wrangler.jsonc` is never read). |
 | Personal Access Tokens | Prefixed `kfm_live_` / `rk_live_`; only a SHA-256 hash is stored. The raw token is displayed exactly once, at creation. |
 | Password reset | **Not implemented.** There is no recovery flow; rotate the PATs and re-register on a fresh instance if you lose access. |
 | Privilege | Single tenant. Every authenticated user can read, tag, and delete the whole library. There is no per-item authorization. |
@@ -92,7 +92,7 @@ production.
 
 ## Reporting a Vulnerability
 
-This is a personal, single-maintainer project, so please be pragmatic — but do
+This is a personal, single-maintainer project, so please be pragmatic, but do
 report real issues.
 
 - **Use GitHub's private vulnerability reporting** on
@@ -100,7 +100,7 @@ report real issues.
   "Report a vulnerability") as the preferred channel when enabled. This opens a
   private advisory visible only to the maintainer.
 - Expect an acknowledgement within a few days and a fix or mitigation plan
-  shortly after. Security fixes will be tagged in a patch release —
+  shortly after. Security fixes will be tagged in a patch release:
   tell me if you self-host and need the patch sooner.
 
 Please do not open a public issue for an unpatched vulnerability.
@@ -114,7 +114,7 @@ A few things worth checking on your own instance:
 - A response to `curl -sI -H 'Origin: https://example.com' <your-domain>/api/items`
   contains **no** `Access-Control-Allow-Origin` header. If one appears, a CORS
   allowlist has been reintroduced.
-- Your PATs are treated as secrets — they grant full read/write/delete access to
+- Your PATs are treated as secrets: they grant full read/write/delete access to
   the entire library.
 - Review **Settings → Personal Access Tokens** and revoke anything you don't
   recognize.

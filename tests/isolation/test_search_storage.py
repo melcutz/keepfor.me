@@ -1,9 +1,11 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Claudiu Branzan
 """Tenant isolation tests for search and storage subsystems.
 
 Covers:
 - test_search_isolation: FTS, hybrid, MCP search, and vector search
 - test_blob_isolation: get_item_clean_html and deletion blob key safety
+- test_search_with_foreign_ids: vector search returning foreign IDs is filtered out
 """
 
 from __future__ import annotations
@@ -177,3 +179,33 @@ async def test_blob_isolation(harness: IsolationHarness):
     # Assert Snapshot A is completely unchanged
     snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
     assert snap_a_after == snap_a_before
+
+
+@pytest.mark.asyncio
+async def test_search_with_foreign_ids(harness: IsolationHarness):
+    """Even if vector search returns foreign tenant IDs, hybrid_search
+
+    filters them out via D1 user_id scoping.
+    """
+    from unittest.mock import patch
+
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    # Mock search_vectorize to simulate Vectorize returning tenant A's item ID
+    foreign_vector_results = [
+        {"item_id": a.html_item_id, "score": 0.99},
+        {"item_id": a.pinned_item_id, "score": 0.95},
+    ]
+
+    with patch(
+        "keepfor.search.engine.search_vectorize",
+        return_value=foreign_vector_results,
+    ):
+        items, total = await hybrid_search(
+            b.db, harness.env, b.user["id"], "anything", scope=b.scope
+        )
+
+    # All foreign IDs must be filtered out because they do not belong to tenant B
+    assert len(items) == 0
+    assert total == 0

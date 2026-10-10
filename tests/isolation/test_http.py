@@ -12,44 +12,18 @@ from keepfor.models.items import get_item_tags
 from keepfor.models.tenant import delete_all_tenant_rows
 from tests.isolation.conftest import IsolationHarness, snapshot
 
-ITEM_ROUTES = [
-    ("GET", "/items/{id}", None),
-    ("GET", "/items/{id}/card", None),
-    ("GET", "/items/{id}/markdown", None),
-    ("POST", "/items/{id}/pin", None),
-    ("POST", "/items/{id}/notes", {"notes": "malicious update"}),
-    ("POST", "/items/{id}/archive", None),
-    ("POST", "/items/{id}/unarchive", None),
-    ("POST", "/items/{id}/tags", {"add": "malicious", "remove": ""}),
-    ("POST", "/items/{id}/suggestions/{sid}/accept", {"next": "/tags"}),
-    ("POST", "/items/{id}/suggestions/{sid}/dismiss", {"next": "/tags"}),
-    ("GET", "/api/items/{id}", None),
-    ("DELETE", "/api/items/{id}", None),
-    ("GET", "/api/items/{id}/content", None),
-]
 
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "method,route_tmpl,payload",
-    ITEM_ROUTES,
-    ids=[r[1] for r in ITEM_ROUTES],
-)
-async def test_cross_tenant_item_routes(
-    harness: IsolationHarness, method: str, route_tmpl: str, payload: dict | None
-):
-    """Calling item routes as tenant B with tenant A's IDs must return 403 or 404
-
-    and leave A intact.
-    """
+async def _assert_cross_tenant_denied(
+    harness: IsolationHarness,
+    method: str,
+    path: str,
+    payload: dict | None = None,
+) -> None:
     harness.client.cookies.clear()
     a = harness.tenant_a
     b = harness.tenant_b
 
     snap_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
-
-    # Format route with A's item ID and suggestion ID
-    path = route_tmpl.format(id=a.html_item_id, sid=a.suggestion_id)
 
     if method == "GET":
         resp = harness.client.get(path, headers=b.auth_headers)
@@ -63,15 +37,131 @@ async def test_cross_tenant_item_routes(
     else:
         pytest.fail(f"Unsupported method: {method}")
 
-    # Response must never be 200 with data; must be 403, 404, or fail closed
     assert resp.status_code in (
         403,
         404,
     ), f"{method} {path} returned status {resp.status_code}: {resp.text[:200]}"
 
-    # Tenant A's state must be completely untouched
     snap_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
     assert snap_after == snap_before, f"Tenant A state changed after {method} {path}!"
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_get_item_page(harness: IsolationHarness):
+    """Calling GET /items/{id} as tenant B returns 404 for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "GET", f"/items/{harness.tenant_a.html_item_id}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_get_item_card(harness: IsolationHarness):
+    """Calling GET /items/{id}/card as tenant B returns 404 for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "GET", f"/items/{harness.tenant_a.html_item_id}/card"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_get_item_markdown(harness: IsolationHarness):
+    """Calling GET /items/{id}/markdown as tenant B returns 404 for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "GET", f"/items/{harness.tenant_a.html_item_id}/markdown"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_pin(harness: IsolationHarness):
+    """Calling POST /items/{id}/pin as tenant B fails for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "POST", f"/items/{harness.tenant_a.html_item_id}/pin"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_notes(harness: IsolationHarness):
+    """Calling POST /items/{id}/notes as tenant B fails for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness,
+        "POST",
+        f"/items/{harness.tenant_a.html_item_id}/notes",
+        payload={"notes": "malicious update"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_archive(harness: IsolationHarness):
+    """Calling POST /items/{id}/archive as tenant B fails for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "POST", f"/items/{harness.tenant_a.html_item_id}/archive"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_unarchive(harness: IsolationHarness):
+    """Calling POST /items/{id}/unarchive as tenant B fails for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "POST", f"/items/{harness.tenant_a.html_item_id}/unarchive"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_tags(harness: IsolationHarness):
+    """Calling POST /items/{id}/tags as tenant B fails for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness,
+        "POST",
+        f"/items/{harness.tenant_a.html_item_id}/tags",
+        payload={"add": "malicious", "remove": ""},
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_suggestion_accept(harness: IsolationHarness):
+    """Calling POST /items/{id}/suggestions/{sid}/accept as tenant B fails."""
+    a = harness.tenant_a
+    await _assert_cross_tenant_denied(
+        harness,
+        "POST",
+        f"/items/{a.html_item_id}/suggestions/{a.suggestion_id}/accept",
+        payload={"next": "/tags"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_suggestion_dismiss(harness: IsolationHarness):
+    """Calling POST /items/{id}/suggestions/{sid}/dismiss as tenant B fails."""
+    a = harness.tenant_a
+    await _assert_cross_tenant_denied(
+        harness,
+        "POST",
+        f"/items/{a.html_item_id}/suggestions/{a.suggestion_id}/dismiss",
+        payload={"next": "/tags"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_api_get_item(harness: IsolationHarness):
+    """Calling GET /api/items/{id} as tenant B returns 404 for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "GET", f"/api/items/{harness.tenant_a.html_item_id}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_api_delete_item(harness: IsolationHarness):
+    """Calling DELETE /api/items/{id} as tenant B returns 404 for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "DELETE", f"/api/items/{harness.tenant_a.html_item_id}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_api_get_content(harness: IsolationHarness):
+    """GET /api/items/{id}/content as tenant B returns 404 for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "GET", f"/api/items/{harness.tenant_a.html_item_id}/content"
+    )
 
 
 @pytest.mark.asyncio
@@ -326,7 +416,7 @@ async def test_pat_and_session_scope(harness: IsolationHarness):
 
     # Expired session fails
     past_expiry = (
-        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
+        datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=1)
     ).strftime("%Y-%m-%d %H:%M:%S")
     await b.db.execute(
         "INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?);",
@@ -388,4 +478,91 @@ async def test_delete_tenant_data(harness: IsolationHarness):
     snap_b_after = await snapshot(b.db, b.user["id"])
     assert snap_b_after == snap_b_before, (
         "Tenant B data was modified during Tenant A deletion!"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_keys_isolation(harness: IsolationHarness):
+    """Rate limit failures recorded for Tenant A account do not lock out Tenant B."""
+    from keepfor.utils.rate_limit import check_allowed, record_failure
+
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    # Simulate 10 failed login attempts for A's account
+    dummy_headers = {"cf-connecting-ip": "198.51.100.1"}
+    for _ in range(10):
+        await record_failure(a.db, dummy_headers, a.user["email"])
+
+    # Check Tenant A: should now be locked out on that account
+    verdict_a = await check_allowed(a.db, dummy_headers, a.user["email"])
+    assert verdict_a.allowed is False
+
+    # Check Tenant B: different IP and account, must be allowed
+    headers_b = {"cf-connecting-ip": "198.51.100.2"}
+    verdict_b = await check_allowed(b.db, headers_b, b.user["email"])
+    assert verdict_b.allowed is True
+
+
+@pytest.mark.asyncio
+async def test_settings_cleanup_failed_isolation(harness: IsolationHarness):
+    """Cleaning up failed items as Tenant B only deletes B's failed items.
+
+    Tenant A's items are left intact.
+    """
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    # Insert a failed item for A and B
+    await a.db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status, fail_reason) "
+        "VALUES (?, ?, ?, ?, ?, ?);",
+        (
+            "failed_item_a",
+            a.user["id"],
+            "https://example.com/fail-a",
+            "https://example.com/fail-a",
+            "failed",
+            "HTTP 500",
+        ),
+    )
+    await b.db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status, fail_reason) "
+        "VALUES (?, ?, ?, ?, ?, ?);",
+        (
+            "failed_item_b",
+            b.user["id"],
+            "https://example.com/fail-b",
+            "https://example.com/fail-b",
+            "failed",
+            "HTTP 500",
+        ),
+    )
+
+    # Tenant B runs cleanup-failed
+    resp = harness.client.post(
+        "/settings/cleanup-failed",
+        data={"group": "all"},
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+
+    # Tenant B's failed item should be gone
+    row_b = await b.db.query_first(
+        "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+        ("failed_item_b", b.user["id"]),
+    )
+    assert row_b is None
+
+    # Tenant A's failed item must still exist
+    row_a = await a.db.query_first(
+        "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+        ("failed_item_a", a.user["id"]),
+    )
+    assert row_a is not None
+
+    # Clean up A's failed item
+    await a.db.execute(
+        "DELETE FROM items WHERE id = ? AND user_id = ?;",
+        ("failed_item_a", a.user["id"]),
     )
