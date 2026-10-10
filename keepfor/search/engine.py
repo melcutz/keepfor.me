@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Claudiu Branzan
 
+from __future__ import annotations
+
 import asyncio
 from typing import TYPE_CHECKING, Any
 

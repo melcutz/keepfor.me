@@ -4,8 +4,8 @@
 
 Keepfor.me core is single-tenant by default. A separate hosted service is built
 on it through documented provider seams; multi-tenant isolation guarantees are
-enforced by `tests/isolation/` and `tests/test_sql_tenant_scope.py` (to be
-linked in T1.8).
+enforced by the comprehensive isolation test suite in [`tests/isolation/`](tests/isolation/)
+and the static SQL analyzer in `tests/test_sql_tenant_scope.py`.
 
 That shapes the baseline threat model: in self-hosted deployments, each
 deployment has exactly one owner account (the first user to register claims

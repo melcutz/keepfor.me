@@ -72,6 +72,8 @@ async def api_get_item_content(request: Request, item_id: str):
     html = await get_item_clean_html(
         db, env, user["id"], item_id, scope=deps.get_scope(request)
     )
+    if html is None:
+        raise HTTPException(status_code=404, detail="Item not found")
     return HTMLResponse(content=html)
 
 

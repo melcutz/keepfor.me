@@ -229,7 +229,7 @@ async def get_item_clean_html(
     item_id: str,
     *,
     scope: TenantScope | None = None,
-) -> str:
+) -> str | None:
     """Get clean reader HTML from R2, or format the stored content text."""
     if scope is None:
         from keepfor.defaults import default_scope
@@ -239,7 +239,7 @@ async def get_item_clean_html(
     # Verify ownership
     item = await get_item(db, user_id, item_id)
     if not item:
-        return "<p>Article not found.</p>"
+        return None
 
     # Attempt fetch from blob store
     try:

@@ -239,7 +239,7 @@ async def handle_tool_call(
             else "Existing URL updated with tags.",
         }
 
-    elif tool_name == "search_library":
+    elif tool_name in ("search_library", "search"):
         query = arguments.get("query", "")
         mode = arguments.get("mode", "hybrid")
         tag = arguments.get("tag")

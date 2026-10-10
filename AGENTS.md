@@ -6,6 +6,7 @@ FastAPI read-it-later app deployed as a Cloudflare **Python Worker** (`compatibi
 
 ```bash
 python3 -m pytest tests/ -q                          # 319 passed, 9 skipped, ~100s
+python3 -m pytest tests/isolation -q                 # tenant-isolation suite (59 passed)
 python3 -m pytest tests/test_crypto.py::test_password_hashing   # single test
 python3 -m pytest tests/ -k crypto -q                # filter
 
