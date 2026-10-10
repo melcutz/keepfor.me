@@ -158,11 +158,10 @@ async def test_cross_tenant_api_delete_item(harness: IsolationHarness):
 
 @pytest.mark.asyncio
 async def test_cross_tenant_api_get_content(harness: IsolationHarness):
-    """Calling GET /api/items/{id}/content as tenant B returns 404 for tenant A's item."""
+    """GET /api/items/{id}/content as tenant B returns 404 for tenant A's item."""
     await _assert_cross_tenant_denied(
         harness, "GET", f"/api/items/{harness.tenant_a.html_item_id}/content"
     )
-
 
 
 @pytest.mark.asyncio
@@ -507,13 +506,17 @@ async def test_rate_limit_keys_isolation(harness: IsolationHarness):
 
 @pytest.mark.asyncio
 async def test_settings_cleanup_failed_isolation(harness: IsolationHarness):
-    """Cleaning up failed items as Tenant B only deletes B's failed items, leaving A's intact."""
+    """Cleaning up failed items as Tenant B only deletes B's failed items.
+
+    Tenant A's items are left intact.
+    """
     a = harness.tenant_a
     b = harness.tenant_b
 
     # Insert a failed item for A and B
     await a.db.execute(
-        "INSERT INTO items (id, user_id, url, canonical_url, status, fail_reason) VALUES (?, ?, ?, ?, ?, ?);",
+        "INSERT INTO items (id, user_id, url, canonical_url, status, fail_reason) "
+        "VALUES (?, ?, ?, ?, ?, ?);",
         (
             "failed_item_a",
             a.user["id"],
@@ -524,7 +527,8 @@ async def test_settings_cleanup_failed_isolation(harness: IsolationHarness):
         ),
     )
     await b.db.execute(
-        "INSERT INTO items (id, user_id, url, canonical_url, status, fail_reason) VALUES (?, ?, ?, ?, ?, ?);",
+        "INSERT INTO items (id, user_id, url, canonical_url, status, fail_reason) "
+        "VALUES (?, ?, ?, ?, ?, ?);",
         (
             "failed_item_b",
             b.user["id"],
@@ -562,4 +566,3 @@ async def test_settings_cleanup_failed_isolation(harness: IsolationHarness):
         "DELETE FROM items WHERE id = ? AND user_id = ?;",
         ("failed_item_a", a.user["id"]),
     )
-

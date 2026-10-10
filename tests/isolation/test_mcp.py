@@ -21,7 +21,9 @@ from tests.isolation.conftest import IsolationHarness, snapshot
 
 @pytest.mark.asyncio
 async def test_mcp_tool_isolation(harness: IsolationHarness):
-    """Dynamically enumerate all MCP tools accepting an id parameter and verify isolation."""
+    """Dynamically enumerate all MCP tools accepting an id parameter and verify
+    isolation.
+    """
     a = harness.tenant_a
     b = harness.tenant_b
 
@@ -196,7 +198,9 @@ async def test_mcp_tag_item_isolation(harness: IsolationHarness):
 
 @pytest.mark.asyncio
 async def test_mcp_delete_item_isolation(harness: IsolationHarness):
-    """MCP delete_item as Tenant B targeting Tenant A's item does not delete A's item."""
+    """MCP delete_item as Tenant B targeting Tenant A's item does not delete
+    A's item.
+    """
     a = harness.tenant_a
     b = harness.tenant_b
 

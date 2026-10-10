@@ -79,7 +79,9 @@ async def test_queue_mismatched_user_id(harness: IsolationHarness):
 
 @pytest.mark.asyncio
 async def test_queue_legitimate_processing(harness: IsolationHarness):
-    """Queue message with correct user writes only A's rows & R2 keys under A's prefix."""
+    """Queue message with correct user writes only A's rows & R2 keys under
+    A's prefix.
+    """
     a = harness.tenant_a
     b = harness.tenant_b
 

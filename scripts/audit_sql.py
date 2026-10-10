@@ -131,7 +131,7 @@ def check_insert_scope(tokens: list[str], scope_cols: set[str]) -> bool:
 
 
 def check_where_on_scope(tokens: list[str], scope_cols: set[str]) -> bool:
-    """Check WHERE or ON clauses for <alias.>scope_col = ? (or ? = <alias.>scope_col)."""
+    """Check WHERE/ON clauses for <alias.>scope_col = ? (or ? = <alias.>scope_col)."""
     clause_keywords = {
         "SELECT",
         "FROM",

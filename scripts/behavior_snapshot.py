@@ -8,6 +8,10 @@ main and current branch.
 Verifies behavior preservation across the Phase 1 core refactor:
 With default providers, HTTP responses and DB writes are byte-for-byte
 equivalent, except for documented changes.
+
+Note: This script imports keepfor.* for current code. When comparing against
+the pre-rename tree (prior to the package rename), it targets the pre-rename
+tree via a git worktree which provides the legacy src.* package.
 """
 
 import difflib
@@ -172,7 +176,8 @@ try:
 
     app = create_app()
 except ImportError:
-    # Fallback when running inside a git worktree targeting pre-rename tree (where package was src.*)
+    # Fallback when running inside a git worktree targeting pre-rename tree
+    # (where package was src.*)
     from src.models.db import Database
     import src.app as app_module
 

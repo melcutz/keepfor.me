@@ -209,4 +209,3 @@ async def test_search_with_foreign_ids(harness: IsolationHarness):
     # All foreign IDs must be filtered out because they do not belong to tenant B
     assert len(items) == 0
     assert total == 0
-
