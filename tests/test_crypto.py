@@ -3,7 +3,7 @@
 
 """Tests for authentication cryptography utilities."""
 
-from src.auth.crypto import (
+from keepfor.auth.crypto import (
     generate_pat,
     generate_session_token,
     hash_password,

@@ -12,13 +12,13 @@ password is never locked out.
 import pytest
 from fastapi.testclient import TestClient
 
-from src.utils import rate_limit as rl
+from keepfor.utils import rate_limit as rl
 
 
 @pytest.fixture
 def client(db, monkeypatch):
     """TestClient with the sqlite DB injected, plus a queue-bearing env."""
-    from src.app import app
+    from keepfor.app import app
 
     class FakeQueue:
         def __init__(self):
@@ -34,8 +34,8 @@ def client(db, monkeypatch):
         BUCKET = None
         DB = None
 
-    monkeypatch.setattr("src.app.get_db", lambda request: db)
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: Env())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: Env())
     return TestClient(app)
 
 
@@ -217,7 +217,7 @@ async def test_blocked_login_does_not_reach_password_hashing(client, db, monkeyp
         called.append(1)
         raise AssertionError("password hashing must not run when blocked")
 
-    monkeypatch.setattr("src.auth.service.verify_password", spy)
+    monkeypatch.setattr("keepfor.auth.service.verify_password", spy)
 
     for _ in range(rl.MAX_FAILURES_PER_ACCOUNT):
         await rl.record_failure(
@@ -235,7 +235,7 @@ async def test_blocked_login_does_not_reach_password_hashing(client, db, monkeyp
 @pytest.mark.asyncio
 async def test_real_login_still_works_and_resets_limits(client, db):
     """The happy path is unaffected, and it clears the account counter."""
-    from src.auth.service import register_user
+    from keepfor.auth.service import register_user
 
     await register_user(db, "owner@test.local", "password12345")
     headers = {"cf-connecting-ip": "203.0.113.22"}
@@ -256,7 +256,7 @@ async def test_real_login_still_works_and_resets_limits(client, db):
 
 @pytest.mark.asyncio
 async def test_failed_login_is_counted(client, db):
-    from src.auth.service import register_user
+    from keepfor.auth.service import register_user
 
     await register_user(db, "owner2@test.local", "password12345")
     response = client.post(
@@ -272,7 +272,7 @@ async def test_failed_login_is_counted(client, db):
 
 async def _setup_user(db):
     """Register a throwaway user; returns (user, None, session)."""
-    from src.auth.service import login_user, register_user
+    from keepfor.auth.service import login_user, register_user
 
     user = await register_user(db, "ratelimit@test.local", "password12345")
     _, session = await login_user(db, "ratelimit@test.local", "password12345")

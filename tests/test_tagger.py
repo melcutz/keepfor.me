@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Claudiu Branzan
 
-"""Tests for stdlib-only tag matching + RAKE suggestion (src/utils/tagger.py)."""
+"""Tests for stdlib-only tag matching + RAKE suggestion (keepfor/utils/tagger.py)."""
 
-from src.utils import tagger
+from keepfor.utils import tagger
 
 
 def test_normalize_tag_lowercases_and_strips():
@@ -126,8 +126,8 @@ def test_heavy_nlp_libs_not_imported_by_tagger():
 
     for mod in ("sklearn", "nltk", "spacy", "keybert"):
         assert mod not in sys.modules, mod
-    assert "src.utils.tagger" not in sys.modules or True
-    import src.utils.tagger  # noqa: F401
+    assert "keepfor.utils.tagger" not in sys.modules or True
+    import keepfor.utils.tagger  # noqa: F401
 
     for mod in ("sklearn", "nltk", "spacy", "keybert"):
         assert mod not in sys.modules, mod

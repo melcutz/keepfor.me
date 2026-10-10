@@ -2,33 +2,36 @@
 
 ## About this project
 
-Keepfor.me is a **self-hosted, single-tenant** application. There is no hosted
-SaaS, no multi-tenant data store, and no shared user database — each deployment
-has exactly one owner account (the first user to register claims admin, and
-registration then closes).
+Keepfor.me core is single-tenant by default. A separate hosted service is built
+on it through documented provider seams; multi-tenant isolation guarantees are
+enforced by the comprehensive isolation test suite in [`tests/isolation/`](tests/isolation/)
+and the static SQL analyzer in `tests/test_sql_tenant_scope.py`.
 
-That shapes everything below: the realistic threat model is "someone obtained
-access to *my* deployment," not "an attacker is targeting all users of a public
-service."
+That shapes the baseline threat model: in self-hosted deployments, each
+deployment has exactly one owner account (the first user to register claims
+admin, and registration then closes).
 
 ## Supported Versions
 
-There are no tagged releases; the project is deployed straight from `main`.
+The latest minor release tag receives security fixes; older minor versions are
+unsupported. Fixes are developed on `main` and backported to the supported
+release.
 
 | Version | Supported |
 | ------- | --------- |
-| `main` (current `HEAD`) | :white_check_mark: |
-| Anything older than `HEAD` | :x: |
+| `1.1.x` (once tagged) | :white_check_mark: |
+| Older minor versions | :x: |
+| `main` | Best effort |
 
-Fixes land on `main` and reach a deployment on the next push (see
-`deploy.yml`). If you are self-hosting, update by pulling and redeploying.
+If you are self-hosting, update by pulling the latest release tag and
+redeploying.
 
 ## Security Model
 
 | Concern | Implementation |
 | ------- | -------------- |
 | Passwords | PBKDF2-HMAC-SHA256, 100,000 iterations, stored as `salt$hex`. There is a pure-Python fallback for runtimes without `hashlib.pbkdf2_hmac`, using the same parameters. |
-| Sessions | Opaque random tokens (`secrets.token_hex(32)`, in `src/auth/crypto.py`) stored server-side in the `sessions` table. Cookies are `HttpOnly`, `Secure`, `SameSite=Lax`. **Not** signed — the `SESSION_SECRET` var in `wrangler.jsonc` is never read. |
+| Sessions | Opaque random tokens (`secrets.token_hex(32)`, in `keepfor/auth/crypto.py`) stored server-side in the `sessions` table. Cookies are `HttpOnly`, `Secure`, `SameSite=Lax`. **Not** signed — the `SESSION_SECRET` var in `wrangler.jsonc` is never read. |
 | Personal Access Tokens | Prefixed `kfm_live_` / `rk_live_`; only a SHA-256 hash is stored. The raw token is displayed exactly once, at creation. |
 | Password reset | **Not implemented.** There is no recovery flow; rotate the PATs and re-register on a fresh instance if you lose access. |
 | Privilege | Single tenant. Every authenticated user can read, tag, and delete the whole library. There is no per-item authorization. |
@@ -40,7 +43,7 @@ production.
 
 - **Login attempts are rate limited.** `/auth/login` and `/auth/register` throttle
   failed attempts, tracked in D1 so the limit is shared across all Worker
-  isolates (see `src/utils/rate_limit.py`). Two independent caps apply: **20
+  isolates (see `keepfor/utils/rate_limit.py`). Two independent caps apply: **20
   failures per IP** and **10 failures per account** per 15-minute window. The
   account cap is what stops distributed credential stuffing, and it holds even
   when the attacker rotates IPs. Only failures count, and a successful sign-in
@@ -68,13 +71,20 @@ production.
 - **Third-party requests disclose saved URLs.** Two features contact external
   services with data derived from your library:
   - Item favicons are fetched from `google.com` / `icons.duckduckgo.com`,
-    which discloses every domain you have saved, at page-render time.
-  - On HTTP 403 only, the article URL is sent to `r.jina.ai` (reader proxy) to
-    recover bot-walled pages. The URL, never your credentials.
+  - URL egress is strictly bounded: 5MB max payload, 20s timeout, SSRF protection against private IP ranges. Reader proxy fallback is opt-in via READER_PROXY_BASE (default off).
 - **Article content is sanitized, not sandboxed.** Extracted HTML passes
   through an allowlist (`sanitize_clean_html`) that strips all scripts, styles,
   and event handlers, but reader output is rendered into the same origin as the
   app. Do not treat it as a hard boundary against a novel parser bypass.
+- **Outbound egress policy is lexical (no Workers DNS resolution).**
+  The egress hardening in `keepfor/utils/egress.py` prevents SSRF by validating
+  schemes, ports, userinfo, and private/loopback/link-local/multicast IP literals
+  (including decimal/hex/octal forms and IPv6-mapped IPv4 ranges), as well as
+  denying loopback/internal domain suffixes (`localhost`, `*.local`, `*.internal`,
+  `*.workers.dev`) and custom `EGRESS_DENY_HOSTS`. However, Cloudflare Workers do
+  not expose synchronous DNS resolution APIs to inspect the IP addresses that a
+  public hostname resolves to. Defenses against DNS rebinding must be enforced
+  at the network egress perimeter or Cloudflare Gateway.
 - **`ALLOW_PUBLIC_SIGNUPS` gates registration only.** If set to the string
   `"true"`, anyone who can reach the instance can create an account and, since
   the library is single-tenant, read everything already saved. Leave it
@@ -87,10 +97,10 @@ report real issues.
 
 - **Use GitHub's private vulnerability reporting** on
   [`melcutz/keepfor.me`](https://github.com/melcutz/keepfor.me) (Security tab →
-  "Report a vulnerability"). This opens a private advisory visible only to the
-  maintainer.
+  "Report a vulnerability") as the preferred channel when enabled. This opens a
+  private advisory visible only to the maintainer.
 - Expect an acknowledgement within a few days and a fix or mitigation plan
-  shortly after. Because there are no releases, a fix means a commit on `main` —
+  shortly after. Security fixes will be tagged in a patch release —
   tell me if you self-host and need the patch sooner.
 
 Please do not open a public issue for an unpatched vulnerability.

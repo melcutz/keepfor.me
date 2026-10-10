@@ -39,7 +39,7 @@ An edge-native, single-tenant personal knowledge vault with dual HTML snapshots 
 - Production deployment at `app.keepfor.me`.
 - Jinja2 templates in `templates/` (`base.html`, `library.html`, `reader.html`, `save_popup.html`, `settings.html`, `stats.html`, `tags.html`).
 - Working Manifest V3 browser extension in `browser-extension/`.
-- 6 MCP tools implemented and documented in `src/mcp/`.
+- 6 MCP tools implemented and documented in `keepfor/mcp/`.
 - Test suite with 238+ unit and integration tests.
 
 ## Product Principles

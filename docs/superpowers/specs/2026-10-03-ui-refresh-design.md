@@ -32,7 +32,7 @@ and a real logo.
   `#fffbeb`/`#b45309`, rose `#fff1f2`/`#be123c`, violet `#f5f3ff`/`#6d28d9`,
   cyan `#ecfeff`/`#0e7490`, orange `#fff7ed`/`#c2410c`, slate `#f1f5f9`/
   `#475569`. A violet *tag* is fine — data, not chrome. Assignment is
-  `md5(tag).digest()[0] % 8`, computed in `src/app.py`
+  `md5(tag).digest()[0] % 8`, computed in `keepfor/app.py`
   (`tag_palette_index()` + `tag_styles_for()`) and passed as `tag_styles: dict[str, tuple[str, str]]` into
   every template that renders item tags (`library_page`, `search_htmx`,
   `reader_page`). Python's `hash()` is process-randomized, so md5 — never
@@ -116,8 +116,8 @@ Centered card with the new icon + split-tone wordmark, same fields and
 ## Testing
 
 - Full suite `python3 -m pytest tests/ -q` (49 tests) must stay green.
-- CI ruff forms exactly: `ruff check src/ tests/ --select=E,W,F,I,N`
-  and `ruff format --check src/ tests/`.
+- CI ruff forms exactly: `ruff check keepfor/ tests/ --select=E,W,F,I,N`
+  and `ruff format --check keepfor/ tests/`.
 - New test: library HTML contains a `s2/favicons?domain=` URL and the
   `onerror` DuckDuckGo fallback.
 - New test: `tag_palette_index()` + `tag_styles_for()` is deterministic (same tag, same class

@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from src.models import items as items_model
+from keepfor.models import items as items_model
 
 
 async def _seed_item_with_tags(db, user_id, url, tags):
@@ -45,7 +45,7 @@ async def test_rename_tag_moves_item_tags(db):
     user_id = str(uuid.uuid4())
     item_id = await _seed_item_with_tags(db, user_id, "https://a.example/", ["ml"])
     assert await items_model.rename_tag(db, user_id, "ml", "ai") == "merged"
-    assert await items_model.get_item_tags(db, item_id) == ["ai"]
+    assert await items_model.get_item_tags(db, user_id, item_id) == ["ai"]
     assert (
         await db.query_first(
             "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, "ml")
@@ -60,8 +60,8 @@ async def test_rename_tag_into_existing_merges(db):
     item_a = await _seed_item_with_tags(db, user_id, "https://a.example/", ["ml"])
     item_b = await _seed_item_with_tags(db, user_id, "https://b.example/", ["ai"])
     assert await items_model.rename_tag(db, user_id, "ml", "ai") == "merged"
-    assert await items_model.get_item_tags(db, item_a) == ["ai"]
-    assert await items_model.get_item_tags(db, item_b) == ["ai"]
+    assert await items_model.get_item_tags(db, user_id, item_a) == ["ai"]
+    assert await items_model.get_item_tags(db, user_id, item_b) == ["ai"]
 
 
 @pytest.mark.asyncio
@@ -78,7 +78,7 @@ async def test_delete_tag_keeps_items_but_untags(db):
         db, user_id, "https://a.example/", ["obsolete", "keep"]
     )
     assert await items_model.delete_tag(db, user_id, "obsolete") is True
-    assert await items_model.get_item_tags(db, item_id) == ["keep"]
+    assert await items_model.get_item_tags(db, user_id, item_id) == ["keep"]
     # Item itself survives.
     assert await db.query_first("SELECT id FROM items WHERE id = ?;", (item_id,))
 

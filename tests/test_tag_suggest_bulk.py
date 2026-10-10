@@ -5,8 +5,8 @@
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import add_tags_to_item, suggest_tags
+from keepfor.auth.service import register_user
+from keepfor.models.items import add_tags_to_item, suggest_tags
 
 
 async def _seed(db, user_id, item_id, url, tags):
@@ -62,7 +62,7 @@ async def test_suggest_caps_fetch_on_huge_exclude(db):
 
 @pytest.mark.asyncio
 async def test_bulk_add_and_remove_roundtrip(db):
-    from src.models.items import bulk_update_tags, get_item
+    from keepfor.models.items import bulk_update_tags, get_item
 
     user = await register_user(db, "blk@keepfor.me", "password123")
     await _seed(db, user["id"], "b1", "https://example.com/1", ["old"])
@@ -75,7 +75,7 @@ async def test_bulk_add_and_remove_roundtrip(db):
 
 @pytest.mark.asyncio
 async def test_bulk_ignores_foreign_items_and_caps_ids(db):
-    from src.models.items import bulk_update_tags, get_item_tags
+    from keepfor.models.items import bulk_update_tags, get_item_tags
 
     user = await register_user(db, "blk2@keepfor.me", "password123")
     other = await register_user(
@@ -84,4 +84,4 @@ async def test_bulk_ignores_foreign_items_and_caps_ids(db):
     await _seed(db, other["id"], "bx", "https://example.com/x", [])
     ids = ["bx"] + ["missing-%d" % i for i in range(150)]
     assert await bulk_update_tags(db, user["id"], ids, ["hi"], []) == 0
-    assert await get_item_tags(db, "bx") == []
+    assert await get_item_tags(db, other["id"], "bx") == []

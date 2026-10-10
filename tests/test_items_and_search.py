@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import delete_item, get_item, save_item
-from src.search.engine import hybrid_search, search_vectorize
+from keepfor.auth.service import register_user
+from keepfor.models.items import delete_item, get_item, save_item
+from keepfor.search.engine import hybrid_search, search_vectorize
 
 
 class FakeQueue:
@@ -116,7 +116,7 @@ async def test_process_import_batch_fans_out(user_with_env, sqlite_conn):
     """Queue consumer saves each import-batch bookmark and re-enqueues it."""
     from types import SimpleNamespace
 
-    from src.consumer.processor import process_queue_batch
+    from keepfor.consumer.processor import process_queue_batch
 
     user, env, db = user_with_env
     env.sqlite_conn = sqlite_conn
@@ -169,7 +169,7 @@ async def test_save_without_queue_extracts_inline(user_with_env, monkeypatch):
     async def fake_fetch(url: str) -> str:
         return html
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
     item, is_new = await save_item(
         db, env, user["id"], "https://example.com/inline", []
     )
@@ -195,7 +195,7 @@ async def test_save_without_queue_marks_failed_on_fetch_error(
     async def boom(url: str) -> str:
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", boom)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", boom)
     item, _ = await save_item(db, env, user["id"], "https://example.com/broken", [])
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched["status"] == "failed"
@@ -212,12 +212,42 @@ Some body text with a [link](https://example.com/x).
 
 
 @pytest.mark.asyncio
-async def test_forbidden_falls_back_to_reader_proxy(user_with_env, monkeypatch):
-    """A 403 direct fetch recovers via the reader proxy instead of failing."""
-    from src.consumer.processor import OriginHttpError
+async def test_reader_proxy_unset_raises_direct_error(user_with_env, monkeypatch):
+    """When READER_PROXY_BASE is unset, a 403 error is raised without calling proxy."""
+    from keepfor.consumer.processor import OriginHttpError
 
     user, env, db = user_with_env
     env.QUEUE = None
+    if hasattr(env, "READER_PROXY_BASE"):
+        delattr(env, "READER_PROXY_BASE")
+    proxy_calls = []
+
+    async def fake_fetch(url: str, headers=None) -> str:
+        raise OriginHttpError(403, url)
+
+    async def fake_jina(url: str) -> str:
+        proxy_calls.append(url)
+        return JINA_SAMPLE
+
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_jina_reader", fake_jina)
+    item, _ = await save_item(
+        db, env, user["id"], "https://blocked.example.com/unset", []
+    )
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "failed"
+    assert "403" in (fetched["fail_reason"] or "")
+    assert proxy_calls == []
+
+
+@pytest.mark.asyncio
+async def test_forbidden_falls_back_to_reader_proxy(user_with_env, monkeypatch):
+    """A 403 direct fetch recovers via the reader proxy instead of failing."""
+    from keepfor.consumer.processor import OriginHttpError
+
+    user, env, db = user_with_env
+    env.QUEUE = None
+    env.READER_PROXY_BASE = "https://proxy.example.com/"
     calls = []
 
     async def fake_fetch(url: str, headers=None) -> str:
@@ -228,8 +258,8 @@ async def test_forbidden_falls_back_to_reader_proxy(user_with_env, monkeypatch):
         calls.append("jina:" + url)
         return JINA_SAMPLE
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
-    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_jina_reader", fake_jina)
     item, _ = await save_item(db, env, user["id"], "https://blocked.example.com/a", [])
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched["status"] == "ok"
@@ -246,10 +276,11 @@ async def test_forbidden_falls_back_to_reader_proxy(user_with_env, monkeypatch):
 @pytest.mark.asyncio
 async def test_non_forbidden_skips_reader_proxy(user_with_env, monkeypatch):
     """A 404 direct fetch fails without ever calling the reader proxy."""
-    from src.consumer.processor import OriginHttpError
+    from keepfor.consumer.processor import OriginHttpError
 
     user, env, db = user_with_env
     env.QUEUE = None
+    env.READER_PROXY_BASE = "https://proxy.example.com/"
     jina_calls = []
 
     async def fake_fetch(url: str, headers=None) -> str:
@@ -259,8 +290,8 @@ async def test_non_forbidden_skips_reader_proxy(user_with_env, monkeypatch):
         jina_calls.append(url)
         return JINA_SAMPLE
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
-    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_jina_reader", fake_jina)
     item, _ = await save_item(db, env, user["id"], "https://example.com/missing", [])
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched["status"] == "failed"
@@ -271,19 +302,20 @@ async def test_non_forbidden_skips_reader_proxy(user_with_env, monkeypatch):
 @pytest.mark.asyncio
 async def test_failed_proxy_keeps_original_403(user_with_env, monkeypatch):
     """If the proxy also fails, the recorded reason stays the original 403."""
-    from src.consumer.processor import OriginHttpError
+    from keepfor.consumer.processor import OriginHttpError
 
     user, env, db = user_with_env
     env.QUEUE = None
+    env.READER_PROXY_BASE = "https://proxy.example.com/"
 
     async def fake_fetch(url: str, headers=None) -> str:
         raise OriginHttpError(403, url)
 
     async def fake_jina(url: str) -> str:
-        raise OriginHttpError(402, "https://r.jina.ai/" + url)
+        raise OriginHttpError(402, "https://proxy.example.com/" + url)
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
-    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_jina_reader", fake_jina)
     item, _ = await save_item(db, env, user["id"], "https://blocked.example.com/b", [])
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched["status"] == "failed"
@@ -293,7 +325,7 @@ async def test_failed_proxy_keeps_original_403(user_with_env, monkeypatch):
 
 def test_reader_markdown_parsing():
     """Jina-style markdown becomes a titled article with safe HTML."""
-    from src.consumer.extractor import article_from_reader_markdown
+    from keepfor.consumer.extractor import article_from_reader_markdown
 
     art = article_from_reader_markdown("https://blocked.example.com/a", JINA_SAMPLE)
     assert art["title"] == "Proxied Article"
@@ -307,7 +339,7 @@ def test_reader_markdown_parsing():
 
 def test_reader_markdown_without_header_block():
     """Plain markdown without Jina headers still yields a usable article."""
-    from src.consumer.extractor import article_from_reader_markdown
+    from keepfor.consumer.extractor import article_from_reader_markdown
 
     art = article_from_reader_markdown(
         "https://example.com/plain", "Just some text.\n\nSecond paragraph."
@@ -323,7 +355,7 @@ async def test_urllib_http_error_maps_to_origin_error(monkeypatch):
     import urllib.error
     import urllib.request
 
-    from src.consumer.processor import OriginHttpError, fetch_page_html
+    from keepfor.consumer.processor import OriginHttpError, fetch_page_html
 
     def boom(req, timeout=None):
         raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, None)
@@ -339,10 +371,11 @@ async def test_urllib_http_error_maps_to_origin_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_rate_limited_falls_back_to_reader_proxy(user_with_env, monkeypatch):
     """A 429 direct fetch recovers via the reader proxy."""
-    from src.consumer.processor import OriginHttpError
+    from keepfor.consumer.processor import OriginHttpError
 
     user, env, db = user_with_env
     env.QUEUE = None
+    env.READER_PROXY_BASE = "https://proxy.example.com/"
     calls = []
 
     async def fake_fetch(url: str, headers=None) -> str:
@@ -353,8 +386,8 @@ async def test_rate_limited_falls_back_to_reader_proxy(user_with_env, monkeypatc
         calls.append("jina:" + url)
         return JINA_SAMPLE
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
-    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_jina_reader", fake_jina)
     item, _ = await save_item(
         db, env, user["id"], "https://ratelimited.example.com/a", []
     )
@@ -370,10 +403,11 @@ async def test_rate_limited_falls_back_to_reader_proxy(user_with_env, monkeypatc
 @pytest.mark.asyncio
 async def test_cloudflare_530_falls_back_to_reader_proxy(user_with_env, monkeypatch):
     """A 530 Cloudflare origin error recovers via the reader proxy."""
-    from src.consumer.processor import OriginHttpError
+    from keepfor.consumer.processor import OriginHttpError
 
     user, env, db = user_with_env
     env.QUEUE = None
+    env.READER_PROXY_BASE = "https://proxy.example.com/"
 
     async def fake_fetch(url: str, headers=None) -> str:
         raise OriginHttpError(530, url)
@@ -381,8 +415,8 @@ async def test_cloudflare_530_falls_back_to_reader_proxy(user_with_env, monkeypa
     async def fake_jina(url: str) -> str:
         return JINA_SAMPLE
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
-    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_jina_reader", fake_jina)
     item, _ = await save_item(
         db, env, user["id"], "https://cf-blocked.example.com/a", []
     )
@@ -394,10 +428,11 @@ async def test_cloudflare_530_falls_back_to_reader_proxy(user_with_env, monkeypa
 @pytest.mark.asyncio
 async def test_cloudflare_522_falls_back_to_reader_proxy(user_with_env, monkeypatch):
     """A 522 Cloudflare timeout recovers via the reader proxy."""
-    from src.consumer.processor import OriginHttpError
+    from keepfor.consumer.processor import OriginHttpError
 
     user, env, db = user_with_env
     env.QUEUE = None
+    env.READER_PROXY_BASE = "https://proxy.example.com/"
 
     async def fake_fetch(url: str, headers=None) -> str:
         raise OriginHttpError(522, url)
@@ -405,14 +440,96 @@ async def test_cloudflare_522_falls_back_to_reader_proxy(user_with_env, monkeypa
     async def fake_jina(url: str) -> str:
         return JINA_SAMPLE
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
-    monkeypatch.setattr("src.consumer.processor.fetch_jina_reader", fake_jina)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_jina_reader", fake_jina)
     item, _ = await save_item(
         db, env, user["id"], "https://cf-timeout.example.com/a", []
     )
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched["status"] == "ok"
     assert fetched["title"] == "Proxied Article"
+
+
+@pytest.mark.asyncio
+async def test_reader_proxy_private_ip_never_sent_to_proxy(user_with_env, monkeypatch):
+    """A private IP URL is never sent to the reader proxy."""
+    from keepfor.consumer.processor import OriginHttpError
+
+    user, env, db = user_with_env
+    env.QUEUE = None
+    env.READER_PROXY_BASE = "https://proxy.example.com/"
+    proxy_calls = []
+
+    async def fake_fetch(url: str, headers=None) -> str:
+        raise OriginHttpError(403, url)
+
+    async def fake_jina(url: str, **kwargs) -> str:
+        proxy_calls.append(url)
+        return JINA_SAMPLE
+
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_jina_reader", fake_jina)
+    item, _ = await save_item(db, env, user["id"], "http://127.0.0.1/secret", [])
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "failed"
+    assert proxy_calls == []
+
+
+@pytest.mark.asyncio
+async def test_reader_proxy_budget_hook(user_with_env, monkeypatch):
+    """Using the reader proxy records fetch budget with action='reader_proxy'."""
+    from keepfor.consumer.processor import OriginHttpError
+    from keepfor.defaults import AllowAllEntitlements, NoopEventBus, WorkersAIProvider
+    from keepfor.runtime import set_providers
+    from keepfor.spi import Providers
+
+    user, env, db = user_with_env
+    env.QUEUE = None
+    env.READER_PROXY_BASE = "https://proxy.example.com/"
+
+    budget_actions = []
+
+    class SpyFetchBudget:
+        async def allow_fetch(self, tenant_id, url, *, action="fetch"):
+            budget_actions.append(("allow", action, url))
+            return True
+
+        async def record_fetch(self, tenant_id, bytes_read, *, action="fetch"):
+            budget_actions.append(("record", action, bytes_read))
+
+    spy_budget = SpyFetchBudget()
+    set_providers(
+        Providers(
+            fetch_budget=spy_budget,
+            entitlements=AllowAllEntitlements(),
+            events=NoopEventBus(),
+            ai=WorkersAIProvider(),
+        )
+    )
+
+    async def fake_fetch(url: str, headers=None, **kwargs) -> str:
+        raise OriginHttpError(403, url)
+
+    async def fake_jina(url: str, **kwargs) -> str:
+        await spy_budget.allow_fetch(user["id"], url, action="reader_proxy")
+        await spy_budget.record_fetch(
+            user["id"], len(JINA_SAMPLE), action="reader_proxy"
+        )
+        return JINA_SAMPLE
+
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_jina_reader", fake_jina)
+    item, _ = await save_item(
+        db, env, user["id"], "https://blocked.example.com/budget", []
+    )
+    fetched = await get_item(db, user["id"], item["id"])
+    assert fetched["status"] == "ok"
+    assert (
+        "allow",
+        "reader_proxy",
+        "https://blocked.example.com/budget",
+    ) in budget_actions
+    assert ("record", "reader_proxy", len(JINA_SAMPLE)) in budget_actions
 
 
 @pytest.mark.asyncio

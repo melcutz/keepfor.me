@@ -8,9 +8,9 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from src.app import app
-from src.auth.service import login_user, register_user
-from src.models.items import save_item
+from keepfor.app import app
+from keepfor.auth.service import login_user, register_user
+from keepfor.models.items import save_item
 
 
 class FakeQueue:
@@ -36,8 +36,8 @@ def client(db, monkeypatch):
     def mock_get_db(request):
         return db
 
-    monkeypatch.setattr("src.app.get_db", mock_get_db)
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: MockEnv())
+    monkeypatch.setattr("keepfor.deps.get_db", mock_get_db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
     return TestClient(app)
 
 
@@ -97,7 +97,7 @@ async def _seed_statuses(db, user_id):
 @pytest.mark.asyncio
 async def test_status_counts_groups_queued_and_fetching(db, auth_headers):
     """get_status_counts reports extracting/saved/failed per user."""
-    from src.search.engine import get_status_counts
+    from keepfor.search.engine import get_status_counts
 
     user = auth_headers["admin_user"]
     await _seed_statuses(db, user["id"])
@@ -108,7 +108,7 @@ async def test_status_counts_groups_queued_and_fetching(db, auth_headers):
 @pytest.mark.asyncio
 async def test_recent_items_status_filter(db, auth_headers):
     """get_recent_items honors status=failed / extracting."""
-    from src.search.engine import get_recent_items
+    from keepfor.search.engine import get_recent_items
 
     user = auth_headers["admin_user"]
     await _seed_statuses(db, user["id"])
@@ -292,7 +292,7 @@ async def test_settings_cleanup_options_show_per_group_counts(client, db, auth_h
 @pytest.mark.asyncio
 async def test_fail_group_counts_are_exclusive(db, auth_headers):
     """A 403 failure counts as blocked only, not also as client-error."""
-    from src.app import get_fail_group_counts
+    from keepfor.app import get_fail_group_counts
 
     user = auth_headers["admin_user"]
     await _seed_statuses(db, user["id"])
@@ -335,9 +335,9 @@ async def test_cleanup_failed_other_removes_only_unmatched(client, db, auth_head
 
 @pytest.mark.asyncio
 async def test_quick_notes_included_in_saved_status_group(db):
-    from src.auth.service import register_user
-    from src.models.items import save_note
-    from src.search.engine import get_recent_items, get_status_counts
+    from keepfor.auth.service import register_user
+    from keepfor.models.items import save_note
+    from keepfor.search.engine import get_recent_items, get_status_counts
 
     user = await register_user(db, "note_status@test.local", "password123")
     user_id = user["id"]

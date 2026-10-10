@@ -18,7 +18,7 @@ All contributors must sign our [Contributor License Agreement (CLA)](CLA.md) bef
 * **Automated signing via GitHub**: When you submit your first pull request, our automated GitHub Action (`CLA Assistant`) will check whether you have signed. If you haven't yet, it will leave a comment on your pull request with a link to [CLA.md](CLA.md) and instructions to sign by simply posting a comment (e.g., `"I have read the CLA Document and I hereby sign the CLA"`).
 * **Company & Employer Clause**: If your employer owns the intellectual property for code you write, please ensure you have authorization to contribute or that your employer has waived rights before signing.
 
-The CLA check is a required status check on the `main` branch; pull requests cannot be merged until it passes.
+The CLA check is a required status check on the `main` branch; pull requests cannot be merged until it passes. The CLA applies to all human contributions (automated dependency bots excepted). The CLA text may be updated periodically for future contributions; previously signed versions remain valid for the contributions made under them.
 
 ---
 
@@ -38,7 +38,7 @@ Run the test suite from the repository root:
 python3 -m pytest tests/ -q
 ```
 
-> **Note**: Always run `pytest` from the repo root. Subdirectories will fail to resolve `src` imports as `src` is a namespace package.
+> **Note**: Always run `pytest` from the repo root. Subdirectories will fail to resolve `keepfor` imports as `keepfor` is a namespace package.
 
 ### 3. Code Style & Formatting
 
@@ -46,16 +46,16 @@ CI enforces strict formatting and linting rules. Before pushing code or submitti
 
 ```bash
 # Check linting (must include import sorting: -I)
-ruff check src/ tests/ --select=E,W,F,I,N
+ruff check keepfor/ tests/ --select=E,W,F,I,N
 
 # Check formatting
-ruff format --check src/ tests/
+ruff format --check keepfor/ tests/
 ```
 
 To auto-format code, run:
 
 ```bash
-ruff format src/ tests/
+ruff format keepfor/ tests/
 ```
 
 ### 4. License Headers

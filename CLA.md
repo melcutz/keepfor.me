@@ -37,7 +37,13 @@ Subject to the terms and conditions of this Agreement, You hereby grant to Claud
 
 ---
 
-### 5. Right to Contribute and Original Authorship
+### 5. Successors and Assigns
+
+Claudiu Branzan may assign or transfer his rights under this Agreement, in whole or in part, to any successor in interest to the Project, including a legal entity formed, acquired or controlled by him to own, operate or commercialize the Work. All licenses granted to Claudiu Branzan in this Agreement extend to those successors and assigns, and to any entity to which the Work is lawfully transferred, without further consent from You.
+
+---
+
+### 6. Right to Contribute and Original Authorship
 
 You represent and warrant that:
 * Each of Your Contributions is Your original creation;
@@ -46,7 +52,7 @@ You represent and warrant that:
 
 ---
 
-### 6. Employer and Company Representation
+### 7. Employer and Company Representation
 
 If Your employer (or any company for which You perform services) has rights to intellectual property that You create that includes Your Contributions, You represent and warrant that:
 * You have received explicit permission or authorization from Your employer to make Contributions on behalf of that employer; or
@@ -55,12 +61,16 @@ If Your employer (or any company for which You perform services) has rights to i
 
 ---
 
-### 7. Disclaimer of Warranties
+### 8. Disclaimer of Warranties
 
-Except for the representations stated in Sections 5 and 6, You provide Your Contributions on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE.
+Except for the representations stated in Sections 6 and 7, You provide Your Contributions on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE.
 
 ---
 
-### 8. Notification of Changes
+### 9. Notification of Changes
 
 You agree to notify Claudiu Branzan promptly if You become aware of any circumstance, fact, or claim that would make any of Your representations in this Agreement inaccurate or incomplete in any respect.
+
+---
+
+Last updated: 2026-10-09

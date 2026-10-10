@@ -1,0 +1,25 @@
+{% extends base_template|default("base.html") %}
+
+{% block title %}Limit Reached — Keepfor.me{% endblock %}
+
+{% block content %}
+<div class="limit-reached max-w-xl mx-auto my-12 p-8 bg-white border border-slate-200 rounded-xl shadow-sm text-center">
+  <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-100 text-amber-700 mb-4">
+    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    </svg>
+  </div>
+  <h1 class="text-2xl font-bold text-slate-900">Limit Reached</h1>
+  <p class="mt-3 text-slate-600">{{ reason }}</p>
+  {% if upgrade_url %}
+  <div class="mt-6">
+    <a href="{{ upgrade_url }}" class="inline-flex items-center justify-center px-5 py-2.5 bg-slate-900 text-white font-medium text-sm rounded-lg hover:bg-slate-800 transition">
+      Upgrade Plan
+    </a>
+  </div>
+  {% endif %}
+  <div class="mt-6">
+    <a href="/" class="text-sm text-slate-500 hover:text-slate-800">&larr; Back to Library</a>
+  </div>
+</div>
+{% endblock %}

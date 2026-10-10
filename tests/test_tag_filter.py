@@ -5,9 +5,9 @@
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import add_tags_to_item
-from src.search.engine import (
+from keepfor.auth.service import register_user
+from keepfor.models.items import add_tags_to_item
+from keepfor.search.engine import (
     count_recent_items,
     get_recent_items,
     hybrid_search,

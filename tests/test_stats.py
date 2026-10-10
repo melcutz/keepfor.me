@@ -8,10 +8,15 @@ import datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from src.app import app
-from src.auth.service import login_user, register_user
-from src.models.items import archive_item, create_tag, record_open, save_item
-from src.models.stats import current_streak, get_user_stats, intensity_bucket, score_day
+from keepfor.app import app
+from keepfor.auth.service import login_user, register_user
+from keepfor.models.items import archive_item, create_tag, record_open, save_item
+from keepfor.models.stats import (
+    current_streak,
+    get_user_stats,
+    intensity_bucket,
+    score_day,
+)
 
 
 class FakeQueue:
@@ -43,10 +48,10 @@ def client(db, monkeypatch):
     def mock_get_db(request):
         return db
 
-    monkeypatch.setattr("src.app.get_db", mock_get_db)
+    monkeypatch.setattr("keepfor.deps.get_db", mock_get_db)
     # Pin a queue-bearing env so request handlers enqueue instead of
     # extracting inline over the real network (TestClient scope has no env).
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: MockEnv())
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
 
     return TestClient(app)
 
@@ -178,7 +183,7 @@ async def test_reader_survives_open_log_failure(
     async def boom(db, user_id, item_id):
         raise RuntimeError("D1 down")
 
-    monkeypatch.setattr("src.app.record_open", boom)
+    monkeypatch.setattr("keepfor.app.record_open", boom)
 
     response = client.get(f"/items/{row['id']}")
     assert response.status_code == 200
@@ -471,7 +476,7 @@ async def test_stats_top_domains_are_clickable_links(client, db, test_user_data)
 
 async def test_search_fts_matches_domain_terms(db, test_user_data):
     """Searching for a domain matches items having that domain in URL."""
-    from src.search.engine import search_fts
+    from keepfor.search.engine import search_fts
 
     user = await register_user(db, test_user_data["email"], test_user_data["password"])
     uid = user["id"]

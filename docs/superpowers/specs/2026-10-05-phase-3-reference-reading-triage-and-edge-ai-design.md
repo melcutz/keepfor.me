@@ -49,7 +49,7 @@ In `templates/library.html`, above the feed:
 
 ### Execution Pipeline
 * Bound via `env.AI`.
-* During queue extraction in `src/consumer/processor.py`:
+* During queue extraction in `keepfor/consumer/processor.py`:
   ```python
   if hasattr(env, "AI") and env.AI is not None and len(plain_text) > 300:
       prompt = (

@@ -56,7 +56,7 @@ The library toolbar (`templates/library.html`) gains a segmented control in the 
 * Instant, client-side, zero server roundtrips.
 
 ### B. Cover Thumbnail Pipeline
-* In `src/consumer/extractor.py`, extract `image_url`:
+* In `keepfor/consumer/extractor.py`, extract `image_url`:
   ```python
   image_url = None
   if metadata and getattr(metadata, "image", None):
@@ -65,7 +65,7 @@ The library toolbar (`templates/library.html`) gains a segmented control in the 
       og_img = soup.find("meta", property="og:image") or soup.find("meta", attrs={"name": "twitter:image"})
       image_url = og_img["content"].strip() if og_img and og_img.get("content") else None
   ```
-* In `src/consumer/processor.py`, write `image_url` to D1 during extraction.
+* In `keepfor/consumer/processor.py`, write `image_url` to D1 during extraction.
 * Card rendering:
   * When `image_url` is present: render a 16:9 rounded cover image with `object-cover` and `loading="lazy"`.
   * When `image_url` is absent: render an elegant pastel gradient placeholder with the domain favicon centered.

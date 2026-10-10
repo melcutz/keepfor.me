@@ -12,9 +12,9 @@ cloudflare dash — tagged, real URLs, not QA). Screenshots: /tmp/kfm-qa/screens
 Every dimension tested — status htmx clicks, `?category=`, `?tag=`,
 `?quick=1`, combos — pills stay `All·878 | Saved·573 | Extracting·5 | Failed·300`
 and header stays `878 saves`. Structural, two causes:
-- `src/app.py:418` `get_status_counts(db, user_id)` takes no filter args
-  (`src/search/engine.py:94` — global GROUP BY), and `list_user_tags`
-  (`src/models/items.py:676`) likewise counts all items per tag.
+- `keepfor/app.py:418` `get_status_counts(db, user_id)` takes no filter args
+  (`keepfor/search/engine.py:94` — global GROUP BY), and `list_user_tags`
+  (`keepfor/models/items.py:676`) likewise counts all items per tag.
 - Status pills are htmx buttons swapping only `#items-list`
   (`templates/library.html:213-236`); they never re-render themselves.
 The only filtered total shown is the pager line ("Showing X–Y of Z saves").

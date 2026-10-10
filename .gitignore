@@ -7,6 +7,9 @@ venv/
 .venv-workers/
 python_modules/
 pylock.toml
+uv.lock
+dist/
+*.egg-info/
 
 # macOS
 .DS_Store
@@ -15,3 +18,5 @@ pylock.toml
 .worktrees/
 .superpowers/
 .wrangler/
+wrangler.local.jsonc
+.dev.vars

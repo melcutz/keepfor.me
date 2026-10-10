@@ -52,7 +52,7 @@ tags render filled with per-tag `x`. "All" clears. `?tag=__untagged__`
 sentinel (server rejects creating a real tag with that name) shows
 tagless items. Search + status pills preserve the set on `/search`.
 
-Engine (`src/search/engine.py`): FTS adds one `EXISTS (item_tags...)`
+Engine (`keepfor/search/engine.py`): FTS adds one `EXISTS (item_tags...)`
 clause per tag; vector/RRF branch filters post-rank by membership; counts
 respect the filter. Set capped at 10 tags. Unknown tag yields empty
 result with clear-all affordance, not 404. Single `?tag=x` keeps working.

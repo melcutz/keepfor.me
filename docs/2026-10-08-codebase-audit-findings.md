@@ -39,17 +39,17 @@ This document details all functional bugs, performance bottlenecks, data integri
 
 * **Severity**: High (Functional Bug / Data Visibility)
 * **Affected Files**:
-  * [`src/models/items.py#L781-L786`](file:///home/melcutz/work/keepfor.me/src/models/items.py#L781-L786)
-  * [`src/search/engine.py#L15-L20`](file:///home/melcutz/work/keepfor.me/src/search/engine.py#L15-L20)
-  * [`src/search/engine.py#L140-L144`](file:///home/melcutz/work/keepfor.me/src/search/engine.py#L140-L144)
+  * [`keepfor/models/items.py#L781-L786`](file:///home/melcutz/work/keepfor.me/keepfor/models/items.py#L781-L786)
+  * [`keepfor/search/engine.py#L15-L20`](file:///home/melcutz/work/keepfor.me/keepfor/search/engine.py#L15-L20)
+  * [`keepfor/search/engine.py#L140-L144`](file:///home/melcutz/work/keepfor.me/keepfor/search/engine.py#L140-L144)
 * **Description**:
-  When [`save_note`](file:///home/melcutz/work/keepfor.me/src/models/items.py#L765) persists a quick note into the `items` table, it hardcodes `status = 'saved'`:
+  When [`save_note`](file:///home/melcutz/work/keepfor.me/keepfor/models/items.py#L765) persists a quick note into the `items` table, it hardcodes `status = 'saved'`:
   ```sql
   INSERT INTO items (id, user_id, url, canonical_url, title, content_text,
       word_count, status, item_type, is_pinned, read_state)
   VALUES (?, ?, ?, ?, ?, ?, ?, 'saved', 'note', ?, 'unread');
   ```
-  However, in [`src/search/engine.py`](file:///home/melcutz/work/keepfor.me/src/search/engine.py#L15), `STATUS_GROUPS` defines:
+  However, in [`keepfor/search/engine.py`](file:///home/melcutz/work/keepfor.me/keepfor/search/engine.py#L15), `STATUS_GROUPS` defines:
   ```python
   STATUS_GROUPS: dict[str, tuple[str, ...]] = {
       "saved": ("ok",),
@@ -58,10 +58,10 @@ This document details all functional bugs, performance bottlenecks, data integri
   }
   ```
 * **Impact**:
-  1. Quick notes are **completely excluded** from `counts["saved"]` in [`get_status_counts`](file:///home/melcutz/work/keepfor.me/src/search/engine.py#L94).
+  1. Quick notes are **completely excluded** from `counts["saved"]` in [`get_status_counts`](file:///home/melcutz/work/keepfor.me/keepfor/search/engine.py#L94).
   2. When a user navigates to `?status=saved`, `_status_values("saved")` returns `("ok",)`, generating SQL with `WHERE status IN ('ok')`. Quick notes with `status = 'saved'` are completely filtered out and invisible in the "Saved" view.
 * **Remediation**:
-  Update [`STATUS_GROUPS`](file:///home/melcutz/work/keepfor.me/src/search/engine.py#L15) so `"saved"` maps to both `"ok"` and `"saved"`:
+  Update [`STATUS_GROUPS`](file:///home/melcutz/work/keepfor.me/keepfor/search/engine.py#L15) so `"saved"` maps to both `"ok"` and `"saved"`:
   ```python
   STATUS_GROUPS: dict[str, tuple[str, ...]] = {
       "saved": ("ok", "saved"),
@@ -78,10 +78,10 @@ This document details all functional bugs, performance bottlenecks, data integri
 
 * **Severity**: High (Latency & Worker CPU overhead)
 * **Affected Files**:
-  * [`src/models/items.py#L730-L742`](file:///home/melcutz/work/keepfor.me/src/models/items.py#L730-L742)
-  * [`src/app.py#L430`](file:///home/melcutz/work/keepfor.me/src/app.py#L430)
+  * [`keepfor/models/items.py#L730-L742`](file:///home/melcutz/work/keepfor.me/keepfor/models/items.py#L730-L742)
+  * [`keepfor/app.py#L430`](file:///home/melcutz/work/keepfor.me/keepfor/app.py#L430)
 * **Description**:
-  [`get_pinned_items`](file:///home/melcutz/work/keepfor.me/src/models/items.py#L730) is executed on every library page render in [`src/app.py`](file:///home/melcutz/work/keepfor.me/src/app.py#L430). The function executes:
+  [`get_pinned_items`](file:///home/melcutz/work/keepfor.me/keepfor/models/items.py#L730) is executed on every library page render in [`keepfor/app.py`](file:///home/melcutz/work/keepfor.me/keepfor/app.py#L430). The function executes:
   ```python
   rows = await db.query_all(
       "SELECT * FROM items WHERE user_id = ? AND is_pinned = 1 ORDER BY created_at DESC;",
@@ -97,7 +97,7 @@ This document details all functional bugs, performance bottlenecks, data integri
 * **Impact**:
   In Cloudflare Workers isolates, each D1 query is an internal RPC roundtrip (~15–30ms). Iterating sequentially over pinned items creates an N+1 waterfall that adds cumulative latency to initial page loads and consumes isolate CPU time.
 * **Remediation**:
-  Batch tag loading into a single query using `WHERE it.item_id IN (...)` (mirroring the optimization in [`get_recent_items`](file:///home/melcutz/work/keepfor.me/src/search/engine.py#L467-L479)):
+  Batch tag loading into a single query using `WHERE it.item_id IN (...)` (mirroring the optimization in [`get_recent_items`](file:///home/melcutz/work/keepfor.me/keepfor/search/engine.py#L467-L479)):
   ```python
   if not rows:
       return []
@@ -127,7 +127,7 @@ This document details all functional bugs, performance bottlenecks, data integri
 
 * **Severity**: High (Worker Subrequest / Execution Timeout Risk)
 * **Affected Files**:
-  * [`src/utils/importer.py#L94-L108`](file:///home/melcutz/work/keepfor.me/src/utils/importer.py#L94-L108)
+  * [`keepfor/utils/importer.py#L94-L108`](file:///home/melcutz/work/keepfor.me/keepfor/utils/importer.py#L94-L108)
 * **Description**:
   When a user requests a JSON backup via `export_library_json`, the function queries all library items, then loops sequentially through each item to retrieve its tags:
   ```python
@@ -175,9 +175,9 @@ This document details all functional bugs, performance bottlenecks, data integri
 
 * **Severity**: Medium (Data Integrity / Backup Loss)
 * **Affected Files**:
-  * [`src/utils/importer.py#L84-L93`](file:///home/melcutz/work/keepfor.me/src/utils/importer.py#L84-L93)
+  * [`keepfor/utils/importer.py#L84-L93`](file:///home/melcutz/work/keepfor.me/keepfor/utils/importer.py#L84-L93)
 * **Description**:
-  [`export_library_json`](file:///home/melcutz/work/keepfor.me/src/utils/importer.py#L82) hardcodes column names from the initial schema:
+  [`export_library_json`](file:///home/melcutz/work/keepfor.me/keepfor/utils/importer.py#L82) hardcodes column names from the initial schema:
   ```sql
   SELECT id, url, canonical_url, title, byline, site_name,
          published_date, excerpt, status, word_count, created_at
@@ -197,9 +197,9 @@ This document details all functional bugs, performance bottlenecks, data integri
 
 * **Severity**: Medium (Security / File Corruption)
 * **Affected Files**:
-  * [`src/utils/importer.py#L122-L130`](file:///home/melcutz/work/keepfor.me/src/utils/importer.py#L122-L130)
+  * [`keepfor/utils/importer.py#L122-L130`](file:///home/melcutz/work/keepfor.me/keepfor/utils/importer.py#L122-L130)
 * **Description**:
-  [`export_library_html`](file:///home/melcutz/work/keepfor.me/src/utils/importer.py#L111) interpolates raw strings into HTML:
+  [`export_library_html`](file:///home/melcutz/work/keepfor.me/keepfor/utils/importer.py#L111) interpolates raw strings into HTML:
   ```python
   for it in items:
       tags_str = ",".join(it["tags"])
@@ -267,7 +267,7 @@ This document details all functional bugs, performance bottlenecks, data integri
     tags: tags
   };
   ```
-  The value of `titleInput.value` is completely omitted from `payload`. The backend endpoint `/api/save` accepts an optional `title` in [`SaveItemRequest`](file:///home/melcutz/work/keepfor.me/src/schemas.py#L13).
+  The value of `titleInput.value` is completely omitted from `payload`. The backend endpoint `/api/save` accepts an optional `title` in [`SaveItemRequest`](file:///home/melcutz/work/keepfor.me/keepfor/schemas.py#L13).
 * **Impact**:
   Any edits made by the user in the popup to clean up or customize the page title before saving are discarded.
 * **Remediation**:
@@ -341,13 +341,13 @@ This document details all functional bugs, performance bottlenecks, data integri
 * **Severity**: Medium (Bundle Budget Gate)
 * **Affected Files**:
   * [`pyproject.toml#L11`](file:///home/melcutz/work/keepfor.me/pyproject.toml#L11)
-  * [`src/config.py`](file:///home/melcutz/work/keepfor.me/src/config.py)
+  * [`keepfor/config.py`](file:///home/melcutz/work/keepfor.me/keepfor/config.py)
 * **Description**:
-  [`src/config.py`](file:///home/melcutz/work/keepfor.me/src/config.py) is dead code; nothing imports it. Runtime configurations and bindings are read directly from `env` via request context. `pydantic-settings` is only referenced in `src/config.py`.
+  [`keepfor/config.py`](file:///home/melcutz/work/keepfor.me/keepfor/config.py) is dead code; nothing imports it. Runtime configurations and bindings are read directly from `env` via request context. `pydantic-settings` is only referenced in `keepfor/config.py`.
 * **Impact**:
   Cloudflare Python Worker deployments enforce a strict 64 MiB multipart limit and CI enforces a 58,000 KiB budget gate. Bundling `pydantic-settings` unnecessarily wastes headroom.
 * **Remediation**:
-  Delete [`src/config.py`](file:///home/melcutz/work/keepfor.me/src/config.py) and remove `"pydantic-settings>=2.0.0"` from `dependencies` in `pyproject.toml`.
+  Delete [`keepfor/config.py`](file:///home/melcutz/work/keepfor.me/keepfor/config.py) and remove `"pydantic-settings>=2.0.0"` from `dependencies` in `pyproject.toml`.
 
 ---
 
@@ -369,18 +369,18 @@ This document details all functional bugs, performance bottlenecks, data integri
 
 * **Severity**: Low (CI Noise & Forward Compatibility)
 * **Affected Files**:
-  * [`src/utils/logging.py#L39`](file:///home/melcutz/work/keepfor.me/src/utils/logging.py#L39)
-  * [`src/app.py#L1365`](file:///home/melcutz/work/keepfor.me/src/app.py#L1365)
+  * [`keepfor/utils/logging.py#L39`](file:///home/melcutz/work/keepfor.me/keepfor/utils/logging.py#L39)
+  * [`keepfor/app.py#L1365`](file:///home/melcutz/work/keepfor.me/keepfor/app.py#L1365)
 * **Description**:
-  `datetime.utcnow()` is deprecated in Python 3.12+ in favor of timezone-aware datetimes. Because every structured log call invokes [`JSONFormatter.format`](file:///home/melcutz/work/keepfor.me/src/utils/logging.py#L39), running pytest generates over 1,000 `DeprecationWarning` messages across the test suite.
+  `datetime.utcnow()` is deprecated in Python 3.12+ in favor of timezone-aware datetimes. Because every structured log call invokes [`JSONFormatter.format`](file:///home/melcutz/work/keepfor.me/keepfor/utils/logging.py#L39), running pytest generates over 1,000 `DeprecationWarning` messages across the test suite.
 * **Remediation**:
-  1. In `src/utils/logging.py`:
+  1. In `keepfor/utils/logging.py`:
      ```python
      from datetime import timezone
 
      "timestamp": datetime.now(timezone.utc).isoformat()
      ```
-  2. In `src/app.py`:
+  2. In `keepfor/app.py`:
      ```python
      datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(...)
      ```
@@ -391,7 +391,7 @@ This document details all functional bugs, performance bottlenecks, data integri
 
 * **Severity**: Low (Modernization / Deprecation)
 * **Affected Files**:
-  * [`src/schemas.py#L19, L40`](file:///home/melcutz/work/keepfor.me/src/schemas.py#L19)
+  * [`keepfor/schemas.py#L19, L40`](file:///home/melcutz/work/keepfor.me/keepfor/schemas.py#L19)
 * **Description**:
   Pydantic V1 nested `class Config:` syntax is deprecated in Pydantic V2.
 * **Remediation**:
@@ -418,9 +418,9 @@ This document details all functional bugs, performance bottlenecks, data integri
 
 * **Severity**: Low (Observability)
 * **Affected Files**:
-  * [`src/search/engine.py#L236-L237`](file:///home/melcutz/work/keepfor.me/src/search/engine.py#L236-L237)
+  * [`keepfor/search/engine.py#L236-L237`](file:///home/melcutz/work/keepfor.me/keepfor/search/engine.py#L236-L237)
 * **Description**:
-  In [`search_vectorize`](file:///home/melcutz/work/keepfor.me/src/search/engine.py#L183), unexpected exceptions from the Workers AI embedding model or Vectorize binding are caught with:
+  In [`search_vectorize`](file:///home/melcutz/work/keepfor.me/keepfor/search/engine.py#L183), unexpected exceptions from the Workers AI embedding model or Vectorize binding are caught with:
   ```python
   except Exception:
       return []
@@ -442,9 +442,9 @@ This document details all functional bugs, performance bottlenecks, data integri
 
 * **Severity**: Low (Observability)
 * **Affected Files**:
-  * [`src/models/items.py#L226, L234`](file:///home/melcutz/work/keepfor.me/src/models/items.py#L226)
+  * [`keepfor/models/items.py#L226, L234`](file:///home/melcutz/work/keepfor.me/keepfor/models/items.py#L226)
 * **Description**:
-  In [`delete_item`](file:///home/melcutz/work/keepfor.me/src/models/items.py#L210), exceptions during `env.VECTORIZE.deleteByIds` and `env.BUCKET.delete` are swallowed with bare `except Exception: pass`.
+  In [`delete_item`](file:///home/melcutz/work/keepfor.me/keepfor/models/items.py#L210), exceptions during `env.VECTORIZE.deleteByIds` and `env.BUCKET.delete` are swallowed with bare `except Exception: pass`.
 * **Impact**:
   Failed vector index cleanup or orphaned R2 objects occur silently without operational traces.
 * **Remediation**:

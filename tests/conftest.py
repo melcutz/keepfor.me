@@ -6,12 +6,14 @@
 import os
 import sqlite3
 import tempfile
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 
-from src.models.db import Database
-from src.utils.logging import clear_context
+from keepfor.models.db import Database
+from keepfor.paths import migrations_dir
+from keepfor.utils.logging import clear_context
+from tests.fakes import FakeAI, FakeEnv, FakeQueue, FakeR2Bucket, FakeVectorize
 
 
 @pytest.fixture
@@ -35,12 +37,12 @@ def sqlite_conn(db_path: str) -> sqlite3.Connection:
     # Apply every migration in filename order (0001_..., 0002_...).
     # Previously this hardcoded 0001 only, so later migrations (e.g. the
     # auth rate-limit table) were invisible to the entire suite.
-    migrations_dir = os.path.join(os.path.dirname(__file__), "..", "migrations")
-    schema_files = sorted(f for f in os.listdir(migrations_dir) if f.endswith(".sql"))
-    assert schema_files, f"no migrations found in {migrations_dir}"
+    mig_dir = str(migrations_dir())
+    schema_files = sorted(f for f in os.listdir(mig_dir) if f.endswith(".sql"))
+    assert schema_files, f"no migrations found in {mig_dir}"
 
     for name in schema_files:
-        with open(os.path.join(migrations_dir, name), "r") as f:
+        with open(os.path.join(mig_dir, name), "r") as f:
             schema = f.read()
             # Strip `--` comment lines before splitting. A semicolon inside a
             # comment used to split mid-comment and leave unparseable SQL as
@@ -95,8 +97,63 @@ def clear_logging_context():
     clear_context()
 
 
+@pytest.fixture(autouse=True)
+def reset_providers_state():
+    """Reset the runtime providers before and after each test."""
+    from keepfor.runtime import reset_providers
+
+    reset_providers()
+    yield
+    reset_providers()
+
+
 @pytest.fixture
 async def async_db(sqlite_conn: sqlite3.Connection) -> AsyncGenerator[Database, None]:
     """Async database fixture."""
     db = Database(sqlite_conn=sqlite_conn)
     yield db
+
+
+@pytest.fixture
+def fake_bucket() -> FakeR2Bucket:
+    """In-memory FakeR2Bucket fixture."""
+    return FakeR2Bucket()
+
+
+@pytest.fixture
+def fake_vectorize() -> FakeVectorize:
+    """In-memory FakeVectorize fixture."""
+    return FakeVectorize()
+
+
+@pytest.fixture
+def fake_ai() -> FakeAI:
+    """In-memory FakeAI fixture that resets script between tests."""
+    FakeAI.script(None)
+    ai = FakeAI()
+    yield ai
+    FakeAI.script(None)
+
+
+@pytest.fixture
+def fake_queue() -> FakeQueue:
+    """In-memory FakeQueue fixture."""
+    return FakeQueue()
+
+
+@pytest.fixture
+def fake_env(
+    db: Database,
+    fake_bucket: FakeR2Bucket,
+    fake_vectorize: FakeVectorize,
+    fake_ai: FakeAI,
+    fake_queue: FakeQueue,
+) -> FakeEnv:
+    """FakeEnv container composing fake bindings and test db."""
+    return FakeEnv(
+        db=db,
+        bucket=fake_bucket,
+        vectorize=fake_vectorize,
+        ai=fake_ai,
+        queue=fake_queue,
+    )

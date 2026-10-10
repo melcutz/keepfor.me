@@ -5,7 +5,7 @@
 
 import pytest
 
-from src.auth.service import (
+from keepfor.auth.service import (
     RegistrationClosedError,
     create_pat,
     delete_pat,

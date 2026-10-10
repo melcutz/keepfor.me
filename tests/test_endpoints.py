@@ -6,9 +6,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from src.app import app
-from src.auth.service import register_user
-from src.models.items import save_item
+from keepfor.app import app
+from keepfor.auth.service import register_user
+from keepfor.models.items import save_item
 
 
 # Mock environment for testing
@@ -42,10 +42,10 @@ def client(db, monkeypatch):
     def mock_get_db(request):
         return db
 
-    monkeypatch.setattr("src.app.get_db", mock_get_db)
+    monkeypatch.setattr("keepfor.deps.get_db", mock_get_db)
     # Pin a queue-bearing env so request handlers enqueue instead of
     # extracting inline over the real network (TestClient scope has no env).
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: MockEnv())
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
 
     return TestClient(app)
 
@@ -65,7 +65,7 @@ async def setup_users(db):
 @pytest.fixture
 async def auth_headers(db, setup_users):
     """Get auth headers for test users."""
-    from src.auth.service import login_user
+    from keepfor.auth.service import login_user
 
     user, session_id = await login_user(db, "admin@test.local", "password123")
     return {"admin_session": session_id, "admin_user": user}
@@ -322,7 +322,7 @@ async def test_get_item_wrong_user(client, db):
     )
 
     # Login as user2
-    from src.auth.service import login_user
+    from keepfor.auth.service import login_user
 
     _, session_id = await login_user(db, "user2@test.local", "password456")
     client.cookies["kfm_session"] = session_id
@@ -340,7 +340,7 @@ async def test_get_item_wrong_user(client, db):
 @pytest.mark.asyncio
 async def test_api_save_with_bearer_token(client, db, auth_headers):
     """Test API save endpoint with Bearer token authentication."""
-    from src.auth.service import create_pat
+    from keepfor.auth.service import create_pat
 
     # Create PAT for user
     user = auth_headers["admin_user"]
@@ -369,7 +369,7 @@ async def test_api_save_missing_auth(client):
 @pytest.mark.asyncio
 async def test_api_save_mixed_text(client, db, auth_headers):
     """Test API save extracts URL from mixed text payload."""
-    from src.auth.service import create_pat
+    from keepfor.auth.service import create_pat
 
     user = auth_headers["admin_user"]
     pat_data = await create_pat(db, user["id"], "Test Token Mixed")
@@ -391,7 +391,7 @@ async def test_api_save_mixed_text(client, db, auth_headers):
 @pytest.mark.asyncio
 async def test_api_save_invalid_url(client, db, auth_headers):
     """Test API save rejects invalid strings with 400."""
-    from src.auth.service import create_pat
+    from keepfor.auth.service import create_pat
 
     user = auth_headers["admin_user"]
     pat_data = await create_pat(db, user["id"], "Test Token Invalid")
@@ -562,7 +562,7 @@ OPEN_REDIRECT_PAYLOADS = [
 @pytest.mark.parametrize("payload", OPEN_REDIRECT_PAYLOADS)
 def test_safe_next_rejects_open_redirect_payloads(payload):
     """_safe_next must never return something that leaves the origin."""
-    from src.app import _safe_next
+    from keepfor.app import _safe_next
 
     result = _safe_next(payload)
     assert result == "/", f"{payload!r} was passed through as {result!r}"
@@ -575,7 +575,7 @@ def test_safe_next_rejects_open_redirect_payloads(payload):
 )
 def test_safe_next_keeps_real_relative_paths(value):
     """Legitimate same-origin paths must still work, or login loses `next`."""
-    from src.app import _safe_next
+    from keepfor.app import _safe_next
 
     assert _safe_next(value) == value
 
@@ -583,7 +583,7 @@ def test_safe_next_keeps_real_relative_paths(value):
 @pytest.mark.asyncio
 async def test_login_does_not_redirect_offsite(client, db, auth_headers):
     """End-to-end: a hostile `next` lands on / after a real sign-in."""
-    from src.auth.service import register_user
+    from keepfor.auth.service import register_user
 
     await register_user(
         db, "redir@test.local", "password12345", allow_public_signups=True
@@ -663,7 +663,7 @@ async def test_import_csv_bookmarks(client, db, auth_headers, monkeypatch):
     """CSV upload fans out into chunked queue messages and redirects fast."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
     env = MockEnv()
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     rows = "\n".join(f"https://example.com/{i},Example {i},tech" for i in range(27))
     csv_content = f"url,title,tags\n{rows}\n"
@@ -685,7 +685,7 @@ async def test_import_netscape_bookmarks(client, db, auth_headers, monkeypatch):
     """Netscape HTML upload fans out into a single queue message."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
     env = MockEnv()
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     html_content = """<!DOCTYPE NETSCAPE-Bookmark-file-1>
     <DL><p>
@@ -714,7 +714,7 @@ async def test_import_without_queue_runs_in_background(
     client.cookies["kfm_session"] = auth_headers["admin_session"]
     env = MockEnv()
     env.QUEUE = None
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     async def fake_fetch(url: str) -> str:
         return (
@@ -722,7 +722,7 @@ async def test_import_without_queue_runs_in_background(
             "<body><p>background text</p></body></html>"
         )
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
 
     response = client.post(
         "/import",
@@ -748,7 +748,7 @@ async def test_admin_requeue_resends_stuck_items(client, db, auth_headers, monke
 
     user = auth_headers["admin_user"]
     env = MockEnv()
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     async def add_item(url, created_at, status="queued"):
         item_id = str(uuid.uuid4())
@@ -779,7 +779,7 @@ async def test_admin_requeue_needs_queue(client, db, auth_headers, monkeypatch):
     """Without a QUEUE binding the requeue reports 503 instead of hanging."""
     env = MockEnv()
     env.QUEUE = None
-    monkeypatch.setattr("src.app.get_env_from_request", lambda request: env)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
 
     client.cookies["kfm_session"] = auth_headers["admin_session"]
     response = client.post("/admin/requeue")
@@ -971,7 +971,7 @@ async def test_create_pat(client, db, auth_headers):
 @pytest.mark.asyncio
 async def test_delete_pat(client, db, auth_headers):
     """Test deleting personal access token."""
-    from src.auth.service import create_pat
+    from keepfor.auth.service import create_pat
 
     user = auth_headers["admin_user"]
     pat_data = await create_pat(db, user["id"], "Test PAT")
@@ -1021,7 +1021,7 @@ async def test_page_not_found(client):
 
 def test_safe_next_allows_same_origin_paths():
     """Post-login redirect keeps same-origin destinations."""
-    from src.app import _safe_next
+    from keepfor.app import _safe_next
 
     assert (
         _safe_next("/save-popup?url=https://example.com/a")
@@ -1032,7 +1032,7 @@ def test_safe_next_allows_same_origin_paths():
 
 def test_safe_next_rejects_open_redirects():
     """Post-login redirect falls back to '/' for external destinations."""
-    from src.app import _safe_next
+    from keepfor.app import _safe_next
 
     assert _safe_next("https://evil.com") == "/"
     assert _safe_next("//evil.com") == "/"
@@ -1073,7 +1073,7 @@ async def test_login_redirects_to_next_with_lax_cookie(client, db, setup_users):
 
 def test_tag_palette_index_is_deterministic():
     """Palette slot is stable per tag and covers all eight slots."""
-    from src.app import TAG_DOT_CLASSES, TAG_PILL_CLASSES, tag_palette_index
+    from keepfor.app import TAG_DOT_CLASSES, TAG_PILL_CLASSES, tag_palette_index
 
     assert len(TAG_PILL_CLASSES) == 8
     assert len(TAG_DOT_CLASSES) == 8
@@ -1105,8 +1105,8 @@ def test_favicon_route_serves_brand_svg(client):
 @pytest.mark.asyncio
 async def test_search_results_show_favicons_and_tag_colors(client, db, auth_headers):
     """Item cards render favicon with fallback and palette-colored tags."""
-    from src.app import TAG_PILL_CLASSES, tag_palette_index
-    from src.models.items import save_item
+    from keepfor.app import TAG_PILL_CLASSES, tag_palette_index
+    from keepfor.models.items import save_item
 
     user = auth_headers["admin_user"]
     await save_item(

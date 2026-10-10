@@ -5,18 +5,18 @@ FastAPI read-it-later app deployed as a Cloudflare **Python Worker** (`compatibi
 ## Commands
 
 ```bash
-python3 -m pytest tests/ -q                          # 237 passed, 1 skipped, ~55s
+python3 -m pytest tests/ -q                          # 319 passed, 9 skipped, ~100s
+python3 -m pytest tests/isolation -q                 # tenant-isolation suite (59 passed)
 python3 -m pytest tests/test_crypto.py::test_password_hashing   # single test
 python3 -m pytest tests/ -k crypto -q                # filter
 
 # These must match CI EXACTLY (see trap below)
-ruff check src/ tests/ --select=E,W,F,I,N
-ruff format --check src/ tests/
+ruff check keepfor/ tests/ --select=E,W,F,I,N
+ruff format --check keepfor/ tests/
 ```
 
-- **Run pytest from the repo root.** From any subdirectory it dies with `ModuleNotFoundError: No module named 'src'` — `src` has no `__init__.py` and resolves as a namespace package only when the root is on `sys.path`. `pythonpath = src` in `pytest.ini` is not what makes it work.
-- All tests are **module-level functions**; there are no `Test*` classes. Node IDs are `tests/test_x.py::test_name`.
-- Deploy locally / to prod: `uvx --from workers-py pywrangler dev` / `... deploy`.
+- **Run pytest from the repo root.** All tests are **module-level functions**; there are no `Test*` classes. Node IDs are `tests/test_x.py::test_name`.
+- Local dev / deploy to prod: `uvx --from workers-py pywrangler dev --config wrangler.local.jsonc` (never run dev against `wrangler.jsonc` without `--config`) / manual deploy via `workflow_dispatch` or `pywrangler deploy`.
 
 ## What CI actually gates
 
@@ -28,11 +28,19 @@ Only the `lint` (ruff check **and** format) and `test` (pytest) jobs can fail a 
 
 **`ruff format` is load-bearing** — format your code before pushing or CI fails.
 
-## Pushing to main deploys to production
+## Deploys are manual (no auto-deploy on push)
 
-`deploy.yml` runs on every push to `main` and publishes to `app.keepfor.me/*` (also reachable at `keepfor-me.<subdomain>.workers.dev`; `workers_dev` stays on). Don't push casually. Needs `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets.
+`deploy.yml` requires manual triggering via `workflow_dispatch` with input `confirm: "deploy"` (or local `pywrangler deploy`). Deploys are manual: self-hosters deploy to their own Cloudflare account; the owner deploys by running the workflow by hand. Pushing to `main` does NOT auto-deploy. Needs `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` secrets.
 
-**The post-deploy smoke test is useless as written — read this before trusting a green deploy.** It is `continue-on-error: true`, *and* it curls `https://keepfor.me/` (`deploy.yml:72`), the bare apex, which has no DNS record and returns `000`. Verified 2026-10-03: `app.keepfor.me` → 200, `*.workers.dev` → 200, `keepfor.me` → no response. So it cannot fail and it tests a dead URL. Check the deploy job log yourself, and repoint line 72 at `app.keepfor.me` next time you touch the workflow.
+**Warning about `"remote": true`:** `wrangler.jsonc` has `"remote": true` on D1, R2, and Vectorize bindings with the real production `database_id`. Never run local dev against `wrangler.jsonc` as it reads and writes remote production resources! For local simulation, copy `wrangler.local.example.jsonc` to `wrangler.local.jsonc` and use `pywrangler dev --config wrangler.local.jsonc`.
+
+## Open-core rules
+
+- core never imports from the private cloud repo
+- extension happens only through `keepfor/spi.py`
+- every SQL touching a tenant table must be scoped by `user_id` (CI enforces)
+- every change to `spi.py` bumps `CORE_API_VERSION` when it is not backward compatible
+- deploys are manual
 
 ## Bundle size: the deploy will fail with "exceeded 64 MiB" if you aren't careful
 
@@ -65,7 +73,7 @@ Rules are **include-only** (see `matchFiles`); they exclude by *shadowing* a lat
 
 CI's `deploy.yml` runs this same dry run and hard-fails above a **58,000 KiB** budget (a warning if `.venv-workers` still appears). Current headroom is ~5,400 KiB.
 
-Residual known waste: ~1725 `.py` files (~19 MiB) from `.venv-workers`, plus `tests/*.py` and `browser-extension/`, still ship because `PythonModule` can't be shadowed. Removing them requires narrowing `base_dir` so it doesn't contain the venv, which means moving `worker.py` + `src/` + `templates/` into a subdirectory (this changes the packaged import path from `src.*` to `worker.src.*`). **Untested**: the payoff would be faster bundle *decompress* at cold start, not import time — those files are never imported.
+Residual known waste: ~1725 `.py` files (~19 MiB) from `.venv-workers`, plus `tests/*.py` and `browser-extension/`, still ship because `PythonModule` can't be shadowed. Removing them requires narrowing `base_dir` so it doesn't contain the venv, which means moving `worker.py` + `keepfor/` + `templates/` into a subdirectory (this changes the packaged import path from `keepfor.*` to `worker.keepfor.*`). **Untested**: the payoff would be faster bundle *decompress* at cold start, not import time — those files are never imported.
 
 **Trap:** never put a git worktree under the repo root. `getFiles()` walks `.worktrees/` too, so a worktree with its own venv ships thousands of extra modules — verified 2026-10-04: a stale merged `ui-pwa-redesign` worktree took the bundle from ~52,700 KiB to 81,778 KiB and failed the deploy with `10021 multipart: message too large`. Create worktrees outside the repo (`git worktree add ../<name>`) and remove them once merged (`git worktree remove <path>`).
 
@@ -87,19 +95,19 @@ Code reads bindings by name via `env.X` / `getattr(env, "X", None)`:
 
 | Name used in code | Declared in `wrangler.jsonc` |
 |---|---|
-| `DB` (`src/app.py:154`, `src/consumer/processor.py:245` and `:304`) | `keepfor_me_db` — **mismatch** |
+| `DB` (`keepfor/app.py:194`, `keepfor/consumer/processor.py:393` and `:452`) | `keepfor_me_db` — **mismatch** |
 | `BUCKET`, `VECTORIZE`, `AI`, `QUEUE` | match |
 
 Both call sites fall back through `DB` → `keepfor_me_db` → `D1`, so this mismatch is
 currently harmless — but keep all three names in the chain if you touch it.
 
-`get_db()` looks up `env.DB`, but wrangler binds the D1 database as `keepfor_me_db`, so `d1_binding` resolves to `None` in production and `Database` raises `RuntimeError("No database connection available")`. **The test suite cannot catch this** — `tests/test_endpoints.py` monkeypatches `src.app.get_db` with a sqlite fixture, so no real `env` is ever built.
+`get_db()` looks up `env.DB`, but wrangler binds the D1 database as `keepfor_me_db`, so `d1_binding` resolves to `None` in production and `Database` raises `RuntimeError("No database connection available")`. **The test suite cannot catch this** — `tests/test_endpoints.py` monkeypatches `keepfor.app.get_db` with a sqlite fixture, so no real `env` is ever built.
 
 R2 is also declared twice (`BUCKET` and `keepfor_me_bucket`); only `BUCKET` is referenced by code.
 
-`wrangler.jsonc` has no `database_id` for D1 (only `"remote": true`) — you must paste the id from `npx wrangler d1 create` before deploying.
+`wrangler.jsonc` binds the production D1 database ID (`46107ebb-e820-41e2-92f1-089c7eac4fbf`) with `"remote": true`.
 
-## Configuration: `src/config.py` is dead code
+## Configuration: `keepfor/config.py` is dead code
 
 Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_import_*` are all unused. To add a setting, follow the existing pattern instead: declare it under `vars` in `wrangler.jsonc` and read it with `getattr(env, "NAME", default)` in the request handler. Wiring a new value into `AppConfig` will silently do nothing.
 
@@ -107,14 +115,14 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 
 ## Auth invariants
 
-- The **first** user to register becomes `admin`; afterwards registration raises `RegistrationClosedError` unless the `ALLOW_PUBLIC_SIGNUPS` var is the *string* `"true"` (`src/app.py:719` does a literal string compare).
+- The **first** user to register becomes `admin`; afterwards registration raises `RegistrationClosedError` unless the `ALLOW_PUBLIC_SIGNUPS` var is the *string* `"true"` (`keepfor/app.py:1611` does a literal string compare).
 - `GET /auth/login` and `GET /auth/register` **redirect (303) to `_safe_next(next)` when already signed in**, so the forms never render for an authenticated visitor. Any new auth page should do the same.
 - Passwords: PBKDF2-HMAC-SHA256, 100k iterations, stored as `salt$hex`.
 - PATs are prefixed `kfm_live_` / `rk_live_` and stored as a SHA-256 hash — never the raw token.
 
 ## Data layer
 
-`src/models/db.py` is a 71-line dual-backend adapter: D1 in production, `sqlite3` in tests. It exposes only `query_all`, `query_first`, `execute`, `execute_batch`. **If you add a method, implement both branches** — the sqlite branch will otherwise be dead in prod and untested in CI.
+`keepfor/models/db.py` is a 71-line dual-backend adapter: D1 in production, `sqlite3` in tests. It exposes only `query_all`, `query_first`, `execute`, `execute_batch`. **If you add a method, implement both branches** — the sqlite branch will otherwise be dead in prod and untested in CI.
 
 - **Migrations (`migrations/*.sql`)**: Five schema files exist:
   - `0001_initial_schema.sql` (core tables, FTS5 virtual table, triggers)
@@ -130,29 +138,27 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 
 - `tests/conftest.py` now loads **every** `migrations/*.sql` in filename order (it previously hardcoded `0001`, which silently hid `0002_rate_limits.sql` from the entire suite). The fixture strips `--` comment lines before splitting on `;`, so a semicolon inside a SQL comment no longer splits mid-comment and produces unparseable SQL.
 - Still true of the splitter: no `;` inside **string literals** or trigger bodies. Comment handling is safe; quoted text is not.
-- Vectorize, Workers AI, R2, and Queue branches are **never executed in tests** (there is no Cloudflare `env`); they are guarded by `hasattr(env, ...)` / `is not None` checks. `src/consumer/processor.py` and `src/models/items.py` are effectively untested — review those by hand.
-- Entrypoint signatures in `src/worker.py` must accept the runtime's full dispatch: `fetch(self, request, env=None, ctx=None)`, `queue(self, batch, env=None, ctx=None)`. A narrower `queue(self, batch)` crashed **every** prod delivery with `TypeError: ... takes 2 positional arguments but 4 were given` (2026-10-03): 998 ingested, ~808 acked-and-dropped, zero items processed, zero `failed` rows. The `workers` package (and the failure) exists only on the runtime — `tests/test_worker_entrypoint.py` pins the contract but skips everywhere except prod.
-- `search_fts` and `search_vectorize` wrap their bodies in bare `except Exception` (`src/search/engine.py:37` and `:102`). Search **degrades silently to empty results** instead of raising. When search returns nothing, read the logs rather than expecting a traceback.
+- Vectorize, Workers AI, R2, and Queue branches are **never executed in tests** (there is no Cloudflare `env`); they are guarded by `hasattr(env, ...)` / `is not None` checks. `keepfor/consumer/processor.py` and `keepfor/models/items.py` are effectively untested — review those by hand.
+- Entrypoint signatures in `keepfor/worker.py` must accept the runtime's full dispatch: `fetch(self, request, env=None, ctx=None)`, `queue(self, batch, env=None, ctx=None)`. A narrower `queue(self, batch)` crashed **every** prod delivery with `TypeError: ... takes 2 positional arguments but 4 were given` (2026-10-03): 998 ingested, ~808 acked-and-dropped, zero items processed, zero `failed` rows. The `workers` package (and the failure) exists only on the runtime — `tests/test_worker_entrypoint.py` pins the contract but skips everywhere except prod.
+- `search_fts` and `search_vectorize` wrap their bodies in bare `except Exception` (`keepfor/search/engine.py:169`, `:190`, `:288`). Search **degrades silently to empty results** instead of raising. When search returns nothing, read the logs rather than expecting a traceback.
 
 ## Repo hygiene traps
 
-- 16 `*.pyc` files and `.DS_Store` are still **tracked** despite `.gitignore` listing them. `.gitignore` does not untrack anything — use `git rm --cached`.- `pylock.toml`, `python_modules/`, and `.venv-workers/` are gitignored Workers build artifacts (~200 MB on disk). The deployed dependency set is therefore **not locked in git**; `pyproject.toml` ranges are the only constraint.
-- `.wrangler/` (local dev-server state) is **not** gitignored, so `git status` stays dirty after any `pywrangler dev`. Don't commit it.
-- `/api/mcp` is a remote stateless Streamable HTTP MCP endpoint (no sessions, no SSE, Bearer PAT auth). There is deliberately no local stdio proxy/CLI anymore — `src/mcp/cli.py`, the `pyproject.toml` console scripts, and the `mcp-cli/` shim were removed.
-- CI runs Python 3.11; local venvs are 3.12/3.14. `src/utils/logging.py:39` uses `datetime.utcnow()`, deprecated on 3.12+ and noisy in test output.
+- `pylock.toml`, `python_modules/`, and `.venv-workers/` are gitignored Workers build artifacts (~200 MB on disk). The deployed dependency set is therefore **not locked in git**; `pyproject.toml` ranges are the only constraint.
+- `/api/mcp` is a remote stateless Streamable HTTP MCP endpoint (no sessions, no SSE, Bearer PAT auth). There is deliberately no local stdio proxy/CLI anymore — `keepfor/mcp/cli.py`, the `pyproject.toml` console scripts, and the `mcp-cli/` shim were removed.
 
 ## Layout
 
-`worker.py` (root, the deploy entrypoint) → `src/worker.py` → `src/app.py` (FastAPI, 32 routes, owns HTML + JSON endpoints). Supporting packages: `src/auth`, `src/consumer` (extraction + queue processing), `src/models` (data access), `src/search` (RRF hybrid search), `src/utils`, `src/mcp` (stateless Streamable HTTP JSON-RPC server: `process_mcp_request` returns a payload for requests, `None` for notifications → 202). Jinja templates in `templates/`, static assets in `static/`, Manifest V3 extension in `browser-extension/`.
+`worker.py` (root, the deploy entrypoint) → `keepfor/worker.py` → `keepfor/app.py` (FastAPI, 32 routes, owns HTML + JSON endpoints). Supporting packages: `keepfor/auth`, `keepfor/consumer` (extraction + queue processing), `keepfor/models` (data access), `keepfor/search` (RRF hybrid search), `keepfor/utils`, `keepfor/mcp` (stateless Streamable HTTP JSON-RPC server: `process_mcp_request` returns a payload for requests, `None` for notifications → 202). Jinja templates in `templates/`, static assets in `static/`, Manifest V3 extension in `browser-extension/`.
 
-Icons, PWA icons, and the web manifest are served by **dynamic Python routes** (`/favicon.ico`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable.png`, `/manifest.webmanifest`) with bytes embedded in `src/pwa_icons.py` / `src/app.py` — deliberately no static files, so there is zero bundle impact and it works identically in the Worker, local dev, and TestClient.
+Icons, PWA icons, and the web manifest are served by **dynamic Python routes** (`/favicon.ico`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable.png`, `/manifest.webmanifest`) with bytes embedded in `keepfor/pwa_icons.py` / `keepfor/app.py` — deliberately no static files, so there is zero bundle impact and it works identically in the Worker, local dev, and TestClient.
 
 ## Performance: cold starts dominate latency
 
 Measured on prod: page loads are **~250-300ms warm but spike to 1.5-3.5s on ~15% of requests** (isolate cold starts). Compression is fine — a 200KB library page is 14KB on the wire. D1 queries are fast individually. Do not chase payload or query tuning first; look at what a cold start loads.
 
-- **Heavy parsers must stay out of the module-scope import path.** `src/worker.py` imports the consumer chain at module scope, so an eager `import trafilatura` / `from bs4 import BeautifulSoup` in `src/consumer/extractor.py` **or `src/utils/importer.py`** (imported by `src/app.py`) makes *every* request pay for the parsing stack — including `/auth/login`. Both now import lazily via `_load_parsers()` / inside `parse_netscape_bookmarks()`. This was worth **0.46s → 0.35s** of import time in the Workers venv. `tests/test_mcp.py::test_heavy_extraction_libs_are_not_imported_at_module_load` pins it (verified it fails if an eager import returns).
-- Measure import cost in the real venv, not the local one: `.venv-workers/bin/python -c "import src.worker"`.
+- **Heavy parsers must stay out of the module-scope import path.** `keepfor/worker.py` imports the consumer chain at module scope, so an eager `import trafilatura` / `from bs4 import BeautifulSoup` in `keepfor/consumer/extractor.py` **or `keepfor/utils/importer.py`** (imported by `keepfor/app.py`) makes *every* request pay for the parsing stack — including `/auth/login`. Both now import lazily via `_load_parsers()` / inside `parse_netscape_bookmarks()`. This was worth **0.46s → 0.35s** of import time in the Workers venv. `tests/test_mcp.py::test_heavy_extraction_libs_are_not_imported_at_module_load` pins it (verified it fails if an eager import returns).
+- Measure import cost in the real venv, not the local one: `.venv-workers/bin/python -c "import keepfor.worker"`.
 - Hybrid search runs FTS and the Workers AI embedding **concurrently** (`asyncio.gather`), and both the embedding and the vector query are bounded by `VECTOR_SEARCH_TIMEOUT` (5s) so a hanging AI binding degrades to keyword-only instead of hanging the request.
 - **D1 latency waterfalls**: Each D1 query from a Worker isolate incurs an internal RPC roundtrip. Running independent queries sequentially adds cumulative latency (7 sequential queries = 150-250ms of overhead). Independent feed reads (`get_recent_items`, `count_recent_items`, `get_status_counts`, `get_user_tags`) are parallelized using `asyncio.gather`. Avoid redundant queries — e.g. `status_counts["all"]` is reused instead of issuing an extra `COUNT(*)` query.
 - Untested lever: the 1725 `.venv-workers` modules still ship. Trimming them requires narrowing `base_dir` (see bundle section) — the win is faster bundle decompress at cold start, **not** import time, since those files are never imported.
@@ -169,7 +175,7 @@ Several endpoints are submitted by HTML forms or swapped by htmx. Returning `JSO
 Keep the hidden `source` field on `save_popup.html`: share-target/PWA pages **cannot** `window.close()`, so they render a static done panel and let the user swipe back, while the bookmarklet popup still auto-closes.
 ## Same-origin only: no CORS middleware, on purpose
 
-There is **no `CORSMiddleware`** in `src/app.py`, and that is intentional. The app is same-origin, so the browser's own policy is the correct policy and needs no help.
+There is **no `CORSMiddleware`** in `keepfor/app.py`, and that is intentional. The app is same-origin, so the browser's own policy is the correct policy and needs no help.
 
 The previous `allow_origins=["*"]` + `allow_credentials=True` combination made Starlette **reflect any `Origin`** with credentials allowed (verified in prod: `Origin: https://attacker.test` came back in `Access-Control-Allow-Origin`). Session-cookie reads were blocked only by `SameSite=Lax`. **Do not reintroduce a CORS allowlist** — `tests/test_endpoints.py::test_no_cross_origin_cors_headers` asserts no `Access-Control-*` header is ever emitted.
 
@@ -177,7 +183,7 @@ If a separate frontend origin is ever needed, proxy through the same origin inst
 
 ## Auth rate limiting
 
-`src/utils/rate_limit.py` throttles `/auth/login` and `/auth/register`. Read it before changing anything about sign-in.
+`keepfor/utils/rate_limit.py` throttles `/auth/login` and `/auth/register`. Read it before changing anything about sign-in.
 
 - **Counters live in D1, not memory.** Isolates are short-lived and numerous, so an in-memory counter is bypassed by spreading requests across them. Requires the `rate_limits` table from `migrations/0002_rate_limits.sql` — applied to remote D1 on 2026-10-03, but **`deploy.yml` does not apply migrations**, so a future schema file must be applied by hand (`npx wrangler d1 migrations apply keepfor-me-db --remote`).
 - **Only failures count**, and a successful login clears the *account* counter so ordinary typos never lock the owner out. The IP counter intentionally survives.
@@ -206,7 +212,7 @@ Prefer dismissing verified false positives with a justification. Do **not** add 
   - iOS WebKit deliberately omits Web Share Target for PWAs. iOS relies on two complementary paths:
     1. **1-Tap Apple Shortcut**: Dispatches to `/save-popup?url=...&source=shortcut` or `POST` directly from the iOS Share Sheet. Uses the user's active Safari cookie session so no PAT / API token is required. When `source=shortcut`, the save confirmation page provides an interactive close/back panel (since web pages cannot `window.close()` iOS Safari tabs opened from shortcuts).
     2. **Smart Clipboard in PWA**: When installed as a standalone PWA, switching to Keepfor.me checks the clipboard (`navigator.clipboard.readText()`) on `visibilitychange` and `window.focus`. If a URL is detected, a floating toast appears offering 1-tap save.
-- **URL extraction resiliency (`src/utils/url.py:extract_url`)**:
+- **URL extraction resiliency (`keepfor/utils/url.py:extract_url`)**:
   - Native mobile share actions often share text blobs combining article titles and URLs (e.g., `"Article Title: https://example.com/path?utm=..."`).
   - All save entry points (`/save`, `/save-popup`, `/api/items`) use `extract_url()` to extract and normalize valid URLs, strip surrounding punctuation/text/markdown, and prepend `https://` for bare domain strings.
 

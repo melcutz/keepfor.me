@@ -6,7 +6,7 @@
 
 **Architecture:** Model functions first (TDD, `db` fixture, no network), then endpoints reusing them, then templates. Engine keeps backward-compatible `tag:` param and gains `tags:`/`untagged:` params. One new migration (`0004_tag_rules.sql`, auto-applied by `tests/conftest.py`).
 
-**Tech Stack:** FastAPI + Jinja + htmx (existing), D1/SQLite via `src/models/db.py`, stdlib only (`urllib.parse`, `collections`), `pytest` with `TestClient` + `client`/`auth_headers` fixtures copied from `tests/test_tags_page.py`.
+**Tech Stack:** FastAPI + Jinja + htmx (existing), D1/SQLite via `keepfor/models/db.py`, stdlib only (`urllib.parse`, `collections`), `pytest` with `TestClient` + `client`/`auth_headers` fixtures copied from `tests/test_tags_page.py`.
 
 ---
 
@@ -15,10 +15,10 @@
 - Create: `migrations/0004_tag_rules.sql`
 - Create: `tests/test_tags_manager.py`, `tests/test_tag_filter.py`, `tests/test_tag_suggest_bulk.py`, `tests/test_tag_rules.py`
 - Create: `templates/partials/tag_list.html`
-- Modify: `src/models/items.py` (merge_tags, prune_unused_tags, suggest_tags, bulk_update_tags, rules CRUD, match_rules, suggest_rules)
-- Modify: `src/search/engine.py` (UNTAGGED_SENTINEL, parse_tag_filter, multi-tag + untagged in get_recent_items/count_recent_items/hybrid_search)
-- Modify: `src/app.py` (POST /tags/merge, POST /tags/prune, htmx branches on rename/delete, GET /tags/suggest, POST /items/bulk-tags, rules endpoints, library/search wiring, save-popup recents context)
-- Modify: `src/consumer/processor.py` (rules hook inside existing fail-open try)
+- Modify: `keepfor/models/items.py` (merge_tags, prune_unused_tags, suggest_tags, bulk_update_tags, rules CRUD, match_rules, suggest_rules)
+- Modify: `keepfor/search/engine.py` (UNTAGGED_SENTINEL, parse_tag_filter, multi-tag + untagged in get_recent_items/count_recent_items/hybrid_search)
+- Modify: `keepfor/app.py` (POST /tags/merge, POST /tags/prune, htmx branches on rename/delete, GET /tags/suggest, POST /items/bulk-tags, rules endpoints, library/search wiring, save-popup recents context)
+- Modify: `keepfor/consumer/processor.py` (rules hook inside existing fail-open try)
 - Modify: `templates/tags.html`, `templates/library.html`, `templates/partials/item_card.html`, `templates/save_popup.html`
 - Deviation from spec S3 (documented): extension popup keeps free-text input; autocomplete ships on web surfaces only (extension fetch runs in a different auth context than the session-cookie `/tags/suggest` endpoint).
 
@@ -64,7 +64,7 @@ import uuid
 
 import pytest
 
-from src.auth.service import register_user
+from keepfor.auth.service import register_user
 
 
 @pytest.mark.asyncio
@@ -103,7 +103,7 @@ git commit -m "feat(tags): migration 0004 tag_rules tables"
 ### Task 2: merge_tags + prune_unused_tags + sentinel pin
 
 **Files:**
-- Modify: `src/models/items.py` (append after `delete_tag`, before `add_suggestions`)
+- Modify: `keepfor/models/items.py` (append after `delete_tag`, before `add_suggestions`)
 - Test: `tests/test_tags_manager.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -113,8 +113,8 @@ git commit -m "feat(tags): migration 0004 tag_rules tables"
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import (
+from keepfor.auth.service import register_user
+from keepfor.models.items import (
     add_tags_to_item,
     create_tag,
     list_user_tags,
@@ -175,7 +175,7 @@ async def test_untagged_sentinel_cannot_be_created(db):
 Run: `python3 -m pytest tests/test_tags_manager.py -q`
 Expected: FAIL with ImportError/AttributeError on `merge_tags`
 
-- [ ] **Step 3: Implement (append after `delete_tag` in `src/models/items.py`)**
+- [ ] **Step 3: Implement (append after `delete_tag` in `keepfor/models/items.py`)**
 
 ```python
 async def merge_tags(
@@ -185,7 +185,7 @@ async def merge_tags(
 
     Returns 'merged', 'unchanged', 'not_found' or 'invalid'.
     """
-    from src.utils.tagger import validate_tag_name
+    from keepfor.utils.tagger import validate_tag_name
 
     if not validate_tag_name(new_name or ""):
         return "invalid"
@@ -224,7 +224,7 @@ Expected: 4 passed
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/models/items.py tests/test_tags_manager.py
+git add keepfor/models/items.py tests/test_tags_manager.py
 git commit -m "feat(tags): merge_tags and prune_unused_tags models"
 ```
 
@@ -233,7 +233,7 @@ git commit -m "feat(tags): merge_tags and prune_unused_tags models"
 ### Task 3: POST /tags/merge, POST /tags/prune, htmx branches on rename/delete
 
 **Files:**
-- Modify: `src/app.py` (tags endpoints near `/tags/rename`)
+- Modify: `keepfor/app.py` (tags endpoints near `/tags/rename`)
 - Test: append to `tests/test_tags_page.py` (reuse its `client`, `auth_headers`, `_login`, `_seed_item`)
 
 - [ ] **Step 1: Write the failing endpoint tests** (append to `tests/test_tags_page.py`)
@@ -251,7 +251,7 @@ async def test_merge_tags_via_form(client, db, auth_headers):
         follow_redirects=False,
     )
     assert response.status_code in (200, 303, 307, 308)
-    from src.models.items import get_item_tags, list_user_tags
+    from keepfor.models.items import get_item_tags, list_user_tags
 
     names = {t["name"]: t["count"] for t in await list_user_tags(db, user_id)}
     assert names == {"tech": 2}
@@ -262,12 +262,12 @@ async def test_prune_tags_via_form(client, db, auth_headers):
     _login(client, auth_headers)
     user_id = auth_headers["admin_user"]["id"]
     await _seed_item(db, user_id, "https://a.example/", ["used"])
-    from src.models.items import create_tag
+    from keepfor.models.items import create_tag
 
     await create_tag(db, user_id, "empty")
     response = client.post("/tags/prune", follow_redirects=False)
     assert response.status_code in (200, 303, 307, 308)
-    from src.models.items import list_user_tags
+    from keepfor.models.items import list_user_tags
 
     assert [t["name"] for t in await list_user_tags(db, user_id)] == ["used"]
 
@@ -292,7 +292,7 @@ async def test_rename_returns_fragment_for_htmx(client, db, auth_headers):
 Run: `python3 -m pytest tests/test_tags_page.py -q`
 Expected: FAIL (404 on `/tags/merge`, `/tags/prune`; rename returns 303 not 200)
 
-- [ ] **Step 3: Implement in `src/app.py`**
+- [ ] **Step 3: Implement in `keepfor/app.py`**
 
 Add a fragment helper next to `tags_page` (uses already-imported `list_user_tags` and `tag_styles_for`):
 
@@ -323,7 +323,7 @@ async def tags_rename(
     return RedirectResponse(url="/tags", status_code=303)
 ```
 
-Apply the identical `hx-request` branch to `tags_delete`. Add the two new endpoints (`merge_tags` and `prune_unused_tags` are imported from `src.models.items` alongside the existing tag imports):
+Apply the identical `hx-request` branch to `tags_delete`. Add the two new endpoints (`merge_tags` and `prune_unused_tags` are imported from `keepfor.models.items` alongside the existing tag imports):
 
 ```python
 @app.post("/tags/merge")
@@ -357,7 +357,7 @@ Expected: all pass (the fragment test needs `partials/tag_list.html` from Task 4
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app.py tests/test_tags_page.py
+git add keepfor/app.py tests/test_tags_page.py
 git commit -m "feat(tags): merge/prune endpoints, htmx fragments on rename/delete"
 ```
 
@@ -512,7 +512,7 @@ git commit -m "feat(tags): pill-row manager with inline rename, merge, prune"
 ### Task 5: Engine multi-tag AND + untagged
 
 **Files:**
-- Modify: `src/search/engine.py`
+- Modify: `keepfor/search/engine.py`
 - Test: `tests/test_tag_filter.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -522,9 +522,9 @@ git commit -m "feat(tags): pill-row manager with inline rename, merge, prune"
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import add_tags_to_item
-from src.search.engine import (
+from keepfor.auth.service import register_user
+from keepfor.models.items import add_tags_to_item
+from keepfor.search.engine import (
     count_recent_items,
     get_recent_items,
     hybrid_search,
@@ -589,7 +589,7 @@ async def test_legacy_single_tag_still_works(db):
 Run: `python3 -m pytest tests/test_tag_filter.py -q`
 Expected: FAIL with ImportError on `parse_tag_filter`
 
-- [ ] **Step 3: Implement in `src/search/engine.py`**
+- [ ] **Step 3: Implement in `keepfor/search/engine.py`**
 
 Add after `STATUS_GROUPS`:
 
@@ -692,7 +692,7 @@ Expected: all pass (existing single-tag callers unchanged)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/search/engine.py tests/test_tag_filter.py
+git add keepfor/search/engine.py tests/test_tag_filter.py
 git commit -m "feat(tags): multi-tag AND and untagged filters in engine"
 ```
 
@@ -701,7 +701,7 @@ git commit -m "feat(tags): multi-tag AND and untagged filters in engine"
 ### Task 6: Library + search wiring and toggle UI
 
 **Files:**
-- Modify: `src/app.py` (`library_page`, `search_htmx`)
+- Modify: `keepfor/app.py` (`library_page`, `search_htmx`)
 - Modify: `templates/library.html`
 
 - [ ] **Step 1: Rewire `library_page`**
@@ -709,7 +709,7 @@ git commit -m "feat(tags): multi-tag AND and untagged filters in engine"
 Replace `tag=tag` in the `hybrid_search` calls with parsed filters:
 
 ```python
-from src.search.engine import parse_tag_filter  # add to engine imports
+from keepfor.search.engine import parse_tag_filter  # add to engine imports
 
     tag_list, untagged_only = parse_tag_filter(tag)
     items, total = await hybrid_search(
@@ -804,7 +804,7 @@ Expected: all pass (`test_library_mobile_nav_and_tag_strip` needs `#mobile-tags`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/app.py templates/library.html
+git add keepfor/app.py templates/library.html
 git commit -m "feat(tags): multi-tag toggle filters and untagged view"
 ```
 
@@ -813,8 +813,8 @@ git commit -m "feat(tags): multi-tag toggle filters and untagged view"
 ### Task 7: GET /tags/suggest (ranked autocomplete + recents)
 
 **Files:**
-- Modify: `src/models/items.py` (append `suggest_tags`)
-- Modify: `src/app.py` (endpoint after `tags_delete`)
+- Modify: `keepfor/models/items.py` (append `suggest_tags`)
+- Modify: `keepfor/app.py` (endpoint after `tags_delete`)
 - Test: `tests/test_tag_suggest_bulk.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -824,8 +824,8 @@ git commit -m "feat(tags): multi-tag toggle filters and untagged view"
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import add_tags_to_item, suggest_tags
+from keepfor.auth.service import register_user
+from keepfor.models.items import add_tags_to_item, suggest_tags
 
 
 async def _seed(db, user_id, item_id, url, tags):
@@ -868,7 +868,7 @@ Recency tiebreak (`cooking` before `ai`): both count 1, `s3` inserted after
 Run: `python3 -m pytest tests/test_tag_suggest_bulk.py -q`
 Expected: FAIL with ImportError on `suggest_tags`
 
-- [ ] **Step 3: Implement the model** (append in `src/models/items.py`)
+- [ ] **Step 3: Implement the model** (append in `keepfor/models/items.py`)
 
 ```python
 async def suggest_tags(
@@ -905,7 +905,7 @@ async def suggest_tags(
     return out[:limit]
 ```
 
-Endpoint in `src/app.py` (no new imports: plain return values serialize to
+Endpoint in `keepfor/app.py` (no new imports: plain return values serialize to
 JSON; `HTTPException` is already imported):
 
 ```python
@@ -928,7 +928,7 @@ Expected: all pass
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/models/items.py src/app.py tests/test_tag_suggest_bulk.py
+git add keepfor/models/items.py keepfor/app.py tests/test_tag_suggest_bulk.py
 git commit -m "feat(tags): ranked tag suggest endpoint"
 ```
 
@@ -938,11 +938,11 @@ git commit -m "feat(tags): ranked tag suggest endpoint"
 
 **Files:**
 - Modify: `templates/save_popup.html`, `templates/partials/item_card.html`, `templates/library.html`
-- Modify: `src/app.py` (recents context on save-popup GET routes)
+- Modify: `keepfor/app.py` (recents context on save-popup GET routes)
 
 - [ ] **Step 1: Locate every save-popup render call**
 
-Run: `grep -rn 'get_template("save_popup.html")' src/`
+Run: `grep -rn 'get_template("save_popup.html")' keepfor/`
 Expected: the share-target handler plus the bookmarklet GET route. Add
 `recent_tags=[r["name"] for r in await suggest_tags(db, user["id"], "", limit=5)]`
 to each render context (`suggest_tags` import already added in Task 7).
@@ -1030,7 +1030,7 @@ Expected: all pass (card markup change is additive)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add templates/save_popup.html templates/partials/item_card.html templates/library.html src/app.py
+git add templates/save_popup.html templates/partials/item_card.html templates/library.html keepfor/app.py
 git commit -m "feat(tags): autocomplete datalists, recents, per-card add"
 ```
 
@@ -1039,8 +1039,8 @@ git commit -m "feat(tags): autocomplete datalists, recents, per-card add"
 ### Task 9: Bulk-apply (model, endpoint, selection bar)
 
 **Files:**
-- Modify: `src/models/items.py` (append `bulk_update_tags`)
-- Modify: `src/app.py` (POST `/items/bulk-tags`)
+- Modify: `keepfor/models/items.py` (append `bulk_update_tags`)
+- Modify: `keepfor/app.py` (POST `/items/bulk-tags`)
 - Modify: `templates/library.html` (checkboxes + sticky bar)
 - Test: append to `tests/test_tag_suggest_bulk.py`
 
@@ -1049,7 +1049,7 @@ git commit -m "feat(tags): autocomplete datalists, recents, per-card add"
 ```python
 @pytest.mark.asyncio
 async def test_bulk_add_and_remove_roundtrip(db):
-    from src.models.items import bulk_update_tags, get_item
+    from keepfor.models.items import bulk_update_tags, get_item
 
     user = await register_user(db, "blk@keepfor.me", "password123")
     await _seed(db, user["id"], "b1", "https://example.com/1", ["old"])
@@ -1062,7 +1062,7 @@ async def test_bulk_add_and_remove_roundtrip(db):
 
 @pytest.mark.asyncio
 async def test_bulk_ignores_foreign_items_and_caps_ids(db):
-    from src.models.items import bulk_update_tags, get_item_tags
+    from keepfor.models.items import bulk_update_tags, get_item_tags
 
     user = await register_user(db, "blk2@keepfor.me", "password123")
     other = await register_user(db, "blk3@keepfor.me", "password123")
@@ -1077,7 +1077,7 @@ async def test_bulk_ignores_foreign_items_and_caps_ids(db):
 Run: `python3 -m pytest tests/test_tag_suggest_bulk.py -q`
 Expected: FAIL with ImportError on `bulk_update_tags`
 
-- [ ] **Step 3: Implement the model** (append in `src/models/items.py`)
+- [ ] **Step 3: Implement the model** (append in `keepfor/models/items.py`)
 
 ```python
 BULK_TAG_LIMIT = 100
@@ -1133,7 +1133,7 @@ async def items_bulk_tags(
     return RedirectResponse(url=_safe_next(next), status_code=303)
 ```
 
-`_safe_next` already exists in `src/app.py` (used by suggestion handlers).
+`_safe_next` already exists in `keepfor/app.py` (used by suggestion handlers).
 
 - [ ] **Step 4: Selection bar in `templates/library.html`**
 
@@ -1212,7 +1212,7 @@ Expected: all pass
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/models/items.py src/app.py templates/library.html templates/partials/item_card.html tests/test_tag_suggest_bulk.py
+git add keepfor/models/items.py keepfor/app.py templates/library.html templates/partials/item_card.html tests/test_tag_suggest_bulk.py
 git commit -m "feat(tags): bulk add/remove with selection bar"
 ```
 
@@ -1221,9 +1221,9 @@ git commit -m "feat(tags): bulk add/remove with selection bar"
 ### Task 10: Rules (model, ingest hook, miner, endpoints)
 
 **Files:**
-- Modify: `src/models/items.py` (rules CRUD + match_rules + suggest_rules)
-- Modify: `src/consumer/processor.py` (hook)
-- Modify: `src/app.py` (3 endpoints + rules section context in `tags_page`)
+- Modify: `keepfor/models/items.py` (rules CRUD + match_rules + suggest_rules)
+- Modify: `keepfor/consumer/processor.py` (hook)
+- Modify: `keepfor/app.py` (3 endpoints + rules section context in `tags_page`)
 - Modify: `templates/tags.html` (rules + suggested-rules sections)
 - Test: `tests/test_tag_rules.py` (append; Task 1 smoke test already there)
 
@@ -1235,7 +1235,7 @@ RULES_MAX = 50  # mirror of the model cap; test pins it
 
 @pytest.mark.asyncio
 async def test_rule_crud_roundtrip(db):
-    from src.models.items import create_rule, delete_rule, list_rules
+    from keepfor.models.items import create_rule, delete_rule, list_rules
 
     user = await register_user(db, "rc@keepfor.me", "password123")
     assert await create_rule(db, user["id"], "domain", "ArXiv.ORG ", "research")
@@ -1250,7 +1250,7 @@ async def test_rule_crud_roundtrip(db):
 
 
 def test_match_rules_fields():
-    from src.models.items import match_rules
+    from keepfor.models.items import match_rules
 
     rules = [
         {"field": "domain", "substr": "arxiv.org", "tag": "research"},
@@ -1264,7 +1264,7 @@ def test_match_rules_fields():
 
 @pytest.mark.asyncio
 async def test_miner_proposes_high_precision_domain(db):
-    from src.models.items import add_tags_to_item, suggest_rules
+    from keepfor.models.items import add_tags_to_item, suggest_rules
 
     user = await register_user(db, "mn@keepfor.me", "password123")
     for i in range(5):
@@ -1291,7 +1291,7 @@ async def test_miner_proposes_high_precision_domain(db):
 Run: `python3 -m pytest tests/test_tag_rules.py -q`
 Expected: FAIL with ImportError on `create_rule`
 
-- [ ] **Step 3: Implement the model** (append in `src/models/items.py`)
+- [ ] **Step 3: Implement the model** (append in `keepfor/models/items.py`)
 
 ```python
 RULE_FIELDS = ("domain", "title", "url")
@@ -1302,7 +1302,7 @@ async def create_rule(
     db: Database, user_id: str, field: str, substr: str, tag: str
 ) -> str | None:
     """Creates a tagging rule; returns id or None when invalid/capped."""
-    from src.utils.tagger import validate_tag_name
+    from keepfor.utils.tagger import validate_tag_name
 
     field = (field or "").strip().lower()
     clean_sub = (substr or "").strip().lower()
@@ -1435,7 +1435,7 @@ async def suggest_rules(
     return out
 ```
 
-- [ ] **Step 4: Ingest hook in `src/consumer/processor.py`**
+- [ ] **Step 4: Ingest hook in `keepfor/consumer/processor.py`**
 
 Inside the existing fail-open `try` (after the `add_suggestions` call, before
 `except Exception`), add:
@@ -1445,7 +1445,7 @@ Inside the existing fail-open `try` (after the `add_suggestions` call, before
                 "SELECT field, substr, tag FROM tag_rules WHERE user_id = ?;",
                 (user_id,),
             )
-            from src.models.items import match_rules as _match_rules
+            from keepfor.models.items import match_rules as _match_rules
 
             rule_tags = _match_rules(
                 [dict(r) for r in rules_rows],
@@ -1459,7 +1459,7 @@ Inside the existing fail-open `try` (after the `add_suggestions` call, before
 No new failure mode: any defect lands in the existing `except` which logs
 and continues extraction.
 
-- [ ] **Step 5: Endpoints + `tags_page` context in `src/app.py`**
+- [ ] **Step 5: Endpoints + `tags_page` context in `keepfor/app.py`**
 
 ```python
 @app.post("/tags/rules/create")
@@ -1511,7 +1511,7 @@ Expected: all pass (processor hook covered by existing auto-tag tests)
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/models/items.py src/consumer/processor.py src/app.py templates/tags.html tests/test_tag_rules.py
+git add keepfor/models/items.py keepfor/consumer/processor.py keepfor/app.py templates/tags.html tests/test_tag_rules.py
 git commit -m "feat(tags): tagging rules, ingest hook, rule miner"
 ```
 
@@ -1523,13 +1523,13 @@ git commit -m "feat(tags): tagging rules, ingest hook, rule miner"
 
 - [ ] **Step 1: Run the CI lint form exactly**
 
-Run: `ruff check src/ tests/ --select=E,W,F,I,N`
+Run: `ruff check keepfor/ tests/ --select=E,W,F,I,N`
 Expected: clean (the `--select` matters: bare `ruff check .` hides `I001`)
 
 - [ ] **Step 2: Run the CI format check**
 
-Run: `ruff format --check src/ tests/`
-Expected: clean; if not, run `ruff format src/ tests/` then re-check
+Run: `ruff format --check keepfor/ tests/`
+Expected: clean; if not, run `ruff format keepfor/ tests/` then re-check
 
 - [ ] **Step 3: Run the full suite from the repo root**
 
@@ -1564,7 +1564,7 @@ state). S3 in-flow → Tasks 7–9 (suggest endpoint, datalists/recents/card
 input, bulk). S4 rules → Tasks 1 + 10 (migration, CRUD, hook, miner,
 endpoints). Reserved-name, 10-tag cap, 100-id bulk cap, 50-rule cap all
 pinned by tests. Suggest endpoint 401 uses `HTTPException` (already
-imported in `src/app.py`).
+imported in `keepfor/app.py`).
 
 **Placeholder scan:** no TBD/TODO; every code step shows complete code;
 template/JS blocks are complete; commands state exact invocations and

@@ -3,7 +3,7 @@
 
 """Tests for URL canonicalization and normalization."""
 
-from src.utils.url import canonicalize_url, extract_url
+from keepfor.utils.url import canonicalize_url, extract_url
 
 
 def test_strip_tracking_params():

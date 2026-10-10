@@ -5,8 +5,8 @@
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import add_tags_to_item, get_item
+from keepfor.auth.service import register_user
+from keepfor.models.items import add_tags_to_item, get_item
 
 
 class FakeQueue:
@@ -48,7 +48,7 @@ async def user_env(db):
 
 @pytest.mark.asyncio
 async def test_extraction_auto_applies_existing_tag(user_env, monkeypatch):
-    from src.models.items import save_item
+    from keepfor.models.items import save_item
 
     user, env, db = user_env
     # Seed the user's vocabulary on an unrelated item.
@@ -63,7 +63,7 @@ async def test_extraction_auto_applies_existing_tag(user_env, monkeypatch):
     async def fake_fetch(url: str, headers=None) -> str:
         return HTML
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
     item, _ = await save_item(db, env, user["id"], "https://example.com/pg16", [])
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched["status"] == "ok"
@@ -72,14 +72,14 @@ async def test_extraction_auto_applies_existing_tag(user_env, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_extraction_records_suggestions(user_env, monkeypatch):
-    from src.models.items import save_item
+    from keepfor.models.items import save_item
 
     user, env, db = user_env
 
     async def fake_fetch(url: str, headers=None) -> str:
         return HTML
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
     item, _ = await save_item(db, env, user["id"], "https://example.com/pg16", [])
     rows = await db.query_all(
         "SELECT phrase, status FROM suggested_tags WHERE item_id = ?;", (item["id"],)
@@ -91,19 +91,19 @@ async def test_extraction_records_suggestions(user_env, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_tagger_failure_never_fails_extraction(user_env, monkeypatch):
-    from src.models.items import save_item
+    from keepfor.models.items import save_item
 
     user, env, db = user_env
 
     async def fake_fetch(url: str, headers=None) -> str:
         return HTML
 
-    monkeypatch.setattr("src.consumer.processor.fetch_page_html", fake_fetch)
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
 
     def boom(*args, **kwargs):
         raise RuntimeError("tagger exploded")
 
-    monkeypatch.setattr("src.utils.tagger.match_existing_tags", boom)
+    monkeypatch.setattr("keepfor.utils.tagger.match_existing_tags", boom)
     item, _ = await save_item(db, env, user["id"], "https://example.com/pg16", [])
     fetched = await get_item(db, user["id"], item["id"])
     assert fetched["status"] == "ok"

@@ -6,9 +6,9 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from src import app as app_module
-from src.auth.service import create_pat, register_user
-from src.models.items import save_item
+from keepfor import app as app_module
+from keepfor.auth.service import create_pat, register_user
+from keepfor.models.items import save_item
 
 
 class FakeQueue:
@@ -31,8 +31,8 @@ class MockEnv:
 
 @pytest.fixture
 def client(db, monkeypatch):
-    monkeypatch.setattr(app_module, "get_db", lambda request: db)
-    monkeypatch.setattr(app_module, "get_env_from_request", lambda request: MockEnv())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
     return TestClient(app_module.app)
 
 
@@ -47,7 +47,7 @@ async def paging_setup(db):
 
 
 async def _login(client, db, email="paging@keepfor.me"):
-    from src.auth.service import login_user
+    from keepfor.auth.service import login_user
 
     _, session_id = await login_user(db, email, "password123")
     client.cookies["kfm_session"] = session_id
@@ -89,7 +89,7 @@ async def test_search_returns_oob_pager(client, db, paging_setup):
 
 async def test_tag_add_and_remove_roundtrip(client, db, paging_setup):
     await _login(client, db)
-    from src.models.items import get_item
+    from keepfor.models.items import get_item
 
     page = client.get("/", params={"per_page": 10})
     item_id = page.text.split('id="item-card-')[1].split('"')[0]

@@ -6,8 +6,8 @@
 
 **Architecture:** 
 - The CSS contribution tokens (`--contrib-s0` through `--contrib-s4`) are defined across light, sepia, and dark themes in `templates/base.html` and consumed by `templates/stats.html`.
-- `src/models/stats.py` expands the aggregate queries concurrently to compute total words read, reading time, human-friendly fallback titles for unread items, and ISO week date ranges.
-- `src/search/engine.py` enhances keyword search to match URL/canonical domains so clicking top domains immediately filters library items.
+- `keepfor/models/stats.py` expands the aggregate queries concurrently to compute total words read, reading time, human-friendly fallback titles for unread items, and ISO week date ranges.
+- `keepfor/search/engine.py` enhances keyword search to match URL/canonical domains so clicking top domains immediately filters library items.
 - A lightweight vanilla JS snippet in `templates/stats.html` automatically scrolls the trailing 365-day heatmap to the present week on mobile devices.
 
 **Tech Stack:** Python 3.12, FastAPI, SQLite / Cloudflare D1, Jinja2, Tailwind CSS (via existing utility classes & CSS variables), pytest, Playwright.
@@ -17,9 +17,9 @@
 ## Global Constraints
 
 - **Repo Root Requirement:** Run pytest strictly from the repository root: `python3 -m pytest tests/ -q`.
-- **Lint Conformity:** Must pass CI lint rules: `ruff check src/ tests/ --select=E,W,F,I,N` and `ruff format --check src/ tests/`.
+- **Lint Conformity:** Must pass CI lint rules: `ruff check keepfor/ tests/ --select=E,W,F,I,N` and `ruff format --check keepfor/ tests/`.
 - **Bundle Budget:** Must stay strictly below 58,000 KiB: `uvx --from workers-py pywrangler deploy --dry-run`.
-- **D1 Concurrency:** Independent queries in `src/models/stats.py` must run concurrently via `asyncio.gather` to avoid sequential RPC roundtrips.
+- **D1 Concurrency:** Independent queries in `keepfor/models/stats.py` must run concurrently via `asyncio.gather` to avoid sequential RPC roundtrips.
 - **Pure CSS / Vanilla JS:** No heavy charting libraries (Chart.js, D3, etc.) — all charts remain lightweight server-rendered HTML/CSS.
 
 ## Review Focus
@@ -128,7 +128,7 @@ git commit -m "fix(stats): make heatmap cells theme-adaptive across dark, light,
 ### Task 2: Oldest Unread Title Fallback (Prevent Raw UUIDs)
 
 **Files:**
-- Modify: `src/models/stats.py:146-154, 250-259`
+- Modify: `keepfor/models/stats.py:146-154, 250-259`
 - Modify: `templates/stats.html:120-128`
 - Test: `tests/test_stats.py`
 
@@ -162,9 +162,9 @@ async def test_get_user_stats_oldest_unread_fallback_title(db, test_user_data):
 Run: `python3 -m pytest tests/test_stats.py::test_get_user_stats_oldest_unread_fallback_title -v`
 Expected: FAIL (assertion `stats["oldest_unread"]["title"] == "news.ycombinator.com"` fails because `title` is `None`).
 
-- [ ] **Step 3: Implement title fallback in `src/models/stats.py` and `templates/stats.html`**
+- [ ] **Step 3: Implement title fallback in `keepfor/models/stats.py` and `templates/stats.html`**
 
-In `src/models/stats.py`:
+In `keepfor/models/stats.py`:
 1. In `get_user_stats()` query list (~line 147):
    Update query to fetch `canonical_url` and `url`:
    ```python
@@ -207,7 +207,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/models/stats.py templates/stats.html tests/test_stats.py
+git add keepfor/models/stats.py templates/stats.html tests/test_stats.py
 git commit -m "fix(stats): provide clean hostname fallback for oldest unread title instead of raw UUID"
 ```
 
@@ -216,13 +216,13 @@ git commit -m "fix(stats): provide clean hostname fallback for oldest unread tit
 ### Task 3: Clickable Top Domains & Library Domain Search Support
 
 **Files:**
-- Modify: `src/search/engine.py:148-183`
+- Modify: `keepfor/search/engine.py:148-183`
 - Modify: `templates/stats.html:154`
 - Test: `tests/test_stats.py`
 
 **Interfaces:**
 - Consumes: `top_domains` in `templates/stats.html`.
-- Produces: Clickable `/?q={{ host|urlencode }}` links in `templates/stats.html`, and `search_fts` in `src/search/engine.py` matching domain / URL terms.
+- Produces: Clickable `/?q={{ host|urlencode }}` links in `templates/stats.html`, and `search_fts` in `keepfor/search/engine.py` matching domain / URL terms.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -245,7 +245,7 @@ async def test_stats_top_domains_are_clickable_links(client, db, test_user_data)
 
 async def test_search_fts_matches_domain_terms(db, test_user_data):
     """Searching for a domain matches items having that domain in URL."""
-    from src.search.engine import search_fts
+    from keepfor.search.engine import search_fts
 
     user = await register_user(db, test_user_data["email"], test_user_data["password"])
     uid = user["id"]
@@ -277,7 +277,7 @@ Expected: FAIL (assertion `'href="/?q=github.com"' in response.text` fails becau
    <a href="/?q={{ host|urlencode }}" class="text-slate-800 font-medium hover:text-blue-600 truncate">{{ host }}</a>
    ```
 
-2. In `src/search/engine.py:search_fts`:
+2. In `keepfor/search/engine.py:search_fts`:
    In `search_fts(db: Database, user_id: str, query: str, limit: int = 50)`:
    When `query` contains a dot (`.` or `/` or `:`):
    Query `items` table for matching `canonical_url` or `url` and merge them with FTS results:
@@ -313,7 +313,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/search/engine.py templates/stats.html tests/test_stats.py
+git add keepfor/search/engine.py templates/stats.html tests/test_stats.py
 git commit -m "feat(stats): make top domains clickable and support domain matching in search"
 ```
 
@@ -322,7 +322,7 @@ git commit -m "feat(stats): make top domains clickable and support domain matchi
 ### Task 4: Reading Metrics (Total Words Read & Estimated Reading Time)
 
 **Files:**
-- Modify: `src/models/stats.py:83-293`
+- Modify: `keepfor/models/stats.py:83-293`
 - Modify: `templates/stats.html:23-42`
 - Test: `tests/test_stats.py`
 
@@ -372,9 +372,9 @@ async def test_get_user_stats_words_read_and_reading_time(db, test_user_data):
 Run: `python3 -m pytest tests/test_stats.py::test_get_user_stats_words_read_and_reading_time -v`
 Expected: FAIL (`KeyError: 'words_read'`).
 
-- [ ] **Step 3: Implement reading metrics in `src/models/stats.py` and `templates/stats.html`**
+- [ ] **Step 3: Implement reading metrics in `keepfor/models/stats.py` and `templates/stats.html`**
 
-In `src/models/stats.py`:
+In `keepfor/models/stats.py`:
 1. Add pure formatting helper:
    ```python
    def format_reading_metrics(words: int) -> tuple[str, str]:
@@ -423,7 +423,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/models/stats.py templates/stats.html tests/test_stats.py
+git add keepfor/models/stats.py templates/stats.html tests/test_stats.py
 git commit -m "feat(stats): add total words read and estimated reading time metrics"
 ```
 
@@ -499,12 +499,12 @@ git commit -m "feat(stats): auto-scroll heatmap to present week on mobile"
 ### Task 6: Rhythm Chart Usability (Calendar Date Tooltips & Min Bar Height)
 
 **Files:**
-- Modify: `src/models/stats.py:222-245`
+- Modify: `keepfor/models/stats.py:222-245`
 - Modify: `templates/stats.html:95-101`
 - Test: `tests/test_stats.py`
 
 **Interfaces:**
-- Consumes: `week_rhythm` in `src/models/stats.py`.
+- Consumes: `week_rhythm` in `keepfor/models/stats.py`.
 - Produces: `w["label"]`, `w["date_range"]` on `stats.week_rhythm`, and `min-height: 4px` on non-zero bars in `templates/stats.html`.
 
 - [ ] **Step 1: Write the failing test**
@@ -533,9 +533,9 @@ async def test_stats_rhythm_has_date_tooltips_and_min_height(client, db, test_us
 Run: `python3 -m pytest tests/test_stats.py::test_stats_rhythm_has_date_tooltips_and_min_height -v`
 Expected: FAIL (`assert "min-height: 4px" in response.text`).
 
-- [ ] **Step 3: Implement date ranges and min-height in `src/models/stats.py` and `templates/stats.html`**
+- [ ] **Step 3: Implement date ranges and min-height in `keepfor/models/stats.py` and `templates/stats.html`**
 
-1. In `src/models/stats.py:222`:
+1. In `keepfor/models/stats.py:222`:
    Compute Monday and Sunday for each ISO week:
    ```python
    def _week_range_str(year: int, week: int) -> str:
@@ -577,7 +577,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/models/stats.py templates/stats.html tests/test_stats.py
+git add keepfor/models/stats.py templates/stats.html tests/test_stats.py
 git commit -m "feat(stats): add calendar date tooltips and min bar height to rhythm chart"
 ```
 
@@ -597,8 +597,8 @@ Expected: All tests pass (>= 242 passed, 1 skipped).
 
 Run:
 ```bash
-ruff check src/ tests/ --select=E,W,F,I,N
-ruff format --check src/ tests/
+ruff check keepfor/ tests/ --select=E,W,F,I,N
+ruff format --check keepfor/ tests/
 ```
 Expected: All checks pass cleanly without errors.
 

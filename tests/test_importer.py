@@ -3,9 +3,14 @@
 
 import pytest
 
-from src.auth.service import register_user
-from src.models.items import save_item, save_note, toggle_pin_item, update_user_notes
-from src.utils.importer import (
+from keepfor.auth.service import register_user
+from keepfor.models.items import (
+    save_item,
+    save_note,
+    toggle_pin_item,
+    update_user_notes,
+)
+from keepfor.utils.importer import (
     export_library_html,
     export_library_json,
     parse_csv_bookmarks,

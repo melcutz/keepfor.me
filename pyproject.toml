@@ -1,6 +1,6 @@
 [project]
 name = "keepfor-me"
-version = "1.0.0"
+version = "1.1.0"
 description = "Thin read-it-later and personal library on Cloudflare Python Workers with MCP for keepfor.me"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,4 +30,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["keepfor"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"templates" = "keepfor/templates"
+"static" = "keepfor/static"
+"migrations" = "keepfor/migrations"

@@ -19,7 +19,7 @@ Two features on the main library view (`/`, `templates/library.html`):
 
 ## 1. Pagination
 
-### Engine (`src/search/engine.py`)
+### Engine (`keepfor/search/engine.py`)
 
 - `hybrid_search` gains `offset: int = 0` and returns `(items, total)`.
 - Empty query: pass `limit`/`offset` to `get_recent_items`; add a `COUNT(*)`
@@ -50,7 +50,7 @@ Two features on the main library view (`/`, `templates/library.html`):
 
 - New `POST /items/{item_id}/tags` accepting `add=[...]` or `remove=[...]`,
   reusing `add_tags_to_item` / `remove_tags_from_item` from
-  `src/models/items.py`. Returns HTML (project rule: form/htmx endpoints
+  `keepfor/models/items.py`. Returns HTML (project rule: form/htmx endpoints
   return HTML, not JSON): the re-rendered `item_card.html`, swapped
   `outerHTML` on `#item-card-{id}`.
 
@@ -84,7 +84,7 @@ Two features on the main library view (`/`, `templates/library.html`):
 - Endpoint tests: page/per_page clamping, out-of-range page, OOB pager
   fragment present, tag add/remove roundtrip returns updated card.
 - Regression test: per-page/tag/search changes reset to page 1.
-- Full suite + CI ruff (`check src/ tests/ --select=E,W,F,I,N`,
+- Full suite + CI ruff (`check keepfor/ tests/ --select=E,W,F,I,N`,
   `format --check`) must pass.
 
 ## Non-goals
