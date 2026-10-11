@@ -1,21 +1,70 @@
 /**
- * Keepfor.me — Interactive 2026 Context Vault Scripts
+ * Keepfor.me: Interactive Context Vault Scripts
  *
- * 1. Signature Context Showcase (Simulates live MCP retrieval from kept items)
- * 2. Reader Mode Theme Switcher
- * 3. Copy-to-clipboard terminal helpers
- * 4. Mobile navigation toggle
+ * 1. Global CTA Configuration & Synchronization
+ * 2. Signature Context Showcase (Simulates live MCP retrieval from kept items)
+ * 3. Reader Mode Theme Switcher
+ * 4. Pricing Billing Period Toggle (Monthly vs Annual)
+ * 5. Copy-to-clipboard terminal helpers
+ * 6. Mobile navigation toggle
  */
 
+// Site-wide configuration for primary conversion actions.
+// If public signups close, switch ctaText to "Join the waitlist" and ctaUrl to your waitlist link.
+window.KFM_CONFIG = window.KFM_CONFIG || {
+  ctaText: 'Start free trial',
+  ctaUrl: 'https://app.keepfor.me/auth/register',
+  loginText: 'Log in',
+  loginUrl: 'https://app.keepfor.me/auth/login'
+};
+
 document.addEventListener('DOMContentLoaded', () => {
+  initGlobalCTAs();
   initContextShowcase();
   initReaderPreview();
+  initPricingToggle();
   initCopyHelpers();
   initMobileNav();
 });
 
 /* ==========================================================================
-   1. Interactive Context Showcase
+   1. Global CTA Synchronization
+   Applies KFM_CONFIG settings to all matching buttons across pages.
+   ========================================================================== */
+
+function initGlobalCTAs() {
+  const config = window.KFM_CONFIG;
+  if (!config) return;
+
+  const primaryBtns = document.querySelectorAll('[data-kfm-cta="primary"], .kfm-primary-cta');
+  primaryBtns.forEach((btn) => {
+    if (config.ctaUrl && btn.tagName === 'A') {
+      btn.setAttribute('href', config.ctaUrl);
+    }
+    const labelSpan = btn.querySelector('.cta-label');
+    if (labelSpan) {
+      labelSpan.textContent = config.ctaText;
+    } else if (btn.childNodes.length === 1 && btn.childNodes[0].nodeType === Node.TEXT_NODE) {
+      btn.textContent = config.ctaText;
+    }
+  });
+
+  const loginBtns = document.querySelectorAll('[data-kfm-cta="login"], .kfm-login-cta');
+  loginBtns.forEach((btn) => {
+    if (config.loginUrl && btn.tagName === 'A') {
+      btn.setAttribute('href', config.loginUrl);
+    }
+    const labelSpan = btn.querySelector('.cta-label');
+    if (labelSpan) {
+      labelSpan.textContent = config.loginText;
+    } else if (btn.childNodes.length === 1 && btn.childNodes[0].nodeType === Node.TEXT_NODE) {
+      btn.textContent = config.loginText;
+    }
+  });
+}
+
+/* ==========================================================================
+   2. Interactive Context Showcase
    Shows how anything you keep (notes, links, recipes, research) instantly
    becomes active context in any AI agent (Claude, Cursor, ChatGPT, etc.)
    ========================================================================== */
@@ -31,7 +80,7 @@ const CONTEXT_ITEMS = {
   serverActions: {
     userQuery: 'Cursor, what security check did that article recommend before writing to the database in Next.js Server Actions?',
     aiCitation: 'Keepfor.me Vault · "Next.js 15 Server Actions" (#dev #security)',
-    aiResponse: `According to your saved bookmark on Next.js 15 security, you should treat server actions like open public endpoints:<br><br><div class="ai-highlight-quote">"Always verify user authentication and authorization inside the action handler body itself before initiating any database mutation—do not rely solely on middleware."</div>`,
+    aiResponse: `According to your saved bookmark on Next.js 15 security, you should treat server actions like open public endpoints:<br><br><div class="ai-highlight-quote">"Always verify user authentication and authorization inside the action handler body itself before initiating any database mutation: do not rely solely on middleware."</div>`,
     targetApp: 'Cursor / Copilot Agent',
     toolCall: 'mcp.keepfor.me/get_item(id="item_sec_9182")'
   },
@@ -67,11 +116,9 @@ function initContextShowcase() {
       const data = CONTEXT_ITEMS[key];
       if (!data) return;
 
-      // Update active card state
       cards.forEach((c) => c.classList.remove('active'));
       card.classList.add('active');
 
-      // Subtle animation state
       aiBody.style.opacity = '0.3';
       userBubble.style.opacity = '0.3';
 
@@ -90,7 +137,7 @@ function initContextShowcase() {
 }
 
 /* ==========================================================================
-   2. Reader Preview Box Theme Switcher
+   3. Reader Preview Box Theme Switcher
    ========================================================================== */
 
 function initReaderPreview() {
@@ -100,7 +147,7 @@ function initReaderPreview() {
 
   pills.forEach((pill) => {
     pill.addEventListener('click', () => {
-      const theme = pill.dataset.theme; // 'light', 'sepia', 'dark'
+      const theme = pill.dataset.theme;
       box.classList.remove('theme-light', 'theme-sepia', 'theme-dark');
       box.classList.add(`theme-${theme}`);
 
@@ -111,7 +158,47 @@ function initReaderPreview() {
 }
 
 /* ==========================================================================
-   3. Terminal & Copy Helpers
+   4. Pricing Billing Period Toggle
+   ========================================================================== */
+
+function initPricingToggle() {
+  const toggle = document.getElementById('billing-toggle');
+  if (!toggle) return;
+
+  const monthlyLabels = document.querySelectorAll('.price-monthly');
+  const annualLabels = document.querySelectorAll('.price-annual');
+  const periodNotes = document.querySelectorAll('.billing-period-note');
+
+  function updatePricing(isAnnual) {
+    if (isAnnual) {
+      monthlyLabels.forEach((el) => { el.style.display = 'none'; });
+      annualLabels.forEach((el) => { el.style.display = 'inline'; });
+      periodNotes.forEach((el) => {
+        if (el.dataset.annualNote) {
+          el.textContent = el.dataset.annualNote;
+        }
+      });
+    } else {
+      monthlyLabels.forEach((el) => { el.style.display = 'inline'; });
+      annualLabels.forEach((el) => { el.style.display = 'none'; });
+      periodNotes.forEach((el) => {
+        if (el.dataset.monthlyNote) {
+          el.textContent = el.dataset.monthlyNote;
+        }
+      });
+    }
+  }
+
+  toggle.addEventListener('change', () => {
+    updatePricing(toggle.checked);
+  });
+
+  // Initial state check
+  updatePricing(toggle.checked);
+}
+
+/* ==========================================================================
+   5. Terminal & Copy Helpers
    ========================================================================== */
 
 function initCopyHelpers() {
@@ -142,7 +229,7 @@ function initCopyHelpers() {
 }
 
 /* ==========================================================================
-   4. Mobile Navigation
+   6. Mobile Navigation
    ========================================================================== */
 
 function initMobileNav() {
@@ -151,17 +238,13 @@ function initMobileNav() {
   if (!toggleBtn || !nav) return;
 
   toggleBtn.addEventListener('click', () => {
-    const isShown = nav.style.display === 'flex';
-    nav.style.display = isShown ? 'none' : 'flex';
-    nav.style.flexDirection = 'column';
-    nav.style.position = 'absolute';
-    nav.style.top = '72px';
-    nav.style.left = '0';
-    nav.style.right = '0';
-    nav.style.backgroundColor = '#ffffff';
-    nav.style.padding = '24px';
-    nav.style.borderBottom = '1px solid var(--border)';
-    nav.style.boxShadow = 'var(--shadow-lg)';
-    nav.style.gap = '20px';
+    const isShown = nav.classList.contains('mobile-active');
+    if (isShown) {
+      nav.classList.remove('mobile-active');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+    } else {
+      nav.classList.add('mobile-active');
+      toggleBtn.setAttribute('aria-expanded', 'true');
+    }
   });
 }
