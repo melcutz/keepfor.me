@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initContextShowcase();
   initReaderPreview();
   initPricingToggle();
+  initFaqAccordion();
   initCopyHelpers();
   initMobileNav();
 });
@@ -74,29 +75,29 @@ const CONTEXT_ITEMS = {
     userQuery: 'Hey Claude, what pricing model did I propose in my notes, and what was the main margin risk?',
     aiCitation: 'Keepfor.me Vault · "Freemium vs Usage-Based Note" (#product #pricing)',
     aiResponse: `Based on your saved notes from earlier this week, you proposed a <strong>$12/month base tier</strong> for everyday usage, paired with metered credits for heavy AI tool executions.<br><br>The primary margin risk you highlighted: <div class="ai-highlight-quote">"An unmetered flat rate leaves us vulnerable to power users consuming hundreds of background LLM agent queries at our expense."</div>`,
-    targetApp: 'Claude 3.7 Sonnet',
+    targetApp: 'Claude Sonnet 5.5',
     toolCall: 'mcp.keepfor.me/search(query="pricing tier margin risk")'
   },
   serverActions: {
     userQuery: 'Cursor, what security check did that article recommend before writing to the database in Next.js Server Actions?',
     aiCitation: 'Keepfor.me Vault · "Next.js 15 Server Actions" (#dev #security)',
     aiResponse: `According to your saved bookmark on Next.js 15 security, you should treat server actions like open public endpoints:<br><br><div class="ai-highlight-quote">"Always verify user authentication and authorization inside the action handler body itself before initiating any database mutation: do not rely solely on middleware."</div>`,
-    targetApp: 'Cursor / Copilot Agent',
+    targetApp: 'Cursor Agent (Sonnet 5.5)',
     toolCall: 'mcp.keepfor.me/get_item(id="item_sec_9182")'
   },
   sourdough: {
     userQuery: 'What hydration ratio and cold ferment time did I save for Sunday\'s focaccia bake?',
     aiCitation: 'Keepfor.me Vault · "Grandma\'s Rustic Sourdough Focaccia" (#recipes #baking)',
     aiResponse: `In your saved recipe, the parameters are:<br>• <strong>Hydration:</strong> 80% with 3% extra virgin olive oil.<br>• <strong>Fermentation:</strong> 4 sets of stretch-and-folds every 30 minutes, followed by a <strong>72-hour cold retard</strong> in the refrigerator.<br>• Finish with flaky sea salt and fresh rosemary before dimpling.`,
-    targetApp: 'ChatGPT / Raycast AI',
+    targetApp: 'Raycast AI / Claude Opus 5.5',
     toolCall: 'mcp.keepfor.me/search(query="sourdough focaccia hydration cold ferment")'
   },
   travel: {
-    userQuery: 'Plan a relaxing Saturday morning in Tokyo using the quiet neighborhood spots I saved in my vault.',
-    aiCitation: 'Keepfor.me Vault · "Quiet Coffee Shops & Bookstores in Yanaka" (#travel #japan)',
-    aiResponse: `Here is your morning itinerary straight from your saved Yanaka notes:<br>1. <strong>9:00 AM:</strong> Coffee and egg toast at <em>Kayaba Coffee</em> (peaceful historic kissaten).<br>2. <strong>10:30 AM:</strong> Browse vintage art prints and architecture titles at <em>Ogawa Books</em>.<br>3. <strong>11:45 AM:</strong> Walk through the quiet residential temple alleys to <em>Hagiso</em> cultural cafe.`,
-    targetApp: 'Apple Intelligence / Agent',
-    toolCall: 'mcp.keepfor.me/search(query="Yanaka Tokyo quiet coffee bookstores")'
+    userQuery: 'Claude Code, find the architectural patterns and edge storage notes I saved about Cloudflare D1.',
+    aiCitation: 'Keepfor.me Vault · "Cloudflare D1 & SQLite Optimization Guide" (#cloudflare #db)',
+    aiResponse: `Found 2 relevant items in your vault:<br>1. <strong>Indexes:</strong> Composite indexes matching (user_id, created_at DESC) avoid temp b-tree sorts.<br>2. <strong>Batches:</strong> Group multiple statements into <code>db.execute_batch()</code> over RPC to avoid sequential roundtrips.<br>3. <strong>Edge Reads:</strong> Queries run sub-10ms when co-located with Workers isolates.`,
+    targetApp: 'Claude Code CLI',
+    toolCall: 'mcp.keepfor.me/search(query="Cloudflare D1 SQLite composite index batch")'
   }
 };
 
@@ -214,13 +215,26 @@ function initCopyHelpers() {
     }, 2400);
   }
 
-  const cmdButtons = document.querySelectorAll('[data-copy-text]');
-  cmdButtons.forEach((btn) => {
+  const copyBtns = document.querySelectorAll('[data-copy-text], .code-copy-btn');
+  copyBtns.forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const text = btn.dataset.copyText;
+      let text = btn.dataset.copyText;
+      if (!text) {
+        const card = btn.closest('.terminal-card, .code-snippet-box');
+        if (card) {
+          const codeEl = card.querySelector('pre code, code');
+          if (codeEl) text = codeEl.textContent;
+        }
+      }
+      if (!text) return;
+
       try {
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(text.trim());
+        btn.classList.add('copied');
         showToast('Copied to clipboard!');
+        setTimeout(() => {
+          btn.classList.remove('copied');
+        }, 2000);
       } catch (err) {
         showToast('Press Ctrl+C to copy');
       }
@@ -248,3 +262,29 @@ function initMobileNav() {
     }
   });
 }
+
+/* ==========================================================================
+   7. Accessible FAQ Accordion
+   ========================================================================== */
+
+function initFaqAccordion() {
+  const triggers = document.querySelectorAll('.faq-accordion-trigger');
+  triggers.forEach((trigger) => {
+    trigger.addEventListener('click', () => {
+      const isExpanded = trigger.getAttribute('aria-expanded') === 'true';
+      const panelId = trigger.getAttribute('aria-controls');
+      const panel = document.getElementById(panelId);
+      if (!panel) return;
+
+      trigger.setAttribute('aria-expanded', !isExpanded);
+      if (!isExpanded) {
+        panel.removeAttribute('hidden');
+        panel.classList.add('open');
+      } else {
+        panel.setAttribute('hidden', '');
+        panel.classList.remove('open');
+      }
+    });
+  });
+}
+
