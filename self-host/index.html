@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Self-Host Keepfor.me: Open Source Deployment on Cloudflare</title>
+  <meta name="description" content="Deploy your own private Keepfor.me read-it-later instance on Cloudflare Workers, D1, R2, and Vectorize in five quick steps. AGPL-3.0-only open source.">
+  <link rel="canonical" href="https://keepfor.me/self-host/">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://keepfor.me/self-host/">
+  <meta property="og:title" content="Self-Host Keepfor.me: Open Source Deployment on Cloudflare">
+  <meta property="og:description" content="Deploy your own private Keepfor.me read-it-later instance on Cloudflare Workers, D1, R2, and Vectorize in five quick steps. AGPL-3.0-only open source.">
+  <meta property="og:image" content="https://keepfor.me/assets/og-preview.png">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://keepfor.me/self-host/">
+  <meta name="twitter:title" content="Self-Host Keepfor.me: Open Source Deployment on Cloudflare">
+  <meta name="twitter:description" content="Deploy your own private Keepfor.me read-it-later instance on Cloudflare Workers, D1, R2, and Vectorize in five quick steps. AGPL-3.0-only open source.">
+  <meta name="twitter:image" content="https://keepfor.me/assets/og-preview.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cdefs%3E%3ClinearGradient id='kfm' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='40' height='40' rx='11' fill='url(%23kfm)'/%3E%3Cpath d='M17 11h10v16l-5-3.8-5 3.8z' fill='%23fff'/%3E%3C/svg%3E">
+
+  <!-- Typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="/assets/css/site.css">
+
+  <!-- Structured Data: HowTo -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "HowTo",
+    "name": "How to Self-Host Keepfor.me on Cloudflare Workers",
+    "description": "Step-by-step instructions for deploying Keepfor.me to your own Cloudflare account using D1, R2, Vectorize, and Python Workers.",
+    "step": [
+      {
+        "@type": "HowToStep",
+        "name": "Prerequisites",
+        "text": "Set up a Cloudflare account with Workers, D1, R2, Vectorize, and Queues enabled, plus Node.js 20+ and uv."
+      },
+      {
+        "@type": "HowToStep",
+        "name": "Clone the Repository",
+        "text": "Clone the repository from GitHub and install project dependencies."
+      },
+      {
+        "@type": "HowToStep",
+        "name": "Provision Cloudflare Resources",
+        "text": "Create the D1 database, R2 bucket, Vectorize index, and Queue using Wrangler CLI."
+      },
+      {
+        "@type": "HowToStep",
+        "name": "Apply Database Migrations",
+        "text": "Apply the schema migrations to your remote Cloudflare D1 database."
+      },
+      {
+        "@type": "HowToStep",
+        "name": "Deploy the Python Worker",
+        "text": "Deploy the FastAPI application using PyWrangler. The first user to register becomes the admin."
+      }
+    ]
+  }
+  </script>
+
+  <!-- Analytics Placeholder: Privacy-friendly, cookie-free analytics (currently disabled) -->
+  <!--
+  <script defer data-domain="keepfor.me" src="https://plausible.io/js/script.js"></script>
+  -->
+</head>
+<body>
+  <!-- Header & Navigation -->
+  <header class="site-header">
+    <div class="nav-container">
+      <a href="/" class="brand" aria-label="Keepfor.me Home">
+        <svg class="brand-logo" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#brand-grad)" />
+          <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#fff" />
+          <defs>
+            <linearGradient id="brand-grad" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+              <stop stop-color="#4f46e5" />
+              <stop offset="1" stop-color="#0ea5e9" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <span class="brand-name">Keepfor.me</span>
+      </a>
+
+      <button class="mobile-menu-btn" aria-label="Toggle navigation menu" aria-expanded="false">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+
+      <nav class="nav-links">
+        <a href="/#features" class="nav-link">Features</a>
+        <a href="/pricing/" class="nav-link">Pricing</a>
+        <a href="/self-host/" class="nav-link active" aria-current="page">Self-Host</a>
+        <a href="https://app.keepfor.me/auth/login" class="nav-link btn-header-login" data-kfm-login>Log in</a>
+        <a href="https://app.keepfor.me/auth/register" class="btn btn-primary btn-sm" data-kfm-cta>Start free trial</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Self-Host Hero -->
+    <section class="section self-host-hero">
+      <div class="container text-center">
+        <span class="badge badge-accent">100% Open Source (AGPL-3.0-only)</span>
+        <h1 class="page-title">Deploy Keepfor.me on your own Cloudflare infrastructure</h1>
+        <p class="page-lead">
+          Keepfor.me is fully open source. You can run the entire serverless stack on your own Cloudflare account for complete data sovereignty, zero subscription fees, and no third-party lock-in.
+        </p>
+        <div class="hero-actions" style="justify-content: center; margin-top: 1.5rem;">
+          <a href="https://github.com/melcutz/keepfor.me" class="btn btn-secondary" target="_blank" rel="noopener">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="margin-right: 0.5rem;">
+              <path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+            </svg>
+            View on GitHub
+          </a>
+          <a href="https://oss.keepfor.me" class="btn btn-outline" target="_blank" rel="noopener">
+            Explore Open Source Live Demo
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 Short Steps Section -->
+    <section class="section" style="padding-top: 1rem;">
+      <div class="container" style="max-width: 860px;">
+        <div class="section-header" style="margin-bottom: 2.5rem;">
+          <h2 class="section-title">Five steps to production</h2>
+          <p class="section-desc">
+            Deploy in minutes using the Cloudflare CLI. Review the complete deployment documentation in the <a href="https://github.com/melcutz/keepfor.me#deployment" target="_blank" rel="noopener" class="inline-link">GitHub README deployment section</a>.
+          </p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h3 class="step-title">Prerequisites</h3>
+            <p class="step-desc">
+              You will need a Cloudflare account with Workers, D1, R2, Vectorize, and Queues enabled (available on Cloudflare Free and Workers Paid plans). Install Node.js 20+ and Astral uv on your workstation:
+            </p>
+            <div class="code-block">
+              <code># Check your installed tools
+node -v    # v20+
+npm -v
+uv --version</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h3 class="step-title">Clone repository and install dependencies</h3>
+            <p class="step-desc">
+              Clone the official repository from GitHub and sync Python runtime dependencies:
+            </p>
+            <div class="code-block">
+              <code>git clone https://github.com/melcutz/keepfor.me.git
+cd keepfor.me
+uv sync</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h3 class="step-title">Provision Cloudflare edge resources</h3>
+            <p class="step-desc">
+              Run Wrangler to create your D1 database, R2 storage bucket, Vectorize index (768 dimensions for BGE embeddings), and extraction queue:
+            </p>
+            <div class="code-block">
+              <code># 1. Create SQLite D1 database
+npx wrangler d1 create keepfor-me-db
+# Copy the returned database_id into your wrangler.jsonc
+
+# 2. Create R2 bucket for raw and clean article snapshots
+npx wrangler r2 bucket create keepfor-me-bucket
+
+# 3. Create Vectorize index for semantic vector search
+npx wrangler vectorize create keepfor-me-index --dimensions=768 --metric=cosine
+
+# 4. Create Queue for asynchronous article extraction
+npx wrangler queues create keepfor-me-queue</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h3 class="step-title">Apply database schema migrations</h3>
+            <p class="step-desc">
+              Run the SQL migrations to initialize user tables, full-text search virtual tables (FTS5), rate limiting counters, and composite indexing:
+            </p>
+            <div class="code-block">
+              <code>npx wrangler d1 migrations apply keepfor-me-db --remote</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-num">5</div>
+          <div class="step-content">
+            <h3 class="step-title">Deploy Worker and claim admin ownership</h3>
+            <p class="step-desc">
+              Deploy your Python FastAPI worker to Cloudflare. Once deployed, open your domain and register immediately: the first account created automatically claims instance ownership and locks public signups.
+            </p>
+            <div class="code-block">
+              <code># Dry-run first to verify bundle size is within limits
+uvx --from workers-py pywrangler deploy --dry-run
+
+# Deploy to your Cloudflare account
+uvx --from workers-py pywrangler deploy</code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Licensing & Open Core Section -->
+    <section class="section" style="background: var(--bg-surface); border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle);">
+      <div class="container" style="max-width: 860px;">
+        <div class="section-header text-center" style="margin-bottom: 2rem;">
+          <h2 class="section-title">Open Source Licensing & Terms</h2>
+          <p class="section-desc">
+            Transparent rights, strict network copyleft, and clear commercial paths.
+          </p>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+          <div style="background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 0.75rem;">AGPL-3.0-only License</h3>
+            <p style="font-size: 0.925rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 1rem;">
+              Keepfor.me is licensed under the <strong>GNU Affero General Public License v3.0</strong>. You are free to run, self-host, audit, and modify Keepfor.me for personal or internal organizational use at zero cost.
+            </p>
+            <p style="font-size: 0.925rem; color: var(--text-muted); line-height: 1.6;">
+              Under the network copyleft terms, if you modify Keepfor.me and run it as a network service for users, you must release your modified source code under the AGPL-3.0.
+            </p>
+          </div>
+
+          <div style="background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <h3 style="font-size: 1.15rem; font-weight: 700; margin-bottom: 0.75rem;">Commercial Licensing</h3>
+            <p style="font-size: 0.925rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 1rem;">
+              Need to embed Keepfor.me within a proprietary commercial application, distribute closed-source appliances, or bypass AGPL copyleft requirements?
+            </p>
+            <p style="font-size: 0.925rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 1rem;">
+              Commercial dual-licensing agreements are available upon request.
+            </p>
+            <p style="font-size: 0.925rem;">
+              <a href="https://github.com/melcutz/keepfor.me/blob/main/LICENSING.md" class="inline-link" target="_blank" rel="noopener">Read LICENSING.md</a> &middot;
+              <a href="https://github.com/melcutz/keepfor.me/blob/main/CONTRIBUTING.md" class="inline-link" target="_blank" rel="noopener">Read CONTRIBUTING.md</a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Managed SaaS Alternative Callout -->
+    <section class="section">
+      <div class="container text-center" style="max-width: 780px;">
+        <span class="badge badge-accent">Prefer Zero Maintenance?</span>
+        <h2 style="font-size: 2rem; font-weight: 800; margin: 1rem 0;">Try the fully managed Keepfor.me Hosted SaaS</h2>
+        <p style="color: var(--text-muted); font-size: 1.05rem; line-height: 1.6; margin-bottom: 2rem;">
+          Don't want to configure Cloudflare bindings, manage D1 database migrations, or monitor worker quotas?
+          Sign up for the hosted edition. Get instant access, automated snapshot backups, managed AI summaries, semantic vector search, and high-availability MCP endpoints.
+        </p>
+        <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
+          <a href="https://app.keepfor.me/auth/register" class="btn btn-primary btn-lg" data-kfm-cta>Start 14-day free trial</a>
+          <a href="/pricing/" class="btn btn-secondary btn-lg">Compare plans & pricing</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container footer-content">
+      <div class="footer-brand">
+        <a href="/" class="brand">
+          <svg class="brand-logo" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#brand-grad-footer)" />
+            <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#fff" />
+            <defs>
+              <linearGradient id="brand-grad-footer" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#4f46e5" />
+                <stop offset="1" stop-color="#0ea5e9" />
+              </linearGradient>
+            </defs>
+          </svg>
+          <span class="brand-name">Keepfor.me</span>
+        </a>
+        <p class="footer-desc">
+          Your personal read-it-later library and AI context vault. Open source, edge-native, and built for developers and researchers.
+        </p>
+        <p class="footer-license">
+          Open source under the <a href="https://github.com/melcutz/keepfor.me/blob/main/LICENSING.md" target="_blank" rel="noopener">AGPL-3.0-only</a> license. Commercial licenses available on request.
+        </p>
+      </div>
+
+      <div class="footer-links">
+        <div class="footer-column">
+          <span class="footer-title">Product</span>
+          <a href="/#features">Features</a>
+          <a href="/pricing/">Pricing</a>
+          <a href="/self-host/">Self-Host It Free</a>
+          <a href="https://oss.keepfor.me" target="_blank" rel="noopener">Open Source Demo</a>
+          <a href="https://app.keepfor.me/auth/login" data-kfm-login>Log in</a>
+          <a href="https://app.keepfor.me/auth/register" data-kfm-cta>Start free trial</a>
+        </div>
+
+        <div class="footer-column">
+          <span class="footer-title">Open Source</span>
+          <a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener">GitHub Repository</a>
+          <a href="https://github.com/melcutz/keepfor.me#deployment" target="_blank" rel="noopener">Deployment Guide</a>
+          <a href="https://github.com/melcutz/keepfor.me/blob/main/LICENSING.md" target="_blank" rel="noopener">Licensing (AGPL-3.0)</a>
+          <a href="https://github.com/melcutz/keepfor.me/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Contributing & CLA</a>
+        </div>
+
+        <div class="footer-column">
+          <span class="footer-title">Legal & Trust</span>
+          <a href="https://app.keepfor.me/terms" target="_blank" rel="noopener">Terms of Service</a>
+          <a href="https://app.keepfor.me/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+          <a href="https://github.com/melcutz/keepfor.me/security" target="_blank" rel="noopener">Security Policy</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="container footer-bottom">
+      <p class="copyright">&copy; 2026 Keepfor.me. All rights reserved.</p>
+      <div class="footer-badge">
+        <span class="status-dot"></span>
+        <span>Hosted Edge: Cloudflare Python Workers</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/assets/js/site.js"></script>
+</body>
+</html>
