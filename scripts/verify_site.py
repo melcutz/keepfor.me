@@ -96,6 +96,8 @@ def check_links():
         os.path.join(BASE_DIR, "index.html"),
         os.path.join(BASE_DIR, "pricing", "index.html"),
         os.path.join(BASE_DIR, "self-host", "index.html"),
+        os.path.join(BASE_DIR, "privacy", "index.html"),
+        os.path.join(BASE_DIR, "terms", "index.html"),
     ]
 
     links = set()
