@@ -125,6 +125,7 @@
           <li><a href="#comparison" class="nav-link">Comparison</a></li>
           <li><a href="#faq" class="nav-link">FAQ</a></li>
           <li><a href="/self-host/" class="nav-link" style="color: var(--brand-indigo); font-weight: 700;">Self-Host Free</a></li>
+          <li class="mobile-only-auth"><a href="https://app.keepfor.me/auth/login" class="nav-link kfm-login-cta" data-kfm-cta="login">Log in</a></li>
         </ul>
       </nav>
 
@@ -380,6 +381,8 @@
         </p>
       </div>
 
+      <div class="mobile-table-hint">↔ Scroll horizontally to compare all tiers</div>
+
       <div class="comparison-table-wrap">
         <table class="comparison-table">
           <thead>
@@ -523,61 +526,109 @@
         </p>
       </div>
 
-      <div class="faq-grid">
-        <div class="faq-card">
-          <h4 class="faq-q">Who owns my data, and can I export it?</h4>
-          <p class="faq-a">
-            You own 100% of your data. You can export your entire library at any time in standard formats (HTML bookmarks, CSV, or structured JSON), including all original extracted text and metadata. If you ever leave, your data comes with you.
-          </p>
+      <div class="faq-accordion-wrap">
+        <!-- Item 1 -->
+        <div class="faq-accordion-item">
+          <button class="faq-accordion-trigger" aria-expanded="true" aria-controls="faq-ans-1">
+            <span class="faq-q-text">Who owns my data, and can I export it?</span>
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="faq-ans-1" class="faq-accordion-panel open">
+            <p class="faq-a-text">
+              You own 100% of your data. You can export your entire library at any time in standard formats (HTML bookmarks, CSV, or structured JSON), including all original extracted text and metadata. If you ever leave, your data comes with you.
+            </p>
+          </div>
         </div>
 
-        <div class="faq-card">
-          <h4 class="faq-q">Can I cancel my subscription anytime?</h4>
-          <p class="faq-a">
-            Yes. You can cancel with one click from your account settings at https://app.keepfor.me/pricing. Your access remains active until the end of your current billing period, with no cancellation penalties or hidden conditions.
-          </p>
+        <!-- Item 2 -->
+        <div class="faq-accordion-item">
+          <button class="faq-accordion-trigger" aria-expanded="false" aria-controls="faq-ans-2">
+            <span class="faq-q-text">Can I cancel my subscription anytime?</span>
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="faq-ans-2" class="faq-accordion-panel" hidden>
+            <p class="faq-a-text">
+              Yes. You can cancel with one click from your account settings at https://app.keepfor.me/pricing. Your access remains active until the end of your current billing period, with no cancellation penalties or hidden conditions.
+            </p>
+          </div>
         </div>
 
-        <div class="faq-card">
-          <h4 class="faq-q">What counts as an AI summary or ask query?</h4>
-          <p class="faq-a">
-            An AI summary is counted when you ingest an article and generate a concise structured summary. An ask-your-library query is counted when you ask a natural-language question directly in the app or via your connected MCP client (such as Claude or Cursor) that searches and synthesizes answers across your library.
-          </p>
+        <!-- Item 3 -->
+        <div class="faq-accordion-item">
+          <button class="faq-accordion-trigger" aria-expanded="false" aria-controls="faq-ans-3">
+            <span class="faq-q-text">What counts as an AI summary or ask query?</span>
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="faq-ans-3" class="faq-accordion-panel" hidden>
+            <p class="faq-a-text">
+              An AI summary is counted when you ingest an article and generate a concise structured summary. An ask-your-library query is counted when you ask a natural-language question directly in the app or via your connected MCP client (such as Claude or Cursor) that searches and synthesizes answers across your library.
+            </p>
+          </div>
         </div>
 
-        <div class="faq-card">
-          <h4 class="faq-q">What happens when I reach my monthly quota?</h4>
-          <p class="faq-a">
-            When you reach your monthly limit, your library continues working normally: you can save articles, read them in reader mode, search using keyword FTS5, and export data. Only new AI summaries and ask queries pause until your next monthly billing cycle resets, or until you upgrade to Pro.
-          </p>
+        <!-- Item 4 -->
+        <div class="faq-accordion-item">
+          <button class="faq-accordion-trigger" aria-expanded="false" aria-controls="faq-ans-4">
+            <span class="faq-q-text">What happens when I reach my monthly quota?</span>
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="faq-ans-4" class="faq-accordion-panel" hidden>
+            <p class="faq-a-text">
+              When you reach your monthly limit, your library continues working normally: you can save articles, read them in reader mode, search using keyword FTS5, and export data. Only new AI summaries and ask queries pause until your next monthly billing cycle resets, or until you upgrade to Pro.
+            </p>
+          </div>
         </div>
 
-        <div class="faq-card">
-          <h4 class="faq-q">How do trial rules work?</h4>
-          <p class="faq-a">
-            The free trial lasts for 14 days, or until you reach 50 AI summaries or 20 ask-your-library queries, whichever comes first. This gives you plenty of headroom to test reader mode, mobile saving, and Claude or Cursor MCP integrations before committing.
-          </p>
+        <!-- Item 5 -->
+        <div class="faq-accordion-item">
+          <button class="faq-accordion-trigger" aria-expanded="false" aria-controls="faq-ans-5">
+            <span class="faq-q-text">How do trial rules work?</span>
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="faq-ans-5" class="faq-accordion-panel" hidden>
+            <p class="faq-a-text">
+              The free trial lasts for 14 days, or until you reach 50 AI summaries or 20 ask-your-library queries, whichever comes first. This gives you plenty of headroom to test reader mode, mobile saving, and Claude or Cursor MCP integrations before committing.
+            </p>
+          </div>
         </div>
 
-        <div class="faq-card">
-          <h4 class="faq-q">Self-host free vs hosted SaaS: which should I choose?</h4>
-          <p class="faq-a">
-            If you enjoy DevOps, maintain your own Cloudflare account, and prefer configuring your own database and AI keys, the AGPL-3.0 open-source edition is free forever. If you want zero maintenance, automatic backups, instant sync across devices, and included AI compute quotas without managing bindings, choose our hosted SaaS.
-          </p>
+        <!-- Item 6 -->
+        <div class="faq-accordion-item">
+          <button class="faq-accordion-trigger" aria-expanded="false" aria-controls="faq-ans-6">
+            <span class="faq-q-text">Self-host free vs hosted SaaS: which should I choose?</span>
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="faq-ans-6" class="faq-accordion-panel" hidden>
+            <p class="faq-a-text">
+              If you enjoy DevOps, maintain your own Cloudflare account, and prefer configuring your own database and AI keys, the AGPL-3.0 open-source edition is free forever. If you want zero maintenance, automatic backups, instant sync across devices, and included AI compute quotas without managing bindings, choose our hosted SaaS.
+            </p>
+          </div>
         </div>
 
-        <div class="faq-card">
-          <h4 class="faq-q">Where is data stored and what about privacy?</h4>
-          <p class="faq-a">
-            Your data is stored in dedicated Cloudflare D1 databases and encrypted Cloudflare R2 object storage. We do not sell your personal data, run ad trackers, or use your private bookmarks and notes to train third-party foundation models.
-          </p>
+        <!-- Item 7 -->
+        <div class="faq-accordion-item">
+          <button class="faq-accordion-trigger" aria-expanded="false" aria-controls="faq-ans-6">
+            <span class="faq-q-text">Where is data stored and what about privacy?</span>
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="faq-ans-7" class="faq-accordion-panel" hidden>
+            <p class="faq-a-text">
+              Your data is stored in dedicated Cloudflare D1 databases and encrypted Cloudflare R2 object storage. We do not sell your personal data, run ad trackers, or use your private bookmarks and notes to train third-party foundation models.
+            </p>
+          </div>
         </div>
 
-        <div class="faq-card">
-          <h4 class="faq-q">What AI features are included in hosted plans?</h4>
-          <p class="faq-a">
-            AI features (automated summaries, smart tag suggestions, hybrid vector semantic search, and conversational library queries via MCP) are included out of the box on hosted plans. On self-hosted instances, you must configure and fund your own Cloudflare Workers AI or external model provider directly.
-          </p>
+        <!-- Item 8 -->
+        <div class="faq-accordion-item">
+          <button class="faq-accordion-trigger" aria-expanded="false" aria-controls="faq-ans-8">
+            <span class="faq-q-text">What AI features are included in hosted plans?</span>
+            <svg class="faq-chevron" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="faq-ans-8" class="faq-accordion-panel" hidden>
+            <p class="faq-a-text">
+              AI features (automated summaries, smart tag suggestions, hybrid vector semantic search, and conversational library queries via MCP) are included out of the box on hosted plans. On self-hosted instances, you must configure and fund your own Cloudflare Workers AI or external model provider directly.
+            </p>
+          </div>
         </div>
       </div>
     </div>
@@ -592,11 +643,11 @@
           Start your 14-day free trial today. Connect your vault to Claude and Cursor in under two minutes.
         </p>
         <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; position: relative; z-index: 1;">
-          <a href="https://app.keepfor.me/auth/register" class="btn-hero-primary kfm-primary-cta" data-kfm-cta="primary" style="background: #ffffff; color: var(--brand-indigo); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);">
+          <a href="https://app.keepfor.me/auth/register" class="btn-banner-primary kfm-primary-cta" data-kfm-cta="primary" aria-label="Start free trial">
             <span class="cta-label">Start free trial</span>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </a>
-          <a href="/self-host/" class="btn-hero-secondary" style="color: #ffffff; border-color: rgba(255, 255, 255, 0.3);">
+          <a href="/self-host/" class="btn-banner-secondary">
             <span>Self-Host It Free</span>
           </a>
         </div>
@@ -607,34 +658,66 @@
   <!-- Footer -->
   <footer class="site-footer">
     <div class="container">
-      <div class="footer-top">
-        <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
-          <svg width="26" height="26" viewBox="0 0 44 44" aria-hidden="true">
-            <defs>
-              <linearGradient id="footer-logo" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stop-color="#4f46e5"/>
-                <stop offset="100%" stop-color="#0ea5e9"/>
-              </linearGradient>
-            </defs>
-            <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#footer-logo)"/>
-            <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
-          </svg>
-          <span>Keepfor<span class="dot-me">.me</span></span>
-        </a>
+      <div class="footer-grid">
+        <!-- Col 1: Brand -->
+        <div class="footer-brand">
+          <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
+            <svg width="28" height="28" viewBox="0 0 44 44" aria-hidden="true">
+              <defs>
+                <linearGradient id="footer-logo" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#4f46e5"/>
+                  <stop offset="100%" stop-color="#0ea5e9"/>
+                </linearGradient>
+              </defs>
+              <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#footer-logo)"/>
+              <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
+            </svg>
+            <span>Keepfor<span class="dot-me">.me</span></span>
+            <span class="brand-badge">Pricing</span>
+          </a>
+          <p class="footer-tagline">
+            The personal library and AI context vault for developers and researchers. Fast, private, open core.
+          </p>
+        </div>
 
-        <div style="display: flex; gap: 24px; align-items: center; font-size: 0.925rem; font-weight: 600; flex-wrap: wrap;">
-          <a href="/pricing/" class="nav-link">Pricing</a>
-          <a href="/self-host/" class="nav-link">Self-Host It Free</a>
-          <a href="https://oss.keepfor.me" target="_blank" rel="noopener noreferrer" class="nav-link">Live Demo</a>
-          <a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer" class="nav-link">GitHub</a>
-          <a href="https://app.keepfor.me/terms" class="nav-link">Terms</a>
-          <a href="https://app.keepfor.me/privacy" class="nav-link">Privacy</a>
-          <a href="https://app.keepfor.me/auth/login" class="nav-link kfm-login-cta" data-kfm-cta="login">Log in</a>
+        <!-- Col 2: Product -->
+        <div>
+          <div class="footer-col-title">Product</div>
+          <ul class="footer-col-links">
+            <li><a href="/#showcase">Context in Action</a></li>
+            <li><a href="/#pillars">Features</a></li>
+            <li><a href="/#mcp">Works with AI (MCP)</a></li>
+            <li><a href="/#reader">Reader Sanctuary</a></li>
+            <li><a href="/pricing/">Pricing &amp; Plans</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 3: Open Source & Self-Host -->
+        <div>
+          <div class="footer-col-title">Open Source</div>
+          <ul class="footer-col-links">
+            <li><a href="/self-host/">Self-Host Free (5 Steps)</a></li>
+            <li><a href="https://oss.keepfor.me" target="_blank" rel="noopener noreferrer">Live OSS Demo</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me/blob/main/LICENSING.md" target="_blank" rel="noopener noreferrer">Licensing (AGPL-3.0)</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contributing</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 4: Trust & Access -->
+        <div>
+          <div class="footer-col-title">Access &amp; Trust</div>
+          <ul class="footer-col-links">
+            <li><a href="https://app.keepfor.me/auth/register" class="kfm-primary-cta" data-kfm-cta="primary">Start Free Trial</a></li>
+            <li><a href="https://app.keepfor.me/auth/login" class="kfm-login-cta" data-kfm-cta="login">Log In</a></li>
+            <li><a href="https://app.keepfor.me/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a></li>
+            <li><a href="https://app.keepfor.me/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a></li>
+          </ul>
         </div>
       </div>
 
       <div class="footer-bottom">
-        <span>© 2026 Keepfor.me. The Personal Context Vault for You and Your AI.</span>
+        <span>&copy; 2026 Keepfor.me. All rights reserved.</span>
         <span>Open source under AGPL-3.0-only. Commercial licensing available upon request.</span>
       </div>
     </div>
