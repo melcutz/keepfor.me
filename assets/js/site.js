@@ -10,7 +10,7 @@
  */
 
 // Site-wide configuration for primary conversion actions.
-// Signup is open (limited to the first 25 users). If public signups close, switch ctaText to a waitlist label and ctaUrl to your waitlist link.
+// Signup is open but may be limited. If public signups close, switch ctaText to a waitlist label and ctaUrl to your waitlist link.
 window.KFM_CONFIG = window.KFM_CONFIG || {
   ctaText: 'Start free trial',
   ctaUrl: 'https://app.keepfor.me/auth/register',
