@@ -1341,7 +1341,8 @@ button {
   z-index: 1;
 }
 
-.btn-banner-primary {
+.btn-banner-primary,
+.btn-cta-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1358,14 +1359,16 @@ button {
   text-decoration: none;
 }
 
-.btn-banner-primary:hover {
+.btn-banner-primary:hover,
+.btn-cta-primary:hover {
   transform: translateY(-2px);
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
   background: #f8fafc !important;
   color: #3730a3 !important;
 }
 
-.btn-banner-secondary {
+.btn-banner-secondary,
+.btn-cta-secondary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1383,7 +1386,8 @@ button {
   text-decoration: none;
 }
 
-.btn-banner-secondary:hover {
+.btn-banner-secondary:hover,
+.btn-cta-secondary:hover {
   background: rgba(255, 255, 255, 0.22) !important;
   border-color: rgba(255, 255, 255, 0.85) !important;
   color: #ffffff !important;
