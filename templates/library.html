@@ -84,6 +84,23 @@
         <a href="{% if _cat and _cat != 'all' %}/?category={{ _cat }}&quick=1{% else %}/?quick=1{% endif %}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if active_quick %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("zap", class="w-3.5 h-3.5") }}<span>Quick Reads (&lt; 5 min)</span></a>
       </div>
 
+      <!-- Import Summary Toast -->
+      {% if import_summary %}
+      <div class="mb-4 p-3 rounded-lg text-xs flex flex-wrap gap-2 {% if import_summary.error %}bg-red-50 border border-red-200 text-red-800{% else %}bg-emerald-50 border border-emerald-200 text-emerald-800{% endif %}">
+        {% if import_summary.error %}
+        <span class="font-semibold">Import failed:</span>
+        <span>{{ import_summary.error }}</span>
+        {% else %}
+        <span class="font-semibold">Import queued:</span>
+        <span>{{ import_summary.notes_queued }} notes queued</span>
+        {% if import_summary.trashed_skipped %}<span>· {{ import_summary.trashed_skipped }} trashed skipped</span>{% endif %}
+        {% if import_summary.attachments_not_imported %}<span>· {{ import_summary.attachments_not_imported }} attachments not imported</span>{% endif %}
+        {% if import_summary.urls_found %}<span>· {{ import_summary.urls_found }} URLs queued</span>{% endif %}
+        {% if import_summary.parse_errors %}<span class="text-amber-800">· {{ import_summary.parse_errors }} files skipped</span>{% endif %}
+        {% endif %}
+      </div>
+      {% endif %}
+
       <style>
         body { overflow-x: clip; }
         /* Cards: true masonry via multicol (1 → 5 columns). Column-major
