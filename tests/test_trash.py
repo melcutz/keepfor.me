@@ -9,12 +9,15 @@ path, the exclusion of trashed items from every read path, and the purge.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 from keepfor.app import app
 from keepfor.auth.service import login_user, register_user
 from keepfor.mcp.server import MCP_TOOLS, process_mcp_request
+from keepfor.models.cleanup import find_cleanup
 from keepfor.models.items import (
     add_tags_to_item,
     delete_item,
@@ -22,6 +25,7 @@ from keepfor.models.items import (
     get_item_tags,
     list_trash,
     purge_trash,
+    record_open,
     restore_item,
     save_item,
     toggle_pin_item,
@@ -44,6 +48,7 @@ from keepfor.search.engine import (
     hybrid_search,
     list_items_compact,
     match_items,
+    match_items_by_url,
     read_item_chunks,
     related_items,
     search_fts,
@@ -358,6 +363,156 @@ async def test_trashed_item_is_not_matched_by_bulk_update(db, fake_env, user):
 
 
 # ==========================================
+# Exclusion from the cleanup report (find_cleanup)
+# ==========================================
+
+
+@pytest.mark.asyncio
+async def test_trashed_item_is_not_a_cleanup_duplicate(db, fake_env, user):
+    """find_cleanup never groups a trashed item with its live duplicates."""
+    ids = []
+    for i in range(3):
+        item_id = f"dup-{i}"
+        ids.append(item_id)
+        # Same dedupe key (the tracking param is dropped), distinct rows.
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, status)"
+            " VALUES (?, ?, ?, ?, 'ok');",
+            (
+                item_id,
+                user["id"],
+                f"https://example.com/same?utm_source={i}",
+                f"https://example.com/same?utm_source={i}",
+            ),
+        )
+
+    report = await find_cleanup(db, user["id"])
+    assert report["duplicates"]["items"][0]["group_size"] == 3
+
+    await trash_item(db, user["id"], ids[0])
+
+    report = await find_cleanup(db, user["id"])
+    group = report["duplicates"]["items"][0]
+    assert group["group_size"] == 2
+    assert ids[0] not in group["ids"]
+
+
+@pytest.mark.asyncio
+async def test_trashed_item_is_not_a_cleanup_dead_link(db, fake_env, user):
+    """A failed extraction in the Trash is not reported as a dead link."""
+    item = await _seed_item(db, fake_env, user["id"], "https://example.com/dead")
+    await db.execute(
+        "UPDATE items SET status = 'failed', fail_reason = 'HTTP 404' WHERE id = ?;",
+        (item["id"],),
+    )
+    await trash_item(db, user["id"], item["id"])
+
+    report = await find_cleanup(db, user["id"])
+    assert report["dead_links"]["items"] == []
+    assert report["dead_links"]["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_trashed_item_is_not_a_cleanup_never_opened(db, fake_env, user):
+    """An old, never-opened item in the Trash is not a cleanup candidate."""
+    item = await _seed_item(db, fake_env, user["id"], "https://example.com/old")
+    await db.execute(
+        "UPDATE items SET created_at = '2020-01-02 03:04:05' WHERE id = ?;",
+        (item["id"],),
+    )
+    await trash_item(db, user["id"], item["id"])
+
+    report = await find_cleanup(db, user["id"], older_than_days=90)
+    assert report["never_opened"]["items"] == []
+    assert report["never_opened"]["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_trashed_item_is_not_a_cleanup_untagged(db, fake_env, user):
+    """An untagged item in the Trash is not a cleanup candidate."""
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status)"
+        " VALUES ('untagged-1', ?, 'https://example.com/untagged',"
+        " 'https://example.com/untagged', 'ok');",
+        (user["id"],),
+    )
+    await trash_item(db, user["id"], "untagged-1")
+
+    report = await find_cleanup(db, user["id"])
+    assert report["untagged"]["items"] == []
+    assert report["untagged"]["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_trashed_item_is_not_matched_by_url(db, fake_env, user):
+    """A url lookup never returns a trashed item."""
+    item = await _seed_item(db, fake_env, user["id"], "https://example.com/lookup")
+    assert await match_items_by_url(db, user["id"], "https://example.com/lookup") == [
+        item["id"]
+    ]
+
+    await trash_item(db, user["id"], item["id"])
+
+    assert await match_items_by_url(db, user["id"], "https://example.com/lookup") == []
+
+
+# ==========================================
+# Exclusion from the MCP resources and prompts
+# ==========================================
+
+
+async def _call_mcp_method(db, env, user, method, params=None):
+    """Calls one MCP JSON-RPC method and returns the raw response."""
+    body: dict = {"jsonrpc": "2.0", "id": 1, "method": method}
+    if params is not None:
+        body["params"] = params
+    return await process_mcp_request(body, db, env, user)
+
+
+@pytest.mark.asyncio
+async def test_trashed_item_is_hidden_from_mcp_resources(db, fake_env, user):
+    """The MCP resources read the live library only."""
+    item = await _seed_item(db, fake_env, user["id"])
+    await trash_item(db, user["id"], item["id"])
+
+    listed = await _call_mcp_method(db, fake_env, user, "resources/list", {})
+    uris = [r["uri"] for r in listed["result"]["resources"]]
+    assert f"keepfor://item/{item['id']}" not in uris
+
+    read = await _call_mcp_method(
+        db, fake_env, user, "resources/read", {"uri": f"keepfor://item/{item['id']}"}
+    )
+    assert "error" in read
+
+    tagged = await _call_mcp_method(
+        db, fake_env, user, "resources/read", {"uri": "keepfor://tag/work"}
+    )
+    payload = json.loads(tagged["result"]["contents"][0]["text"])
+    assert payload["items"] == []
+
+
+@pytest.mark.asyncio
+async def test_trashed_item_is_hidden_from_mcp_prompts(db, fake_env, user):
+    """The MCP prompts brief on the live library only."""
+    item = await _seed_item(db, fake_env, user["id"])
+    await trash_item(db, user["id"], item["id"])
+
+    brief = await _call_mcp_method(
+        db,
+        fake_env,
+        user,
+        "prompts/get",
+        {"name": "research_brief", "arguments": {"topic": "Trash"}},
+    )
+    assert item["id"] not in brief["result"]["messages"][0]["content"]["text"]
+
+    review = await _call_mcp_method(
+        db, fake_env, user, "prompts/get", {"name": "weekly_review", "arguments": {}}
+    )
+    assert item["id"] not in review["result"]["messages"][0]["content"]["text"]
+
+
+# ==========================================
 # Trash view + purge
 # ==========================================
 
@@ -477,6 +632,48 @@ async def test_delete_forever_removes_a_trashed_item(db, fake_env, user):
         is None
     )
     assert await list_trash(db, user["id"]) == []
+
+
+@pytest.mark.asyncio
+async def test_delete_forever_cleans_the_extra_item_tables(
+    db, fake_env, user, monkeypatch
+):
+    """The permanent delete is where the per-item tables are emptied.
+
+    PR #32 (highlights, collections) plugs its tables into
+    ITEM_EXTRA_DELETES. The trash and the restore must leave them alone, so
+    a restored item keeps them.
+    """
+    from keepfor.models import items as items_model
+
+    monkeypatch.setattr(
+        items_model,
+        "ITEM_EXTRA_DELETES",
+        ("DELETE FROM item_opens WHERE item_id = ? AND user_id = ?;",),
+    )
+    item = await _seed_item(db, fake_env, user["id"])
+    await record_open(db, user["id"], item["id"])
+
+    # The trash and the restore leave the extra rows alone.
+    await trash_item(db, user["id"], item["id"])
+    await restore_item(db, user["id"], item["id"])
+    assert (
+        await db.query_first(
+            "SELECT id FROM item_opens WHERE item_id = ? AND user_id = ?;",
+            (item["id"], user["id"]),
+        )
+        is not None
+    )
+
+    # The permanent delete takes them with it.
+    assert await delete_item(db, fake_env, user["id"], item["id"]) is True
+    assert (
+        await db.query_first(
+            "SELECT id FROM item_opens WHERE item_id = ? AND user_id = ?;",
+            (item["id"], user["id"]),
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio

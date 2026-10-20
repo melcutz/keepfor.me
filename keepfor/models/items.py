@@ -18,6 +18,13 @@ if TYPE_CHECKING:
 _ID_CHUNK = 90
 
 
+# Extra per-item rows removed by the permanent delete, beyond what the item
+# row's ON DELETE CASCADE already takes. Each statement gets the item id and
+# the owner id. PR #32 (highlights, collections) plugs its tables in here:
+# the trash and the restore never run them, so a restored item keeps them.
+ITEM_EXTRA_DELETES: tuple[str, ...] = ()
+
+
 async def save_item(
     db: Database,
     env: Any,
@@ -377,7 +384,13 @@ async def delete_item(
     *,
     scope: TenantScope | None = None,
 ) -> bool:
-    """Deletes item, its D1 records, R2 snapshots, and Vectorize chunks."""
+    """Deletes item, its D1 records, R2 snapshots, and Vectorize chunks.
+
+    This is the only permanent delete path: the Trash view ("Delete forever")
+    and the 30-day purge both come through here. Trashing and restoring
+    never touch the extra per-item tables (ITEM_EXTRA_DELETES), so a
+    restored item keeps them.
+    """
     if scope is None:
         from keepfor.defaults import default_scope
 
@@ -421,15 +434,17 @@ async def delete_item(
     # the item row goes, the foreign key cascade is not guaranteed to be on.
     await purge_item_children(db, user_id, [item_id])
 
-    await db.execute_batch(
-        [
-            (
-                "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
-                (item_id, user_id),
-            ),
-            ("DELETE FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)),
-        ]
-    )
+    # The extra per-item tables go first: their rows may be selected through
+    # the item row.
+    statements = [(sql, (item_id, user_id)) for sql in ITEM_EXTRA_DELETES]
+    statements += [
+        (
+            "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
+            (item_id, user_id),
+        ),
+        ("DELETE FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)),
+    ]
+    await db.execute_batch(statements)
     from keepfor.runtime import get_providers
 
     providers = get_providers()

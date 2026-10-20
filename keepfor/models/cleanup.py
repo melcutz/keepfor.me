@@ -6,7 +6,8 @@
 Finds what a user could clean up: duplicate items (same normalized url),
 dead links (the stored extraction failed), never-opened old items, untagged
 items and near-duplicate tags. Every query is a SELECT scoped to the owning
-user_id; nothing here writes.
+user_id; nothing here writes. Trashed items are invisible: the report only
+suggests cleaning up what is still in the library.
 """
 
 from __future__ import annotations
@@ -54,7 +55,7 @@ async def _duplicates(
     """
     rows = await db.query_all(
         "SELECT id, url, canonical_url FROM items"
-        " WHERE user_id = ? ORDER BY created_at ASC;",
+        " WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at ASC;",
         (user_id,),
     )
     groups: dict[str, list[str]] = {}
@@ -82,13 +83,14 @@ async def _dead_links(
 ) -> dict[str, Any]:
     """Items whose stored extraction failed (no network requests)."""
     total_row = await db.query_first(
-        "SELECT COUNT(*) as c FROM items WHERE user_id = ? AND status = 'failed';",
+        "SELECT COUNT(*) as c FROM items"
+        " WHERE user_id = ? AND status = 'failed' AND deleted_at IS NULL;",
         (user_id,),
     )
     total = total_row["c"] if total_row else 0
     rows = await db.query_all(
         "SELECT id, fail_reason FROM items"
-        " WHERE user_id = ? AND status = 'failed'"
+        " WHERE user_id = ? AND status = 'failed' AND deleted_at IS NULL"
         " ORDER BY created_at DESC LIMIT ?;",
         (user_id, limit),
     )
@@ -106,7 +108,8 @@ async def _never_opened(
     params = (user_id, f"-{older_than_days} days", user_id)
     total_row = await db.query_first(
         "SELECT COUNT(*) as c FROM items i"
-        " WHERE i.user_id = ? AND datetime(i.created_at) <= datetime('now', ?)"
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL"
+        " AND datetime(i.created_at) <= datetime('now', ?)"
         " AND NOT EXISTS (SELECT 1 FROM item_opens o"
         " WHERE o.item_id = i.id AND o.user_id = ?)"
         " AND i.read_state != 'archived';",
@@ -115,7 +118,8 @@ async def _never_opened(
     total = total_row["c"] if total_row else 0
     rows = await db.query_all(
         "SELECT i.id, i.created_at FROM items i"
-        " WHERE i.user_id = ? AND datetime(i.created_at) <= datetime('now', ?)"
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL"
+        " AND datetime(i.created_at) <= datetime('now', ?)"
         " AND NOT EXISTS (SELECT 1 FROM item_opens o"
         " WHERE o.item_id = i.id AND o.user_id = ?)"
         " AND i.read_state != 'archived'"
@@ -138,6 +142,7 @@ async def _untagged(
     """Items without any tag."""
     total_row = await db.query_first(
         "SELECT COUNT(*) as c FROM items i WHERE i.user_id = ?"
+        " AND i.deleted_at IS NULL"
         " AND NOT EXISTS (SELECT 1 FROM item_tags it WHERE it.item_id = i.id);",
         (user_id,),
     )

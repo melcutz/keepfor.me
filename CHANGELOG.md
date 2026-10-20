@@ -65,7 +65,8 @@ argument away in the first two cases.
   - Trashed items are excluded everywhere: library, pinned shelf, search (FTS
     and vector results), MCP `list_items`/`search_library`/`search_passages`/
     `find_item`/`read_item`/`get_item`/`related_items`/`reading_history`, the
-    status pills, the tag counts and co-occurrence, the tag cleanup report,
+    MCP resources and prompts, the status pills, the tag counts and
+    co-occurrence, the tag cleanup report, the `find_cleanup` report,
     `bulk_update` matching, the pending tag suggestions, the stats page and
     the library export (JSON and HTML).
   - A trashed item is also immutable: it cannot be pinned, annotated,
