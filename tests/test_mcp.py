@@ -295,7 +295,7 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 28
+    assert len(names) == 29
     assert "save_url" in names
     assert "save_note" in names
     assert "pin_item" in names
@@ -310,6 +310,8 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     assert "create_tag" in names
     assert "delete_tag" in names
     assert "tag_cleanup" in names
+    # Bulk updates
+    assert "bulk_update" in names
     # Every tool declares annotations
     for tool in res.json()["result"]["tools"]:
         assert set(tool["annotations"]) == {
@@ -419,6 +421,7 @@ TOOL_ARGUMENTS = {
     "tag_item": {"item_id": "ITEM", "add_tags": ["t"]},
     "tag_items": {"item_ids": ["ITEM"], "add": ["t"]},
     "retag_by_query": {"query": "alpha", "add": ["t"]},
+    "bulk_update": {"tags_all": ["work"], "add_tags": ["probe-tag"]},
     "set_item_tags": {"item_id": "ITEM", "tags": ["t"]},
     "suggest_tags": {"item_id": "ITEM"},
     "search_tags": {"query": "a"},
@@ -516,3 +519,318 @@ async def test_every_tool_works_without_scope_information(db):
     # (pin_item legitimately fails: delete_item already removed the item.)
     succeeded = sum(1 for v in outcomes.values() if v["wildcard"][0] == "ok")
     assert succeeded >= 25, f"only {succeeded} tools succeeded: {outcomes}"
+
+
+# ==========================================
+# bulk_update (GitHub issue #20)
+# ==========================================
+
+
+@pytest.fixture
+async def bulk_user(db):
+    """A user with three items: two tagged 'tech', one tagged 'science'."""
+    from keepfor.models.items import save_item
+
+    user = await register_user(db, "bulk@example.com", "password123")
+    env = MockEnv()
+    ids: list[str] = []
+    for url, tags in (
+        ("https://example.com/tech-1", ["tech"]),
+        ("https://example.com/tech-2", ["tech"]),
+        ("https://example.com/science-1", ["science"]),
+    ):
+        item, _ = await save_item(db, env, user["id"], url, tags=tags)
+        ids.append(item["id"])
+    return user, env, db, ids
+
+
+async def _bulk_update(db, env, user, arguments):
+    """Calls the bulk_update tool and returns the JSON-RPC response."""
+    return await process_mcp_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "bulk_update", "arguments": arguments},
+        },
+        db,
+        env,
+        user,
+    )
+
+
+def _bulk_result(res):
+    """Unwraps the tool payload; fails loudly on a JSON-RPC error."""
+    assert "error" not in res, res["error"]
+    return json.loads(res["result"]["content"][0]["text"])
+
+
+async def _item_state(db, user_id):
+    """Returns {item_id: (status, is_pinned, sorted tags)} for the user."""
+    rows = await db.query_all(
+        "SELECT id, status, is_pinned FROM items WHERE user_id = ? ORDER BY id;",
+        (user_id,),
+    )
+    state = {}
+    for r in rows:
+        tags = await db.query_all(
+            "SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id"
+            " WHERE it.item_id = ? ORDER BY t.name;",
+            (r["id"],),
+        )
+        state[r["id"]] = (r["status"], r["is_pinned"], [t["name"] for t in tags])
+    return state
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_dry_run_writes_nothing(bulk_user):
+    """The default dry run reports the change and leaves the library alone."""
+    user, env, db, ids = bulk_user
+    before = await _item_state(db, user["id"])
+
+    res = await _bulk_update(
+        db, env, user, {"tags_all": ["tech"], "add_tags": ["bulk"], "pin": True}
+    )
+    result = _bulk_result(res)
+    assert result["dry_run"] is True
+    assert result["total_matched"] == 2
+    assert result["affected"] == 2
+    assert result["truncated"] is False
+    assert sorted(result["sample"]) == sorted(ids[:2])
+
+    assert await _item_state(db, user["id"]) == before
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_applies_only_matched_items(bulk_user):
+    """A real run touches the matched items and nothing else."""
+    user, env, db, ids = bulk_user
+    res = await _bulk_update(
+        db,
+        env,
+        user,
+        {"tags_all": ["tech"], "add_tags": ["bulk"], "pin": True, "dry_run": False},
+    )
+    result = _bulk_result(res)
+    assert result["dry_run"] is False
+    assert result["affected"] == 2
+
+    state = await _item_state(db, user["id"])
+    for item_id in ids[:2]:
+        _, pinned, tags = state[item_id]
+        assert pinned == 1
+        assert "bulk" in tags
+    # The unmatched item is untouched.
+    assert state[ids[2]] == ("queued", 0, ["science"])
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_sets_status(bulk_user):
+    """set_status writes the raw status; the status filter uses the groups."""
+    user, env, db, ids = bulk_user
+    res = await _bulk_update(
+        db,
+        env,
+        user,
+        {"domain": "example.com", "set_status": "failed", "dry_run": False},
+    )
+    assert _bulk_result(res)["affected"] == 3
+    state = await _item_state(db, user["id"])
+    assert {v[0] for v in state.values()} == {"failed"}
+
+    res = await _bulk_update(
+        db, env, user, {"status": "failed", "pin": True, "dry_run": False}
+    )
+    assert _bulk_result(res)["total_matched"] == 3
+    state = await _item_state(db, user["id"])
+    assert {v[1] for v in state.values()} == {1}
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_removes_tags(bulk_user):
+    """remove_tags drops the tag from the matched items only."""
+    user, env, db, ids = bulk_user
+    res = await _bulk_update(
+        db, env, user, {"tags_all": ["tech"], "remove_tags": ["tech"], "dry_run": False}
+    )
+    assert _bulk_result(res)["affected"] == 2
+    state = await _item_state(db, user["id"])
+    assert state[ids[0]][2] == []
+    assert state[ids[1]][2] == []
+    assert state[ids[2]][2] == ["science"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_caps_at_200_items(db):
+    """The 200-item cap truncates the update and reports it."""
+    user = await register_user(db, "cap@example.com", "password123")
+    env = MockEnv()
+    for i in range(205):
+        url = f"https://example.com/cap-{i}"
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, title, status)"
+            " VALUES (?, ?, ?, ?, ?, 'ok');",
+            (f"cap-{i}", user["id"], url, url, f"Cap {i}"),
+        )
+
+    res = await _bulk_update(
+        db, env, user, {"domain": "example.com", "pin": True, "dry_run": False}
+    )
+    result = _bulk_result(res)
+    assert result["total_matched"] == 205
+    assert result["affected"] == 200
+    assert result["truncated"] is True
+
+    rows = await db.query_all(
+        "SELECT COUNT(*) as c FROM items WHERE user_id = ? AND is_pinned = 1;",
+        (user["id"],),
+    )
+    assert rows[0]["c"] == 200
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_requires_a_filter(bulk_user):
+    """An empty filter would match the whole library: it is rejected."""
+    user, env, db, ids = bulk_user
+    res = await _bulk_update(db, env, user, {"pin": True})
+    assert res["error"]["data"]["type"] == "invalid_arguments"
+    assert "filter" in res["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_requires_a_change(bulk_user):
+    """A filter without any change is a no-op: it is rejected."""
+    user, env, db, ids = bulk_user
+    res = await _bulk_update(db, env, user, {"tags_all": ["tech"]})
+    assert res["error"]["data"]["type"] == "invalid_arguments"
+    assert "change" in res["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_rejects_unknown_status(bulk_user):
+    """An unknown status group is rejected instead of matching everything."""
+    user, env, db, ids = bulk_user
+    res = await _bulk_update(db, env, user, {"status": "bogus", "pin": True})
+    assert res["error"]["data"]["type"] == "invalid_arguments"
+    assert "status" in res["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_dry_run_must_be_a_boolean(bulk_user):
+    """dry_run fails closed: only a JSON boolean is accepted.
+
+    A null, 0 or "false" must never be coerced into "apply".
+    """
+    user, env, db, ids = bulk_user
+    for bad in (None, "false", 0, "", 1):
+        res = await _bulk_update(
+            db, env, user, {"tags_all": ["tech"], "pin": True, "dry_run": bad}
+        )
+        assert res["error"]["data"]["type"] == "invalid_arguments", bad
+        assert "dry_run" in res["error"]["message"], bad
+    # Nothing was applied.
+    state = await _item_state(db, user["id"])
+    assert all(pinned == 0 for _, pinned, _ in state.values())
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_normalizes_and_validates_tag_names(bulk_user):
+    """Tag names follow the create_tag rules: normalized, or rejected."""
+    user, env, db, ids = bulk_user
+    res = await _bulk_update(
+        db,
+        env,
+        user,
+        {"tags_all": ["tech"], "add_tags": ["  Bulk  "], "dry_run": False},
+    )
+    assert _bulk_result(res)["affected"] == 2
+    state = await _item_state(db, user["id"])
+    assert "bulk" in state[ids[0]][2]
+
+    for bad in ("work/research", "x", "a" * 65, "c++"):
+        res = await _bulk_update(
+            db, env, user, {"tags_all": ["tech"], "add_tags": [bad], "dry_run": False}
+        )
+        assert res["error"]["data"]["type"] == "invalid_arguments", bad
+        assert "tag name" in res["error"]["message"], bad
+
+    rows = await db.query_all(
+        "SELECT name FROM tags WHERE user_id = ? ORDER BY name;", (user["id"],)
+    )
+    assert [r["name"] for r in rows] == ["bulk", "science", "tech"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_apply_is_atomic(bulk_user):
+    """The apply is one transaction: a failure changes nothing.
+
+    The status change and the tag change run in the same batch, so a
+    statement that fails rolls both back (D1's batch() is transactional).
+    """
+    import sqlite3
+
+    from keepfor.models.db import Database
+    from keepfor.models.items import bulk_update_items
+
+    user, env, db, ids = bulk_user
+    before = await _item_state(db, user["id"])
+
+    class _FailingBatch(Database):
+        """Fails the batch after its statements ran, like a D1 error."""
+
+        async def execute_batch(self, statements):
+            await super().execute_batch(
+                [*statements, ("SELECT no_such_function();", ())]
+            )
+
+    with pytest.raises(sqlite3.OperationalError):
+        await bulk_update_items(
+            _FailingBatch(sqlite_conn=db.sqlite),
+            user["id"],
+            ids[:2],
+            set_status="failed",
+            pin=True,
+            add_tags=["bulk"],
+        )
+
+    assert await _item_state(db, user["id"]) == before
+    rows = await db.query_all(
+        "SELECT name FROM tags WHERE user_id = ? AND name = 'bulk';", (user["id"],)
+    )
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_never_updates_foreign_items(bulk_user):
+    """Another user's item is never touched, even when its id is passed in."""
+    from keepfor.models.items import bulk_update_items, save_item
+
+    user, env, db, ids = bulk_user
+    other = await register_user(db, "other@example.com", "password123", True)
+    other_item, _ = await save_item(db, env, other["id"], "https://other.example.com/x")
+    before = await _item_state(db, other["id"])
+
+    await bulk_update_items(
+        db,
+        user["id"],
+        [ids[0], other_item["id"]],
+        set_status="failed",
+        pin=True,
+        add_tags=["bulk"],
+    )
+
+    assert await _item_state(db, other["id"]) == before
+    state = await _item_state(db, user["id"])
+    assert state[ids[0]][0] == "failed"
+    assert state[ids[0]][1] == 1
+    assert "bulk" in state[ids[0]][2]
+
+
+def test_bulk_update_is_annotated_destructive():
+    """The tool is annotated destructive, like delete_item and delete_tag."""
+    from keepfor.mcp.server import MCP_TOOLS
+
+    tool = next(t for t in MCP_TOOLS if t["name"] == "bulk_update")
+    assert tool["annotations"]["destructiveHint"] is True
+    assert tool["annotations"]["readOnlyHint"] is False
+    assert tool["inputSchema"]["properties"]["dry_run"]["default"] is True

@@ -605,6 +605,70 @@ async def test_mcp_new_tools_isolation(
 
 
 @pytest.mark.asyncio
+async def test_mcp_bulk_update_isolation(harness: IsolationHarness):
+    """MCP bulk_update as Tenant B never touches Tenant A's items.
+
+    Both tenants own items tagged 'tag1', so the filter matches for B too:
+    the update must land on B's items only.
+    """
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 403,
+            "method": "tools/call",
+            "params": {
+                "name": "bulk_update",
+                "arguments": {
+                    "tags_all": ["tag1"],
+                    "add_tags": ["hijack"],
+                    "pin": True,
+                    "set_status": "failed",
+                    "dry_run": False,
+                },
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert "error" not in resp.json(), resp.json()["error"]
+    assert a.unique_keyword not in resp.text
+    assert a.html_item_id not in resp.text
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, "bulk_update modified Tenant A"
+
+    # Tenant A's items are untouched down to their status and tags.
+    a_statuses = await a.db.query_all(
+        "SELECT status FROM items WHERE user_id = ?;", (a.user["id"],)
+    )
+    assert {r["status"] for r in a_statuses} == {"queued"}
+    a_hijack = await a.db.query_all(
+        "SELECT id FROM tags WHERE user_id = ? AND name = 'hijack';", (a.user["id"],)
+    )
+    assert a_hijack == []
+
+    # Tenant B's own items were updated: the call was not a silent no-op.
+    b_rows = await b.db.query_all(
+        "SELECT id, status, is_pinned FROM items"
+        " WHERE user_id = ? AND status = 'failed';",
+        (b.user["id"],),
+    )
+    assert len(b_rows) == 2
+    assert all(r["is_pinned"] == 1 for r in b_rows)
+    b_hijack = await b.db.query_all(
+        "SELECT it.item_id FROM item_tags it JOIN tags t ON t.id = it.tag_id"
+        " WHERE t.user_id = ? AND t.name = 'hijack';",
+        (b.user["id"],),
+    )
+    assert len(b_hijack) == 2
+
+
+@pytest.mark.asyncio
 async def test_mcp_find_item_isolation(harness: IsolationHarness):
     """MCP find_item as Tenant B never returns Tenant A's items."""
     a = harness.tenant_a

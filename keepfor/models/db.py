@@ -59,7 +59,12 @@ class Database:
     async def execute_batch(
         self, statements: Sequence[tuple[str, Sequence[Any]]]
     ) -> None:
-        """Executes a list of (sql, params) queries."""
+        """Executes a list of (sql, params) queries in one transaction.
+
+        D1's batch() is transactional: a failing statement rolls the whole
+        sequence back. The sqlite branch does the same, so a caller sees
+        the same all-or-nothing behaviour in tests and in production.
+        """
         if self.d1 is not None:
             prepared = []
             for sql, params in statements:
@@ -70,8 +75,12 @@ class Database:
             await self.d1.batch(prepared)
         elif self.sqlite is not None:
             cursor = self.sqlite.cursor()
-            for sql, params in statements:
-                cursor.execute(sql, params)
+            try:
+                for sql, params in statements:
+                    cursor.execute(sql, params)
+            except Exception:
+                self.sqlite.rollback()
+                raise
             self.sqlite.commit()
         else:
             raise RuntimeError("No database connection available")

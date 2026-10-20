@@ -10,7 +10,9 @@ from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
 from keepfor.models.items import (
+    BULK_UPDATE_LIMIT,
     add_tags_to_item,
+    bulk_update_items,
     create_tag,
     delete_item,
     get_item,
@@ -22,9 +24,7 @@ from keepfor.models.items import (
     toggle_pin_item,
 )
 from keepfor.models.tags import (
-    delete_tag as delete_tag_dry,
-)
-from keepfor.models.tags import (
+    SAMPLE_LIMIT,
     find_duplicate_tags,
     find_untagged_items,
     find_unused_tags,
@@ -41,16 +41,22 @@ from keepfor.models.tags import (
     tag_stats,
     update_tag,
 )
+from keepfor.models.tags import (
+    delete_tag as delete_tag_dry,
+)
 from keepfor.search.engine import (
+    STATUS_GROUPS,
     find_items,
     hybrid_search,
     list_items_compact,
+    match_items,
     read_item_chunks,
     reading_history,
     related_items,
     resolve_item,
     search_chunks,
 )
+from keepfor.utils.tagger import validate_tag_name
 
 if TYPE_CHECKING:
     from keepfor.spi import TenantScope
@@ -82,6 +88,9 @@ DEFAULT_LIST_FIELDS = ("id", "title", "url", "saved_at", "tags")
 
 # Cap on the number of source tags one merge_tags call may fold together.
 MAX_MERGE_SOURCES = 20
+
+# Cap on the tags one bulk_update call may add or remove.
+MAX_BULK_TAGS = 20
 
 # Shared tag filter arguments. Child tags count: "work" matches "work/research".
 _TAG_FILTER_PROPS = {
@@ -182,6 +191,21 @@ def _as_list(value: Any) -> list[str]:
     return [str(value)]
 
 
+def _dry_run_flag(arguments: dict[str, Any]) -> bool:
+    """Reads dry_run, failing closed: only a JSON boolean is accepted.
+
+    A missing dry_run means a preview (True). Anything else - null, 0,
+    "false" - is rejected instead of coerced, so a malformed request can
+    never apply changes by accident.
+    """
+    if "dry_run" not in arguments:
+        return True
+    value = arguments["dry_run"]
+    if not isinstance(value, bool):
+        raise _invalid("dry_run must be a boolean")
+    return value
+
+
 def _tag_filters(arguments: dict[str, Any]) -> dict[str, Any]:
     """Reads the tag filter arguments, folding the legacy tag/tags into tags_all."""
     tags_all = _as_list(arguments.get("tags_all"))
@@ -195,6 +219,60 @@ def _tag_filters(arguments: dict[str, Any]) -> dict[str, Any]:
         "tags_none": _as_list(arguments.get("tags_none")),
         "untagged": bool(arguments.get("untagged", False)),
     }
+
+
+def _bulk_update_filters(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Reads and validates the bulk_update filter arguments.
+
+    Returns the filter kwargs for match_items. An empty filter is
+    rejected: it would match the whole library.
+    """
+    status = arguments.get("status")
+    if status is not None:
+        status = str(status).strip().lower()
+        if status not in ("all", *STATUS_GROUPS):
+            raise _invalid(
+                "bulk_update status must be one of: all, "
+                + ", ".join(sorted(STATUS_GROUPS))
+            )
+        if status == "all":
+            status = None
+
+    def _text(value: Any) -> str | None:
+        clean = str(value).strip() if value is not None else ""
+        return clean or None
+
+    pinned = arguments.get("pinned")
+    if pinned is not None and not isinstance(pinned, bool):
+        raise _invalid("bulk_update pinned must be a boolean")
+
+    filters = {
+        "status": status,
+        "since": _text(arguments.get("since")),
+        "until": _text(arguments.get("until")),
+        "domain": _text(arguments.get("domain")),
+        "pinned": pinned,
+        "item_type": _text(arguments.get("type")),
+        **_tag_filters(arguments),
+    }
+    if not (
+        filters["status"]
+        or filters["since"]
+        or filters["until"]
+        or filters["domain"]
+        or filters["pinned"] is not None
+        or filters["item_type"]
+        or filters["tags_all"]
+        or filters["tags_any"]
+        or filters["tags_none"]
+        or filters["untagged"]
+    ):
+        raise _invalid(
+            "bulk_update requires a filter (status, since, until, domain, "
+            "pinned, type, tags_all, tags_any, tags_none or untagged): an "
+            "empty filter would match the whole library."
+        )
+    return filters
 
 
 MCP_TOOLS = [
@@ -906,6 +984,78 @@ MCP_TOOLS = [
         "annotations": _WRITE,
     },
     {
+        "name": "bulk_update",
+        "description": "Updates many library items at once: sets the status, "
+        "pins or unpins, and adds or removes tags on every item matching a "
+        "filter. Filters: status group (saved/extracting/failed), saved date "
+        "range (since/until), domain, pinned, type (note/url) and tags. At "
+        "least one filter is required. Defaults to dry_run=true, which "
+        "reports what would change without touching anything; pass "
+        "dry_run=false to apply. At most 200 items are updated per call; the "
+        "result reports total_matched, affected and truncated. Use list_items "
+        "to see what a filter matches before applying.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["all", "saved", "extracting", "failed"],
+                    "description": "Only items in this status group: 'saved' "
+                    "(extracted), 'extracting' (queued) or 'failed'.",
+                },
+                "since": {
+                    "type": "string",
+                    "description": "ISO datetime: only items saved at/after it.",
+                },
+                "until": {
+                    "type": "string",
+                    "description": "ISO datetime: only items saved at/before it.",
+                },
+                "domain": {
+                    "type": "string",
+                    "description": "Only items from this host (e.g. example.com).",
+                },
+                "pinned": {
+                    "type": "boolean",
+                    "description": "Only pinned (true) or only unpinned (false).",
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["note", "url"],
+                    "description": "Only notes or only saved urls.",
+                },
+                **_TAG_FILTER_PROPS,
+                "set_status": {
+                    "type": "string",
+                    "enum": ["saved", "extracting", "failed"],
+                    "description": "Set the status of the matched items: "
+                    "'saved' (extracted), 'extracting' (queued again - it does "
+                    "not re-run extraction) or 'failed'.",
+                },
+                "pin": {
+                    "type": "boolean",
+                    "description": "Pin (true) or unpin (false) the matched items.",
+                },
+                "add_tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to add (at most 20).",
+                },
+                "remove_tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to remove (at most 20).",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Preview only (true) or apply (false).",
+                },
+            },
+        },
+        "annotations": _DESTRUCTIVE,
+    },
+    {
         "name": "set_item_tags",
         "description": "Replaces the whole tag set of one item with the given "
         "tags. Tags not in the list are removed. Use tag_item to add or remove "
@@ -1417,33 +1567,33 @@ async def handle_tool_call(
         name = arguments.get("name")
         if not name or not isinstance(name, str):
             raise _invalid("delete_tag requires a name")
-        dry_run = arguments.get("dry_run", True)
-        result = await delete_tag_dry(db, user_id, name, dry_run=bool(dry_run))
+        dry_run = _dry_run_flag(arguments)
+        result = await delete_tag_dry(db, user_id, name, dry_run=dry_run)
         if not result["found"]:
             raise _not_found("Tag not found.")
-        return {**result, "dry_run": bool(dry_run)}
+        return {**result, "dry_run": dry_run}
 
     elif tool_name == "tag_items":
         item_ids = _as_list(arguments.get("item_ids"))
         if not item_ids:
             raise _invalid("tag_items requires item_ids")
-        dry_run = arguments.get("dry_run", True)
+        dry_run = _dry_run_flag(arguments)
         result = await tag_items(
             db,
             user_id,
             item_ids,
             add=_as_list(arguments.get("add")),
             remove=_as_list(arguments.get("remove")),
-            dry_run=bool(dry_run),
+            dry_run=dry_run,
         )
-        return {**result, "dry_run": bool(dry_run)}
+        return {**result, "dry_run": dry_run}
 
     elif tool_name == "retag_by_query":
         add = _as_list(arguments.get("add"))
         remove = _as_list(arguments.get("remove"))
         if not add and not remove:
             raise _invalid("retag_by_query requires add and/or remove")
-        dry_run = arguments.get("dry_run", True)
+        dry_run = _dry_run_flag(arguments)
         filters = _tag_filters(arguments)
         tag_clause, tag_params = await tag_filter_clause(
             db,
@@ -1459,11 +1609,67 @@ async def handle_tool_call(
             query=arguments.get("query"),
             add=add,
             remove=remove,
-            dry_run=bool(dry_run),
+            dry_run=dry_run,
             tag_clause=tag_clause,
             tag_params=tag_params,
         )
-        return {**result, "dry_run": bool(dry_run)}
+        return {**result, "dry_run": dry_run}
+
+    elif tool_name == "bulk_update":
+        filters = _bulk_update_filters(arguments)
+        set_status = arguments.get("set_status")
+        if set_status is not None:
+            set_status = str(set_status).strip().lower()
+            if set_status not in STATUS_GROUPS:
+                raise _invalid(
+                    "bulk_update set_status must be one of: "
+                    + ", ".join(sorted(STATUS_GROUPS))
+                )
+        pin = arguments.get("pin")
+        if pin is not None and not isinstance(pin, bool):
+            raise _invalid("bulk_update pin must be a boolean")
+        add_tags = _as_list(arguments.get("add_tags"))
+        remove_tags = _as_list(arguments.get("remove_tags"))
+        if len(add_tags) > MAX_BULK_TAGS or len(remove_tags) > MAX_BULK_TAGS:
+            raise _invalid(
+                f"bulk_update accepts at most {MAX_BULK_TAGS} tags per list."
+            )
+        for label, names in (("add_tags", add_tags), ("remove_tags", remove_tags)):
+            invalid = [n for n in names if not validate_tag_name(n or "")]
+            if invalid:
+                raise _invalid(
+                    f"bulk_update {label} has an invalid tag name: {invalid[0]!r}. "
+                    "A tag is 2-64 characters of a-z, 0-9, space, _ or -."
+                )
+        if set_status is None and pin is None and not add_tags and not remove_tags:
+            raise _invalid(
+                "bulk_update requires a change: set_status, pin, add_tags or "
+                "remove_tags."
+            )
+
+        dry_run = _dry_run_flag(arguments)
+        total_matched, item_ids = await match_items(
+            db, user_id, limit=BULK_UPDATE_LIMIT, **filters
+        )
+        affected = len(item_ids)
+        result = {
+            "total_matched": total_matched,
+            "affected": affected,
+            "truncated": total_matched > affected,
+            "sample": item_ids[:SAMPLE_LIMIT],
+            "dry_run": dry_run,
+        }
+        if not dry_run and item_ids:
+            await bulk_update_items(
+                db,
+                user_id,
+                item_ids,
+                set_status=STATUS_GROUPS[set_status][0] if set_status else None,
+                pin=pin,
+                add_tags=add_tags,
+                remove_tags=remove_tags,
+            )
+        return result
 
     elif tool_name == "set_item_tags":
         item_id = arguments.get("item_id")
