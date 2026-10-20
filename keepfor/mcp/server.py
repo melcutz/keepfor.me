@@ -56,6 +56,7 @@ from keepfor.search.engine import (
     resolve_item,
     search_chunks,
 )
+from keepfor.utils.tagger import validate_tag_name
 
 if TYPE_CHECKING:
     from keepfor.spi import TenantScope
@@ -188,6 +189,21 @@ def _as_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(v) for v in value]
     return [str(value)]
+
+
+def _dry_run_flag(arguments: dict[str, Any]) -> bool:
+    """Reads dry_run, failing closed: only a JSON boolean is accepted.
+
+    A missing dry_run means a preview (True). Anything else - null, 0,
+    "false" - is rejected instead of coerced, so a malformed request can
+    never apply changes by accident.
+    """
+    if "dry_run" not in arguments:
+        return True
+    value = arguments["dry_run"]
+    if not isinstance(value, bool):
+        raise _invalid("dry_run must be a boolean")
+    return value
 
 
 def _tag_filters(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -1551,33 +1567,33 @@ async def handle_tool_call(
         name = arguments.get("name")
         if not name or not isinstance(name, str):
             raise _invalid("delete_tag requires a name")
-        dry_run = arguments.get("dry_run", True)
-        result = await delete_tag_dry(db, user_id, name, dry_run=bool(dry_run))
+        dry_run = _dry_run_flag(arguments)
+        result = await delete_tag_dry(db, user_id, name, dry_run=dry_run)
         if not result["found"]:
             raise _not_found("Tag not found.")
-        return {**result, "dry_run": bool(dry_run)}
+        return {**result, "dry_run": dry_run}
 
     elif tool_name == "tag_items":
         item_ids = _as_list(arguments.get("item_ids"))
         if not item_ids:
             raise _invalid("tag_items requires item_ids")
-        dry_run = arguments.get("dry_run", True)
+        dry_run = _dry_run_flag(arguments)
         result = await tag_items(
             db,
             user_id,
             item_ids,
             add=_as_list(arguments.get("add")),
             remove=_as_list(arguments.get("remove")),
-            dry_run=bool(dry_run),
+            dry_run=dry_run,
         )
-        return {**result, "dry_run": bool(dry_run)}
+        return {**result, "dry_run": dry_run}
 
     elif tool_name == "retag_by_query":
         add = _as_list(arguments.get("add"))
         remove = _as_list(arguments.get("remove"))
         if not add and not remove:
             raise _invalid("retag_by_query requires add and/or remove")
-        dry_run = arguments.get("dry_run", True)
+        dry_run = _dry_run_flag(arguments)
         filters = _tag_filters(arguments)
         tag_clause, tag_params = await tag_filter_clause(
             db,
@@ -1593,11 +1609,11 @@ async def handle_tool_call(
             query=arguments.get("query"),
             add=add,
             remove=remove,
-            dry_run=bool(dry_run),
+            dry_run=dry_run,
             tag_clause=tag_clause,
             tag_params=tag_params,
         )
-        return {**result, "dry_run": bool(dry_run)}
+        return {**result, "dry_run": dry_run}
 
     elif tool_name == "bulk_update":
         filters = _bulk_update_filters(arguments)
@@ -1618,13 +1634,20 @@ async def handle_tool_call(
             raise _invalid(
                 f"bulk_update accepts at most {MAX_BULK_TAGS} tags per list."
             )
+        for label, names in (("add_tags", add_tags), ("remove_tags", remove_tags)):
+            invalid = [n for n in names if not validate_tag_name(n or "")]
+            if invalid:
+                raise _invalid(
+                    f"bulk_update {label} has an invalid tag name: {invalid[0]!r}. "
+                    "A tag is 2-64 characters of a-z, 0-9, space, _ or -."
+                )
         if set_status is None and pin is None and not add_tags and not remove_tags:
             raise _invalid(
                 "bulk_update requires a change: set_status, pin, add_tags or "
                 "remove_tags."
             )
 
-        dry_run = bool(arguments.get("dry_run", True))
+        dry_run = _dry_run_flag(arguments)
         total_matched, item_ids = await match_items(
             db, user_id, limit=BULK_UPDATE_LIMIT, **filters
         )

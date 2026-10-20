@@ -217,7 +217,7 @@ curl https://app.keepfor.me/api/mcp \
 
 ### Available MCP Tools (Server 0.2.0)
 
-The MCP server exposes 29 tools:
+The MCP server exposes 29 tools. Every tool that can change something takes a `dry_run` flag: it is only accepted as a JSON boolean (omitted means `true`, a preview), and anything else is rejected rather than applied.
 
 1. **`save_url`** — Save any webpage to your library. Accepts optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
 2. **`save_note`** — Save a personal note, code snippet, or prompt template. Accepts the same optional provenance fields.
@@ -239,7 +239,7 @@ The MCP server exposes 29 tools:
 18. **`tag_item`** — Add or remove tags on a single item.
 19. **`tag_items`** — Add/remove tags across many items. `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
 20. **`retag_by_query`** — Tag items matching a title/url query (plus tag filters). `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
-21. **`bulk_update`** — Update the status, the pin state and the tags of every item matching a filter (status group, saved date range, domain, pinned, type, tags). `dry_run=true` by default: it reports `total_matched`, `affected` and `truncated` without writing anything. At most 200 items are updated per call, and an empty filter or an empty change is rejected.
+21. **`bulk_update`** — Update the status, the pin state and the tags of every item matching a filter (status group, saved date range, domain, pinned, type, tags). `dry_run=true` by default: it reports `total_matched`, `affected` and `truncated` without writing anything. At most 200 items are updated per call, and an empty filter or an empty change is rejected. The whole update is applied in one transaction, and tag names follow the `create_tag` rules (2-64 characters of `a-z`, `0-9`, space, `_` or `-`).
 22. **`set_item_tags`** — Replace the whole tag set of one item.
 23. **`suggest_tags`** — Suggest tags for an item or for free text, drawn from your existing vocabulary first.
 24. **`search_tags`** — Fuzzy search over tag names and descriptions (`machinelearning` finds `machine-learning`).

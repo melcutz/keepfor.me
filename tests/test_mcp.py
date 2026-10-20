@@ -421,7 +421,7 @@ TOOL_ARGUMENTS = {
     "tag_item": {"item_id": "ITEM", "add_tags": ["t"]},
     "tag_items": {"item_ids": ["ITEM"], "add": ["t"]},
     "retag_by_query": {"query": "alpha", "add": ["t"]},
-    "bulk_update": {"tags_all": ["work"], "add_tags": ["t"]},
+    "bulk_update": {"tags_all": ["work"], "add_tags": ["probe-tag"]},
     "set_item_tags": {"item_id": "ITEM", "tags": ["t"]},
     "suggest_tags": {"item_id": "ITEM"},
     "search_tags": {"query": "a"},
@@ -713,6 +713,117 @@ async def test_bulk_update_rejects_unknown_status(bulk_user):
     res = await _bulk_update(db, env, user, {"status": "bogus", "pin": True})
     assert res["error"]["data"]["type"] == "invalid_arguments"
     assert "status" in res["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_dry_run_must_be_a_boolean(bulk_user):
+    """dry_run fails closed: only a JSON boolean is accepted.
+
+    A null, 0 or "false" must never be coerced into "apply".
+    """
+    user, env, db, ids = bulk_user
+    for bad in (None, "false", 0, "", 1):
+        res = await _bulk_update(
+            db, env, user, {"tags_all": ["tech"], "pin": True, "dry_run": bad}
+        )
+        assert res["error"]["data"]["type"] == "invalid_arguments", bad
+        assert "dry_run" in res["error"]["message"], bad
+    # Nothing was applied.
+    state = await _item_state(db, user["id"])
+    assert all(pinned == 0 for _, pinned, _ in state.values())
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_normalizes_and_validates_tag_names(bulk_user):
+    """Tag names follow the create_tag rules: normalized, or rejected."""
+    user, env, db, ids = bulk_user
+    res = await _bulk_update(
+        db,
+        env,
+        user,
+        {"tags_all": ["tech"], "add_tags": ["  Bulk  "], "dry_run": False},
+    )
+    assert _bulk_result(res)["affected"] == 2
+    state = await _item_state(db, user["id"])
+    assert "bulk" in state[ids[0]][2]
+
+    for bad in ("work/research", "x", "a" * 65, "c++"):
+        res = await _bulk_update(
+            db, env, user, {"tags_all": ["tech"], "add_tags": [bad], "dry_run": False}
+        )
+        assert res["error"]["data"]["type"] == "invalid_arguments", bad
+        assert "tag name" in res["error"]["message"], bad
+
+    rows = await db.query_all(
+        "SELECT name FROM tags WHERE user_id = ? ORDER BY name;", (user["id"],)
+    )
+    assert [r["name"] for r in rows] == ["bulk", "science", "tech"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_apply_is_atomic(bulk_user):
+    """The apply is one transaction: a failure changes nothing.
+
+    The status change and the tag change run in the same batch, so a
+    statement that fails rolls both back (D1's batch() is transactional).
+    """
+    import sqlite3
+
+    from keepfor.models.db import Database
+    from keepfor.models.items import bulk_update_items
+
+    user, env, db, ids = bulk_user
+    before = await _item_state(db, user["id"])
+
+    class _FailingBatch(Database):
+        """Fails the batch after its statements ran, like a D1 error."""
+
+        async def execute_batch(self, statements):
+            await super().execute_batch(
+                [*statements, ("SELECT no_such_function();", ())]
+            )
+
+    with pytest.raises(sqlite3.OperationalError):
+        await bulk_update_items(
+            _FailingBatch(sqlite_conn=db.sqlite),
+            user["id"],
+            ids[:2],
+            set_status="failed",
+            pin=True,
+            add_tags=["bulk"],
+        )
+
+    assert await _item_state(db, user["id"]) == before
+    rows = await db.query_all(
+        "SELECT name FROM tags WHERE user_id = ? AND name = 'bulk';", (user["id"],)
+    )
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_never_updates_foreign_items(bulk_user):
+    """Another user's item is never touched, even when its id is passed in."""
+    from keepfor.models.items import bulk_update_items, save_item
+
+    user, env, db, ids = bulk_user
+    other = await register_user(db, "other@example.com", "password123", True)
+    other_item, _ = await save_item(db, env, other["id"], "https://other.example.com/x")
+    before = await _item_state(db, other["id"])
+
+    await bulk_update_items(
+        db,
+        user["id"],
+        [ids[0], other_item["id"]],
+        set_status="failed",
+        pin=True,
+        add_tags=["bulk"],
+    )
+
+    assert await _item_state(db, other["id"]) == before
+    state = await _item_state(db, user["id"])
+    assert state[ids[0]][0] == "failed"
+    assert state[ids[0]][1] == 1
+    assert "bulk" in state[ids[0]][2]
 
 
 def test_bulk_update_is_annotated_destructive():
