@@ -40,6 +40,13 @@ away in both cases.
     import still works, only the status panel stays empty.
   - The status record is a tenant table: every query is scoped by `user_id`
     and the tenant-isolation suite covers it.
+- **MCP `find_cleanup`** (GitHub issue #21): a read-only tool that suggests what could be cleaned up in the library, without changing anything.
+  - Categories: `duplicates` (items whose urls normalize to the same value — lowercase scheme/host, no `www.`, no tracking parameters such as `utm_*`/`fbclid`/`gclid`, no trailing slash, no fragment), `dead_links`, `never_opened`, `untagged` and `near_duplicate_tags`.
+  - Dead links come from data already stored on the item: `items.status = 'failed'` plus the recorded `fail_reason`. **No network requests are made**, so a link that was never fetched cannot be detected and the category stays empty for a library without failed extractions.
+  - `never_opened` covers items older than `older_than_days` (default 90) that were never opened in the reader; archived items are skipped.
+  - Inputs are validated: unknown categories and out-of-range `limit` (1–100, default 20) or `older_than_days` return an `invalid_arguments` tool error.
+  - Each category reports the candidate ids with a reason, the total number of candidates and a `truncated` flag; near-duplicate tags report their tag names instead of ids.
+  - Every query is scoped to the caller's `user_id`, and the tool never writes.
 - **Notes import** (GitHub issue #15): upload a **Google Keep Takeout zip**, an **Evernote `.enex`** file, or a **zip of Markdown/text files** (Obsidian vault, Apple Notes via Exporter, Simplenote) from Settings → Import. Notes become searchable Keepfor notes with tags and original creation dates; Keep checklists render as Markdown tasks, archived Keep notes land in the archive, and trashed Keep notes are skipped. Links inside notes (body URLs, Keep `WEBLINK` annotations, ENEX `source-url` web clips) become regular URL saves tagged `from-notes`.
   - Dedupe on `(user_id, source, source_id)` with a content-hash fallback: re-importing the same export inserts nothing new.
   - Parsed notes fan out through the queue in chunks (same as bookmark imports), so a 1,000-note export never times out the request.

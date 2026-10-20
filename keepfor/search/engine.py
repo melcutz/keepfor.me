@@ -5,13 +5,12 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse, urlunparse
 
 from keepfor.models.db import Database
 from keepfor.models.tags import expand_tag_names, tag_filter_clause
 from keepfor.search.vectors import VectorIndex
 from keepfor.utils.logging import logger
-from keepfor.utils.url import canonicalize_url
+from keepfor.utils.url import canonicalize_url, url_dedupe_key
 
 if TYPE_CHECKING:
     from keepfor.spi import TenantScope
@@ -648,18 +647,6 @@ def _like_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def _url_key(url: str) -> str:
-    """Normalized URL key for equality matching (canonical form, no www.)."""
-    canon = canonicalize_url(url or "")
-    parsed = urlparse(canon)
-    netloc = parsed.netloc
-    if netloc.startswith("www."):
-        netloc = netloc[4:]
-    return urlunparse(
-        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, "")
-    )
-
-
 async def match_items_by_url(db: Database, user_id: str, url: str) -> list[str]:
     """Ids of owned items matching a url exactly or after normalization."""
     raw = (url or "").strip()
@@ -672,14 +659,14 @@ async def match_items_by_url(db: Database, user_id: str, url: str) -> list[str]:
     )
     if rows:
         return [r["id"] for r in rows]
-    key = _url_key(raw)
+    key = url_dedupe_key(raw)
     scan = await db.query_all(
         "SELECT id, url, canonical_url FROM items WHERE user_id = ?;", (user_id,)
     )
     return [
         r["id"]
         for r in scan
-        if key in (_url_key(r["url"]), _url_key(r["canonical_url"]))
+        if key in (url_dedupe_key(r["url"]), url_dedupe_key(r["canonical_url"]))
     ]
 
 

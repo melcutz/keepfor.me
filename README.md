@@ -158,7 +158,7 @@ working.
 ## Connecting AI Agents (Remote MCP)
 
 Keepfor.me hosts a remote Streamable HTTP MCP server at `https://app.keepfor.me/api/mcp`,
-exposing 29 tools for capturing, finding, reading and tagging your library:
+exposing 30 tools for capturing, finding, reading and tagging your library:
 1. `save_url`: Save any webpage to your library.
 2. `save_note`: Save a note, snippet or prompt template.
 3. `search_library`: Hybrid search across text and meaning.
@@ -173,7 +173,8 @@ exposing 29 tools for capturing, finding, reading and tagging your library:
 12. `tag_item` / `tag_items` / `set_item_tags` / `retag_by_query`: Tagging, in bulk and safely (dry-run by default).
 13. `bulk_update`: Update status, pin and tags on every item matching a filter (dry-run by default).
 14. `suggest_tags` / `search_tags` / `tag_stats` / `related_tags` / `tag_cleanup`: Tag vocabulary tools.
-15. `delete_item` / `pin_item`: Remove or pin an item.
+15. `find_cleanup`: Read-only cleanup report (duplicate urls, dead links, never-opened old items, untagged items, near-duplicate tags).
+16. `delete_item` / `pin_item`: Remove or pin an item.
 
 The server is stateless (no sessions, plain JSON responses, no SSE stream) and
 authenticates with the same Personal Access Tokens as the REST API.
@@ -217,7 +218,7 @@ curl https://app.keepfor.me/api/mcp \
 
 ### Available MCP Tools (Server 0.2.0)
 
-The MCP server exposes 29 tools. Every tool that can change something takes a `dry_run` flag: it is only accepted as a JSON boolean (omitted means `true`, a preview), and anything else is rejected rather than applied.
+The MCP server exposes 30 tools. Every tool that can change something takes a `dry_run` flag: it is only accepted as a JSON boolean (omitted means `true`, a preview), and anything else is rejected rather than applied.
 
 1. **`save_url`** — Save any webpage to your library. Accepts optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
 2. **`save_note`** — Save a personal note, code snippet, or prompt template. Accepts the same optional provenance fields.
@@ -246,8 +247,9 @@ The MCP server exposes 29 tools. Every tool that can change something takes a `d
 25. **`tag_stats`** — Tag usage statistics for the library.
 26. **`related_tags`** — Tags that co-occur with a tag on the same items.
 27. **`tag_cleanup`** — Near-duplicate tags, unused tags and untagged items worth a look.
-28. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
-29. **`pin_item`** — Pin or unpin an item to/from the top shelf.
+28. **`find_cleanup`** — Read-only cleanup report: duplicate items (same normalized url), dead links (recorded extraction failures — no network requests), never-opened old items, untagged items and near-duplicate tags. Takes `categories`, `older_than_days` and a per-category `limit` (max 100); each category reports ids with a reason, a count and a `truncated` flag.
+29. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
+30. **`pin_item`** — Pin or unpin an item to/from the top shelf.
 
 All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) as advisory hints for the client — the server does not enforce them, and a token is never rejected for missing scope information. Each description says when to use a tool versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
 

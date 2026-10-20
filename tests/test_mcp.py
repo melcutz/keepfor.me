@@ -295,7 +295,7 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 29
+    assert len(names) == 30
     assert "save_url" in names
     assert "save_note" in names
     assert "pin_item" in names
@@ -428,6 +428,7 @@ TOOL_ARGUMENTS = {
     "tag_stats": {},
     "related_tags": {"tag": "work"},
     "tag_cleanup": {},
+    "find_cleanup": {},
     "delete_item": {"item_id": "ITEM"},
     "pin_item": {"item_id": "ITEM"},
 }
@@ -834,3 +835,202 @@ def test_bulk_update_is_annotated_destructive():
     assert tool["annotations"]["destructiveHint"] is True
     assert tool["annotations"]["readOnlyHint"] is False
     assert tool["inputSchema"]["properties"]["dry_run"]["default"] is True
+
+
+# ==========================================
+# find_cleanup (read-only cleanup suggestions)
+# ==========================================
+
+
+@pytest.fixture
+async def cleanup_user(db):
+    """A user with an empty library for the find_cleanup tests."""
+    user = await register_user(db, "cleanup@example.com", "password123")
+    return user, MockEnv(), db
+
+
+async def _call_cleanup(db, env, user, **arguments):
+    """Calls find_cleanup and returns the raw JSON-RPC response."""
+    return await process_mcp_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "find_cleanup", "arguments": arguments},
+        },
+        db,
+        env,
+        user,
+    )
+
+
+async def _cleanup(db, env, user, **arguments):
+    """Calls find_cleanup and returns the parsed payload."""
+    res = await _call_cleanup(db, env, user, **arguments)
+    assert "result" in res, res
+    return json.loads(res["result"]["content"][0]["text"])
+
+
+async def _save(db, env, user_id, url, tags=None):
+    """Saves one item and returns its id."""
+    from keepfor.models.items import save_item
+
+    item, _ = await save_item(db, env, user_id, url, tags=tags)
+    return item["id"]
+
+
+async def _fingerprint(db):
+    """Every tenant row, so a test can prove a tool wrote nothing."""
+    out = {}
+    for table in ("items", "tags", "item_tags", "item_opens"):
+        rows = await db.query_all(f"SELECT * FROM {table};")
+        out[table] = sorted(str(sorted(row.items())) for row in rows)
+    return out
+
+
+async def test_find_cleanup_detects_duplicate_urls(cleanup_user):
+    """Two items with the same normalized url are reported as duplicates."""
+    user, env, db = cleanup_user
+    first = await _save(db, env, user["id"], "https://example.com/dup")
+    second = await _save(db, env, user["id"], "https://www.example.com/dup")
+
+    report = (await _cleanup(db, env, user))["duplicates"]
+    assert {e["id"] for e in report["items"]} == {first, second}
+    assert report["count"] == 2
+    assert report["truncated"] is False
+    reasons = {e["id"]: e["reason"] for e in report["items"]}
+    assert reasons[first] == f"duplicate of {second}"
+    assert reasons[second] == f"duplicate of {first}"
+
+
+async def test_find_cleanup_detects_dead_links(cleanup_user):
+    """Items whose recorded extraction failed are reported as dead links."""
+    user, env, db = cleanup_user
+    dead = await _save(db, env, user["id"], "https://example.com/dead")
+    alive = await _save(db, env, user["id"], "https://example.com/alive")
+    await db.execute(
+        "UPDATE items SET status = 'failed', fail_reason = 'HTTP 404 Not Found'"
+        " WHERE id = ?;",
+        (dead,),
+    )
+
+    report = (await _cleanup(db, env, user))["dead_links"]
+    assert [e["id"] for e in report["items"]] == [dead]
+    assert "404" in report["items"][0]["reason"]
+    assert report["count"] == 1
+    assert alive not in {e["id"] for e in report["items"]}
+
+
+async def test_find_cleanup_detects_never_opened_old_items(cleanup_user):
+    """Old items that were never opened are reported; opened/new ones are not."""
+    from keepfor.models.items import record_open
+
+    user, env, db = cleanup_user
+    old = await _save(db, env, user["id"], "https://example.com/old")
+    opened = await _save(db, env, user["id"], "https://example.com/opened")
+    recent = await _save(db, env, user["id"], "https://example.com/recent")
+    await db.execute(
+        "UPDATE items SET created_at = '2020-01-02 03:04:05' WHERE id IN (?, ?);",
+        (old, opened),
+    )
+    await record_open(db, user["id"], opened)
+
+    report = (await _cleanup(db, env, user, older_than_days=90))["never_opened"]
+    ids = {e["id"] for e in report["items"]}
+    assert old in ids
+    assert opened not in ids
+    assert recent not in ids
+    assert report["count"] == 1
+
+
+async def test_find_cleanup_detects_untagged_items(cleanup_user):
+    """Items without any tag are reported."""
+    user, env, db = cleanup_user
+    untagged = await _save(db, env, user["id"], "https://example.com/untagged")
+    tagged = await _save(db, env, user["id"], "https://example.com/tagged", ["work"])
+
+    report = (await _cleanup(db, env, user))["untagged"]
+    ids = {e["id"] for e in report["items"]}
+    assert untagged in ids
+    assert tagged not in ids
+
+
+async def test_find_cleanup_detects_near_duplicate_tags(cleanup_user):
+    """Tags differing only by separator are grouped as near-duplicates."""
+    from keepfor.models.items import create_tag
+
+    user, env, db = cleanup_user
+    await create_tag(db, user["id"], "machine-learning")
+    await create_tag(db, user["id"], "machine_learning")
+    await create_tag(db, user["id"], "unique")
+
+    report = (await _cleanup(db, env, user))["near_duplicate_tags"]
+    groups = [set(g["tags"]) for g in report["items"]]
+    assert {"machine-learning", "machine_learning"} in groups
+    assert report["count"] == 1
+    assert report["truncated"] is False
+
+
+async def test_find_cleanup_caps_each_category(cleanup_user):
+    """A per-category limit caps the list and flags the category truncated."""
+    user, env, db = cleanup_user
+    for i in range(3):
+        await _save(db, env, user["id"], f"https://example.com/untagged-{i}")
+
+    report = (await _cleanup(db, env, user, limit=1))["untagged"]
+    assert len(report["items"]) == 1
+    assert report["count"] == 3
+    assert report["truncated"] is True
+
+
+async def test_find_cleanup_reports_only_requested_categories(cleanup_user):
+    """Only the requested categories come back."""
+    user, env, db = cleanup_user
+
+    payload = await _cleanup(db, env, user, categories=["duplicates"])
+    assert set(payload) == {"duplicates"}
+
+    payload = await _cleanup(db, env, user, categories=["duplicates", "untagged"])
+    assert set(payload) == {"duplicates", "untagged"}
+
+
+async def test_find_cleanup_rejects_invalid_arguments(cleanup_user):
+    """Bad categories and out-of-range numbers are clear tool errors."""
+    user, env, db = cleanup_user
+    for arguments in (
+        {"categories": ["nope"]},
+        {"limit": 0},
+        {"limit": 101},
+        {"limit": "ten"},
+        {"older_than_days": 0},
+        {"older_than_days": -5},
+    ):
+        res = await _call_cleanup(db, env, user, **arguments)
+        assert "error" in res, arguments
+        assert res["error"]["data"]["type"] == "invalid_arguments", arguments
+
+
+async def test_find_cleanup_writes_nothing(cleanup_user):
+    """The tool only reads: the library is byte-identical afterwards."""
+    user, env, db = cleanup_user
+    await _save(db, env, user["id"], "https://example.com/a")
+    await _save(db, env, user["id"], "https://www.example.com/a")
+    await db.execute(
+        "UPDATE items SET status = 'failed' WHERE user_id = ?;", (user["id"],)
+    )
+
+    before = await _fingerprint(db)
+    await _cleanup(db, env, user)
+    assert await _fingerprint(db) == before
+
+
+async def test_find_cleanup_tool_is_read_only(mcp_client, pat_headers):
+    """The tool advertises itself as read-only and non-destructive."""
+    res = mcp_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 5, "method": "tools/list"},
+        headers=pat_headers,
+    )
+    tool = next(t for t in res.json()["result"]["tools"] if t["name"] == "find_cleanup")
+    assert tool["annotations"]["readOnlyHint"] is True
+    assert tool["annotations"]["destructiveHint"] is False

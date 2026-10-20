@@ -567,6 +567,7 @@ NEW_MCP_TOOLS = [
     ("tag_stats", {}),
     ("related_tags", {"tag": "tag1"}),
     ("tag_cleanup", {}),
+    ("find_cleanup", {}),
 ]
 
 
@@ -722,3 +723,63 @@ async def test_mcp_tag_filters_isolation(harness: IsolationHarness):
         text = resp.text
         assert a.unique_keyword not in text, f"{tool} leaked A's keyword"
         assert a.html_item_id not in text, f"{tool} leaked A's item id"
+
+
+@pytest.mark.asyncio
+async def test_mcp_find_cleanup_isolation(harness: IsolationHarness):
+    """MCP find_cleanup as Tenant B never returns Tenant A's items or tags."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    # Give A one candidate per category: a duplicate pair, a dead link, an
+    # untagged item and a near-duplicate tag pair.
+    for item_id, url in (
+        ("aaa-dupe-1", "https://dup-a.test/page"),
+        ("aaa-dupe-2", "https://www.dup-a.test/page"),
+        ("aaa-dead-1", "https://dead-a.test/page"),
+        ("aaa-untagged-1", "https://untagged-a.test/page"),
+    ):
+        await a.db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, status, title)"
+            " VALUES (?, ?, ?, ?, 'queued', ?);",
+            (item_id, a.user["id"], url, url, "Title A"),
+        )
+    await a.db.execute(
+        "UPDATE items SET status = 'failed', fail_reason = 'HTTP 404' WHERE id = ?;",
+        ("aaa-dead-1",),
+    )
+    for tag in ("machine-learning", "machine_learning"):
+        await a.db.execute(
+            "INSERT INTO tags (id, user_id, name) VALUES (?, ?, ?);",
+            (f"aaa-tag-{tag}", a.user["id"], tag),
+        )
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 403,
+            "method": "tools/call",
+            "params": {"name": "find_cleanup", "arguments": {}},
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    text = resp.text
+    for leaked in (
+        "aaa-dupe-1",
+        "aaa-dupe-2",
+        "aaa-dead-1",
+        "aaa-untagged-1",
+        "machine-learning",
+        "machine_learning",
+        "dup-a.test",
+        "dead-a.test",
+        "untagged-a.test",
+    ):
+        assert leaked not in text, f"find_cleanup leaked {leaked}"
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, "find_cleanup modified Tenant A"
