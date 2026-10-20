@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Trash — Keepfor.me{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 sm:px-8 py-8 space-y-8">
+  <div>
+    <h1 class="text-xl font-bold text-slate-900 tracking-tight">Trash</h1>
+    <p class="text-xs text-slate-500 mt-1">Deleted items stay here for 30 days. Restore one to bring it back to the library, or delete it forever — that cannot be undone.</p>
+  </div>
+
+  {% if items %}
+  <section class="bg-white border border-slate-200 rounded-xl shadow-sm divide-y divide-slate-100">
+    {% for it in items %}
+    <div class="flex flex-wrap items-center gap-3 px-4 py-3">
+      <div class="min-w-0 flex-1">
+        <p class="font-medium text-slate-900 truncate">{{ it.title or it.url }}</p>
+        <p class="text-xs text-slate-500 truncate">{{ it.url }}</p>
+        <p class="text-xs text-slate-400 mt-0.5">Trashed {{ it.deleted_at[:16] }}</p>
+      </div>
+      <form action="/items/{{ it.id }}/restore" method="POST" class="shrink-0">
+        <button type="submit" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700">
+          Restore
+        </button>
+      </form>
+      <form action="/items/{{ it.id }}/delete-forever" method="POST" class="shrink-0"
+            onsubmit="return confirm('Delete this item forever? This cannot be undone.');">
+        <button type="submit" class="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs font-medium hover:bg-slate-50">
+          Delete forever
+        </button>
+      </form>
+    </div>
+    {% endfor %}
+  </section>
+  {% else %}
+  <p class="text-sm text-slate-500">The Trash is empty.</p>
+  {% endif %}
+
+  {% if page > 1 or has_more %}
+  <nav class="flex items-center justify-between text-sm" aria-label="Trash pages">
+    {% if page > 1 %}
+    <a href="/trash?page={{ page - 1 }}" class="text-slate-600 hover:text-slate-900 transition">← Newer</a>
+    {% else %}
+    <span></span>
+    {% endif %}
+    {% if has_more %}
+    <a href="/trash?page={{ page + 1 }}" class="text-slate-600 hover:text-slate-900 transition">Older →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+</div>
+{% endblock %}

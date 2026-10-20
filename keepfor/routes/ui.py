@@ -28,6 +28,7 @@ from keepfor.models.items import (
     bulk_update_tags,
     create_rule,
     create_tag,
+    delete_item,
     delete_rule,
     delete_tag,
     dismiss_suggestion,
@@ -36,12 +37,14 @@ from keepfor.models.items import (
     get_pinned_items,
     list_pending_suggestions,
     list_rules,
+    list_trash,
     list_user_tags,
     merge_tags,
     prune_unused_tags,
     record_open,
     remove_tags_from_item,
     rename_tag,
+    restore_item,
     save_item,
     save_note,
     suggest_rules,
@@ -1000,3 +1003,57 @@ async def share_saved(request: Request, url: str = ""):
     template = jinja_env.get_template("save_popup.html")
     html = template.render(url=url, title="", success=True, source="share")
     return HTMLResponse(content=html)
+
+
+# ==========================================
+# Trash: restore a deleted item, or delete it forever
+# ==========================================
+
+# Trashed items per page in the Trash view.
+TRASH_PAGE_SIZE = 50
+
+
+@router.get("/trash", response_class=HTMLResponse)
+async def trash_page(request: Request, page: int = 1):
+    user = await deps.get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/auth/login", status_code=303)
+    db = deps.get_db(request)
+    page = max(page, 1)
+    # One extra row tells the template whether an older page exists.
+    rows = await list_trash(
+        db, user["id"], limit=TRASH_PAGE_SIZE + 1, offset=(page - 1) * TRASH_PAGE_SIZE
+    )
+    has_more = len(rows) > TRASH_PAGE_SIZE
+    items = rows[:TRASH_PAGE_SIZE]
+    template = jinja_env.get_template("trash.html")
+    html = template.render(
+        current_user=user,
+        items=items,
+        active_nav="trash",
+        page=page,
+        has_more=has_more,
+    )
+    return HTMLResponse(content=html)
+
+
+@router.post("/items/{item_id}/restore", response_class=HTMLResponse)
+async def restore_item_route(request: Request, item_id: str):
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+    if not await restore_item(db, user["id"], item_id):
+        raise HTTPException(status_code=404, detail="Item not found")
+    return RedirectResponse(url="/trash", status_code=303)
+
+
+@router.post("/items/{item_id}/delete-forever", response_class=HTMLResponse)
+async def delete_forever_route(request: Request, item_id: str):
+    """The only permanent delete path: the row, the snapshots and the vectors."""
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+    env = deps.get_env_from_request(request)
+    if not await delete_item(
+        db, env, user["id"], item_id, scope=deps.get_scope(request)
+    ):
+        raise HTTPException(status_code=404, detail="Item not found")
+    return RedirectResponse(url="/trash", status_code=303)

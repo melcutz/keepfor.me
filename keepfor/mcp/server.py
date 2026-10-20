@@ -43,7 +43,6 @@ from keepfor.models.items import (
     add_tags_to_item,
     bulk_update_items,
     create_tag,
-    delete_item,
     get_item,
     merge_tags,
     remove_tags_from_item,
@@ -51,6 +50,7 @@ from keepfor.models.items import (
     save_item,
     save_note,
     toggle_pin_item,
+    trash_item,
 )
 from keepfor.models.tags import (
     SAMPLE_LIMIT,
@@ -1550,14 +1550,15 @@ MCP_TOOLS = [
     },
     {
         "name": "delete_item",
-        "description": "Permanently deletes an item, its raw/clean snapshots, "
-        "and its vector embeddings. This action cannot be undone.",
+        "description": "Moves an item to the Trash. The item leaves the library "
+        "but is not destroyed: it stays restorable for 30 days, and only the "
+        "user can delete it for good from the Trash view.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "item_id": {
                     "type": "string",
-                    "description": "The library item ID to delete.",
+                    "description": "The library item ID to move to the Trash.",
                 }
             },
             "required": ["item_id"],
@@ -1934,7 +1935,8 @@ async def handle_tool_call(
         )
         count = await db.query_first(
             "SELECT COUNT(*) as c FROM item_tags it JOIN items i"
-            " ON i.id = it.item_id AND i.user_id = ? WHERE it.tag_id = ?;",
+            " ON i.id = it.item_id AND i.user_id = ? AND i.deleted_at IS NULL"
+            " WHERE it.tag_id = ?;",
             (user_id, tag["id"]),
         )
         return {
@@ -2365,8 +2367,16 @@ async def handle_tool_call(
         item_id = arguments.get("item_id")
         if not item_id or not isinstance(item_id, str):
             raise _invalid("item_id is required")
-        success = await delete_item(db, env, user_id, item_id, scope=scope)
-        return {"id": item_id, "deleted": success}
+        success = await trash_item(db, user_id, item_id)
+        return {
+            "id": item_id,
+            "trashed": success,
+            "message": (
+                "Moved to Trash. The user can restore it for 30 days."
+                if success
+                else "Item not found."
+            ),
+        }
 
     elif tool_name == "save_note":
         title = arguments.get("title", "")

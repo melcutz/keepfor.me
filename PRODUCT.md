@@ -37,7 +37,7 @@ An edge-native, single-tenant personal knowledge vault with dual HTML snapshots 
 ## Evidence on Hand
 - Full working codebase running FastAPI on Cloudflare Python Workers.
 - Production deployment at `app.keepfor.me`.
-- Jinja2 templates in `templates/` (`base.html`, `library.html`, `reader.html`, `save_popup.html`, `settings.html`, `stats.html`, `tags.html`).
+- Jinja2 templates in `templates/` (`base.html`, `library.html`, `reader.html`, `save_popup.html`, `settings.html`, `stats.html`, `tags.html`, `trash.html`).
 - Working Manifest V3 browser extension in `browser-extension/`.
 - 40 MCP tools implemented and documented in `keepfor/mcp/`.
 - Test suite with 600+ unit and integration tests.

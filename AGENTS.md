@@ -136,8 +136,10 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
   - `0011_import_status.sql` (`import_status`: one row per notes upload with the counters and a capped error list)
   - `0012_pat_scopes.sql` (`personal_access_tokens.scopes`: the nullable scope column of the read-only tokens)
   - `0013_highlights_and_collections.sql` (`highlights`, `collections`, `collection_items`: the MCP highlights and collections tools)
+  - `0014_trash.sql` (`items.deleted_at` + the `(user_id, deleted_at)` index: the Trash)
 - **`deploy.yml` does NOT apply migrations**: Schema migrations must be applied manually to production via `npx wrangler d1 migrations apply keepfor-me-db --remote`.
 - **Composite indexes are mandatory for sorted feeds**: SQLite's query planner requires composite indexes matching the `WHERE` + `ORDER BY` pattern (e.g. `items(user_id, created_at DESC)` and `items(user_id, status, created_at DESC)`). Without them, SQLite performs `USE TEMP B-TREE FOR ORDER BY`, incurring noticeable CPU and memory overhead on library page loads. Check `EXPLAIN QUERY PLAN` on any new list query.
+- **The Trash is invisible to the rest of the app**: `items.deleted_at` marks a trashed item (soft delete, issue #30). Every read path must filter `deleted_at IS NULL` — library, pinned shelf, search (FTS *and* vector results), MCP tools, counts, tag stats, exports. Only `list_trash`, the restore path and `purge_trash` may see trashed rows. A trashed item keeps its row, its R2 snapshots and its vectors, so the vector search must filter them out explicitly.
 - **Batching mutations**: D1 executes queries over remote RPC. Multi-row or cascading updates (such as updating tag associations or deleting an item with related tag mappings and vector embeddings) must use `db.execute_batch()` rather than looping individual `db.execute()` calls to prevent sequential RPC latency.
 
 ## Testing quirks

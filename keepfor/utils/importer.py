@@ -885,7 +885,7 @@ async def export_library_json(db: Database, user_id: str) -> list[dict[str, Any]
                published_date, excerpt, status, word_count, created_at,
                user_notes, item_type, is_pinned, image_url, summary, read_state
         FROM items
-        WHERE user_id = ?
+        WHERE user_id = ? AND deleted_at IS NULL
         ORDER BY created_at DESC;
         """,
         (user_id,),
@@ -898,6 +898,7 @@ async def export_library_json(db: Database, user_id: str) -> list[dict[str, Any]
         SELECT it.item_id, t.name
         FROM item_tags it
         JOIN items i ON i.id = it.item_id AND i.user_id = ?
+            AND i.deleted_at IS NULL
         JOIN tags t ON it.tag_id = t.id AND t.user_id = i.user_id
         ORDER BY it.item_id, t.name;
         """,

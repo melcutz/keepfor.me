@@ -87,7 +87,8 @@ def _fail_reason_matches(reason: str | None, likes: list[str]) -> bool:
 async def get_fail_group_counts(db: Database, user_id: str) -> dict[str, int]:
     """Exclusive per-group failed counts for the cleanup picker (one query)."""
     rows = await db.query_all(
-        "SELECT fail_reason FROM items WHERE user_id = ? AND status = 'failed';",
+        "SELECT fail_reason FROM items WHERE user_id = ? AND status = 'failed'"
+        " AND deleted_at IS NULL;",
         (user_id,),
     )
     counts = {"all": len(rows), "other": 0}
@@ -276,6 +277,7 @@ async def cleanup_failed_route(request: Request, pattern: str = Form("all")):
         params = (user["id"], *likes, CLEANUP_LIMIT)
     rows = await db.query_all(
         "SELECT id FROM items WHERE user_id = ? AND status = 'failed'"
+        " AND deleted_at IS NULL"
         f"{like_clause} ORDER BY created_at ASC LIMIT ?;",
         params,
     )
@@ -333,7 +335,7 @@ async def requeue_stuck_items(request: Request):
     ).strftime("%Y-%m-%d %H:%M:%S")
     rows = await db.query_all(
         "SELECT id, canonical_url FROM items WHERE user_id = ? AND status = 'queued' "
-        "AND created_at < ? ORDER BY created_at ASC LIMIT ?;",
+        "AND deleted_at IS NULL AND created_at < ? ORDER BY created_at ASC LIMIT ?;",
         (user["id"], cutoff, REQUEUE_LIMIT),
     )
     sent = 0

@@ -11,10 +11,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from keepfor import deps
 from keepfor.mcp.server import process_mcp_request
 from keepfor.models.items import (
-    delete_item,
     get_item,
     get_item_clean_html,
     save_item,
+    trash_item,
 )
 from keepfor.schemas import SaveItemRequest, SearchRequest
 from keepfor.search.engine import get_recent_items, hybrid_search
@@ -81,10 +81,9 @@ async def api_get_item_content(request: Request, item_id: str):
 async def api_delete_item(request: Request, item_id: str):
     user = await deps.require_user(request)
     db = deps.get_db(request)
-    env = deps.get_env_from_request(request)
-    success = await delete_item(
-        db, env, user["id"], item_id, scope=deps.get_scope(request)
-    )
+    # Soft delete: the item moves to the Trash and stays restorable for 30
+    # days. The agent-reachable path may not destroy library data.
+    success = await trash_item(db, user["id"], item_id)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
     # Empty HTML: the library card deletes via htmx outerHTML swap, which

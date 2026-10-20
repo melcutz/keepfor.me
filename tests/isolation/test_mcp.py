@@ -128,6 +128,10 @@ async def test_mcp_tool_isolation(harness: IsolationHarness):
                         assert parsed["deleted"] is False, (
                             f"Tool {tool_name} claimed to delete A's item!"
                         )
+                    if "trashed" in parsed:
+                        assert parsed["trashed"] is False, (
+                            f"Tool {tool_name} claimed to trash A's item!"
+                        )
                     if "tags" in parsed:
                         assert parsed["tags"] == []
         else:
@@ -198,7 +202,7 @@ async def test_mcp_tag_item_isolation(harness: IsolationHarness):
 
 @pytest.mark.asyncio
 async def test_mcp_delete_item_isolation(harness: IsolationHarness):
-    """MCP delete_item as Tenant B targeting Tenant A's item does not delete
+    """MCP delete_item as Tenant B targeting Tenant A's item does not trash
     A's item.
     """
     a = harness.tenant_a
@@ -213,14 +217,84 @@ async def test_mcp_delete_item_isolation(harness: IsolationHarness):
             "method": "tools/call",
             "params": {
                 "name": "delete_item",
-                "arguments": {"id": a.html_item_id},
+                "arguments": {"item_id": a.html_item_id},
             },
         },
         headers=b.auth_headers,
     )
     assert resp.status_code == 200
+    data = resp.json()
+    assert (
+        "error" in data
+        or json.loads(data["result"]["content"][0]["text"])["trashed"] is False
+    )
     snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
     assert snap_a_after == snap_a_before
+
+
+@pytest.mark.asyncio
+async def test_mcp_delete_item_trashes_the_item(harness: IsolationHarness):
+    """MCP delete_item on one's own item moves it to the Trash.
+
+    The row, the R2 snapshot and the vector stay: the item can be restored.
+    """
+    a = harness.tenant_a
+
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 210,
+            "method": "tools/call",
+            "params": {
+                "name": "delete_item",
+                "arguments": {"item_id": a.html_item_id},
+            },
+        },
+        headers=a.auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "error" not in data, data
+    assert json.loads(data["result"]["content"][0]["text"])["trashed"] is True
+
+    row = await a.db.query_first(
+        "SELECT deleted_at FROM items WHERE id = ? AND user_id = ?;",
+        (a.html_item_id, a.user["id"]),
+    )
+    assert row is not None, "the item row must survive a trash"
+    assert row["deleted_at"], "the item must be marked as trashed"
+
+    # The snapshot and the vector are untouched, so the item is restorable.
+    snap = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert "_r2" in snap
+    assert "_vectorize" in snap
+
+
+@pytest.mark.asyncio
+async def test_trashed_item_is_invisible_to_mcp(harness: IsolationHarness):
+    """A trashed item leaves the library: it is not listed or searchable."""
+    a = harness.tenant_a
+
+    await a.db.execute(
+        "UPDATE items SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+        (a.html_item_id, a.user["id"]),
+    )
+
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 211,
+            "method": "tools/call",
+            "params": {"name": "list_items", "arguments": {}},
+        },
+        headers=a.auth_headers,
+    )
+    assert resp.status_code == 200
+    text = resp.json()["result"]["content"][0]["text"]
+    assert a.html_item_id not in text
+    assert a.unique_keyword not in text
 
 
 @pytest.mark.asyncio

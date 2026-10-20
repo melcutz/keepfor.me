@@ -117,6 +117,40 @@ async def test_cross_tenant_post_tags(harness: IsolationHarness):
 
 
 @pytest.mark.asyncio
+async def test_cross_tenant_post_restore(harness: IsolationHarness):
+    """Calling POST /items/{id}/restore as tenant B fails for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "POST", f"/items/{harness.tenant_a.html_item_id}/restore"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_delete_forever(harness: IsolationHarness):
+    """Calling POST /items/{id}/delete-forever as tenant B fails for A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "POST", f"/items/{harness.tenant_a.html_item_id}/delete-forever"
+    )
+
+
+@pytest.mark.asyncio
+async def test_trash_page_isolation(harness: IsolationHarness):
+    """The Trash view lists only the caller's own trashed items."""
+    harness.client.cookies.clear()
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    await a.db.execute(
+        "UPDATE items SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+        (a.html_item_id, a.user["id"]),
+    )
+
+    resp = harness.client.get("/trash", headers=b.auth_headers)
+    assert resp.status_code == 200
+    assert a.html_item_id not in resp.text
+    assert a.unique_keyword not in resp.text
+
+
+@pytest.mark.asyncio
 async def test_cross_tenant_post_suggestion_accept(harness: IsolationHarness):
     """Calling POST /items/{id}/suggestions/{sid}/accept as tenant B fails."""
     a = harness.tenant_a
