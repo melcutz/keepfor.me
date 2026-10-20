@@ -814,13 +814,20 @@ async def import_notes(
                     plan_skipped += 1
                 except Exception as exc:
                     urls_skipped += 1
+                    # The exception text can carry SQL, D1 or other internal
+                    # detail: it goes to the log, never to the user's list.
+                    logger.warning(
+                        f"import_notes link failed: {type(exc).__name__}: {exc}"
+                    )
                     if len(errors) < MAX_IMPORT_ERRORS:
-                        errors.append(f"link: {type(exc).__name__}: {exc}")
+                        errors.append("link: could not be queued")
 
         except Exception as exc:
             parse_errors += 1
+            # Same rule as above: the exception text is logged, not shown.
+            logger.warning(f"import_notes note failed: {type(exc).__name__}: {exc}")
             if len(errors) < MAX_IMPORT_ERRORS:
-                errors.append(f"note: {type(exc).__name__}: {exc}")
+                errors.append("note: could not be imported")
             continue
 
     summary = {

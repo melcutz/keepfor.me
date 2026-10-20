@@ -68,6 +68,7 @@ away in both cases.
 - Tenant isolation verified for all new MCP tools via isolation test suite.
 
 ### Fixed
+- **Import errors no longer leak internal detail**: a failed note or link used to store the raw exception text (`note: OperationalError: ...`) in `import_status.errors`, which is rendered in the library and settings panels. The stored message is now generic ("note: could not be imported", "link: could not be queued"); the exception goes to the server log.
 - **Zip bombs in notes import**: both zip parsers (Google Keep Takeout and Markdown/text) now check the archive metadata before opening a single member — at most 20,000 members and 200 MB of declared uncompressed size — and read every member with a bounded read (2 MB per file, bigger ones are skipped and counted). Breaking a cap gives a visible error and imports nothing.
 - **XML entity expansion in `.enex`**: ENEX files are parsed with `defusedxml`, so a DTD/entity payload (billion laughs) is rejected with a visible error instead of being expanded.
 - **Plan limits on notes import**: imported notes and the URLs inside them count against the plan's item limit like bookmarks. The import stops at the remaining quota and reports "N skipped: plan limit" instead of aborting the whole upload (or refusing a file that only partly fits).

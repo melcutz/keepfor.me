@@ -153,7 +153,7 @@ async def test_apply_chunk_counts_accumulates_and_completes(db):
             "urls_skipped": 0,
             "parse_errors": 1,
             "plan_skipped": 0,
-            "errors": ["note: OperationalError: database is locked"],
+            "errors": ["note: could not be imported"],
         },
     )
     record = await get_import(db, user["id"], import_id)
@@ -163,7 +163,7 @@ async def test_apply_chunk_counts_accumulates_and_completes(db):
     assert record["parse_errors"] == 1
     assert record["status"] == "completed"
     assert record["progress"] == 100
-    assert record["errors"] == ["note: OperationalError: database is locked"]
+    assert record["errors"] == ["note: could not be imported"]
 
 
 @pytest.mark.asyncio
