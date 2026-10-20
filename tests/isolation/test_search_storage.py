@@ -88,7 +88,9 @@ async def test_search_isolation(harness: IsolationHarness):
         import json as _json
 
         parsed = _json.loads(text)
-        assert len(parsed) == 0
+        # New format returns {"items": [], "total": 0, "limit": 10, "offset": 0}
+        assert parsed.get("items") == []
+        assert parsed.get("total") == 0
 
     # 4. Direct hybrid_search Python call as B
     items, total = await hybrid_search(

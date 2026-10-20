@@ -295,10 +295,15 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 8
+    assert len(names) == 12
     assert "save_url" in names
     assert "save_note" in names
     assert "pin_item" in names
+    # New v2 tools
+    assert "search_passages" in names
+    assert "read_item" in names
+    assert "reading_history" in names
+    assert "related_items" in names
 
 
 async def test_mcp_tools_call_save_url_over_http(mcp_client, pat_headers):

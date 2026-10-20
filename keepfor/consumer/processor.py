@@ -335,15 +335,34 @@ async def extract_and_store(
             ),
         )
 
-        # 5. Update FTS5 virtual table
+        # 5. Update FTS5 virtual table (include v2 provenance fields)
         await db.execute(
             "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
             (item_id, user_id),
         )
+        # Fetch the v2 fields to include in FTS
+        item_row = await db.query_first(
+            "SELECT agent_summary, why_saved, source_context, saved_by "
+            "FROM items WHERE id = ?;",
+            (item_id,),
+        )
+        v2_fields = " ".join(
+            p
+            for p in [
+                item_row.get("agent_summary") if item_row else None,
+                item_row.get("why_saved") if item_row else None,
+                item_row.get("source_context") if item_row else None,
+                item_row.get("saved_by") if item_row else None,
+            ]
+            if p
+        )
+        combined_content = " ".join(
+            p for p in [extracted["content_text"] or "", v2_fields] if p
+        )
         await db.execute(
             "INSERT INTO items_fts (item_id, user_id, title, content_text) "
             "VALUES (?, ?, ?, ?);",
-            (item_id, user_id, extracted["title"], extracted["content_text"]),
+            (item_id, user_id, extracted["title"], combined_content),
         )
 
         # 5b. Automatic tagging (fail-open: a tagger defect must never

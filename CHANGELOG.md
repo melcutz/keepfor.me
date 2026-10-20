@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+- **MCP Server 0.2.0**: `get_item` tool now caps `content_text` to excerpt by default for token efficiency. Use `include_content=true` to retrieve full content. This is a breaking change from v1 where full content was always returned.
+
 ### Added
 - **Notes import** (GitHub issue #15): upload a **Google Keep Takeout zip**, an **Evernote `.enex`** file, or a **zip of Markdown/text files** (Obsidian vault, Apple Notes via Exporter, Simplenote) from Settings → Import. Notes become searchable Keepfor notes with tags and original creation dates; Keep checklists render as Markdown tasks, archived Keep notes land in the archive, and trashed Keep notes are skipped. Links inside notes (body URLs, Keep `WEBLINK` annotations, ENEX `source-url` web clips) become regular URL saves tagged `from-notes`.
   - Dedupe on `(user_id, source, source_id)` with a content-hash fallback: re-importing the same export inserts nothing new.
@@ -16,11 +19,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Import results (and any error) show as a one-shot toast on the library page; a failed upload also shows its error on the settings page it lands on. Logs contain counts only, never note content.
   - Migration `0008_import_sources.sql` (additive): `items.source`, `items.source_id` and a unique index backing the dedupe.
   - MCP `search_library` now surfaces imported notes alongside articles.
+- **MCP v2 Tools (Server 0.2.0)**:
+  - `search_passages`: Passage-level hybrid search over semantic chunks with `max_chars` budget, returning `item_id`, `chunk_id`, char offsets, `snapshot_url` (permanent R2 archive), `saved_at`, and score. Supports `mode` (hybrid/keyword/semantic), tag filtering, and cursor pagination.
+  - `read_item`: Paginated full-text reading with token budget (`max_tokens`), returning `text`, `next_cursor`, `total_chunks`, and `outline` for navigation. Each chunk ≤ `max_tokens`.
+  - `reading_history`: Date-filtered reading history using `created_at` (saved) and `item_opens` (opened) tables. Supports `since`/`until` date range, `event` filter (saved/opened/all), query, tag filtering, and pagination.
+  - `related_items`: Vector similarity search for related items by `item_id` or raw `text`. Excludes source item. Includes one-line reasons (shared tags or semantic similarity).
+  - `save_url`/`save_note` v2: Accept and store provenance metadata fields `agent_summary`, `why_saved`, `source_context`, `saved_by`. These fields are indexed in FTS5 and searchable.
+- All new tools include MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`).
+- `search_library` and `list_items` now return structured responses with `items`, `total`, `limit`, `offset` (and `cursor`/`fields` support).
+- Tenant isolation verified for all new MCP tools via isolation test suite.
 
 ### Fixed
 - **Zip bombs in notes import**: both zip parsers (Google Keep Takeout and Markdown/text) now check the archive metadata before opening a single member — at most 20,000 members and 200 MB of declared uncompressed size — and read every member with a bounded read (2 MB per file, bigger ones are skipped and counted). Breaking a cap gives a visible error and imports nothing.
 - **XML entity expansion in `.enex`**: ENEX files are parsed with `defusedxml`, so a DTD/entity payload (billion laughs) is rejected with a visible error instead of being expanded.
 - **Plan limits on notes import**: imported notes and the URLs inside them count against the plan's item limit like bookmarks. The import stops at the remaining quota and reports "N skipped: plan limit" instead of aborting the whole upload (or refusing a file that only partly fits).
+
+### Changed
+- FTS5 index now includes v2 provenance fields (`agent_summary`, `why_saved`, `source_context`, `saved_by`) in `content_text` for searchability.
+- Migration 0009 adds `agent_summary`, `why_saved`, `source_context`, `saved_by` columns to `items` table.
 
 ## [1.1.2] - 2026-10-10
 

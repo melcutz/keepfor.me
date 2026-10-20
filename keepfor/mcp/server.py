@@ -7,9 +7,6 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
-
-if TYPE_CHECKING:
-    from keepfor.spi import TenantScope
 from keepfor.models.items import (
     add_tags_to_item,
     delete_item,
@@ -19,7 +16,17 @@ from keepfor.models.items import (
     save_note,
     toggle_pin_item,
 )
-from keepfor.search.engine import get_recent_items, hybrid_search
+from keepfor.search.engine import (
+    get_recent_items,
+    hybrid_search,
+    read_item_chunks,
+    reading_history,
+    related_items,
+    search_chunks,
+)
+
+if TYPE_CHECKING:
+    from keepfor.spi import TenantScope
 
 # Protocol versions this server speaks, newest first. Streamable HTTP clients
 # propose one in initialize params; the server echoes it back when supported.
@@ -51,7 +58,9 @@ MCP_TOOLS = [
     {
         "name": "save_url",
         "description": "Saves a URL to the user's personal library and enqueues "
-        "it for content extraction and semantic indexing.",
+        "it for content extraction and semantic indexing. Use this to capture "
+        "web pages for later reading. For saving personal notes or snippets, "
+        "use save_note instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -64,8 +73,91 @@ MCP_TOOLS = [
                     "items": {"type": "string"},
                     "description": "Optional list of tags.",
                 },
+                "agent_summary": {
+                    "type": "string",
+                    "description": "Optional AI-generated summary of the content.",
+                },
+                "why_saved": {
+                    "type": "string",
+                    "description": "Optional user's reason for saving this item.",
+                },
+                "source_context": {
+                    "type": "string",
+                    "description": (
+                        "Optional context from the conversation/task "
+                        "leading to the save."
+                    ),
+                },
+                "saved_by": {
+                    "type": "string",
+                    "description": (
+                        "Optional name of the agent/client that saved the item."
+                    ),
+                },
             },
             "required": ["url"],
+        },
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    },
+    {
+        "name": "save_note",
+        "description": "Saves a personal note, code snippet, prompt template, "
+        "or idea to the user's personal knowledge vault and indexes it "
+        "for hybrid search. Use this for self-authored content. For saving "
+        "web pages, use save_url instead.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Title of the note",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Markdown body content",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional tags",
+                },
+                "is_pinned": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Pin note to top",
+                },
+                "agent_summary": {
+                    "type": "string",
+                    "description": "Optional AI-generated summary of the content.",
+                },
+                "why_saved": {
+                    "type": "string",
+                    "description": "Optional user's reason for saving this item.",
+                },
+                "source_context": {
+                    "type": "string",
+                    "description": (
+                        "Optional context from the conversation/task "
+                        "leading to the save."
+                    ),
+                },
+                "saved_by": {
+                    "type": "string",
+                    "description": (
+                        "Optional name of the agent/client that saved the item."
+                    ),
+                },
+            },
+            "required": ["title", "content"],
+        },
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
         },
     },
     {
@@ -73,7 +165,9 @@ MCP_TOOLS = [
         "description": "Searches the library by keyword and meaning using "
         "hybrid search (FTS5 + Vectorize). Matches saved articles, personal "
         "notes, and notes imported from Google Keep, Evernote (ENEX) or "
-        "Markdown exports.",
+        "Markdown exports. Returns item-level results with snippets. For "
+        "passage-level citations with snapshot URLs, use search_passages "
+        "instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -90,38 +184,201 @@ MCP_TOOLS = [
                     "type": "string",
                     "description": "Filter results by a specific tag.",
                 },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by multiple tags (AND).",
+                },
+                "untagged": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Show only items without tags.",
+                },
                 "limit": {
                     "type": "integer",
                     "default": 10,
                     "description": "Max results to return.",
                 },
+                "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Pagination offset.",
+                },
+                "cursor": {
+                    "type": "string",
+                    "description": "Opaque cursor for pagination (alt. to offset).",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Projection: fields to include in response.",
+                },
             },
             "required": ["query"],
         },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
     },
     {
-        "name": "get_item",
-        "description": "Retrieves the full extracted text content and metadata "
-        "of a saved article by item ID.",
+        "name": "search_passages",
+        "description": "Searches the library at passage level using hybrid search "
+        "over semantic chunks. Returns top passages with item_id, chunk_id, "
+        "char offsets, snapshot_url (permanent R2 archive), saved_at, and score. "
+        "Has a max_chars budget to control response size. Use this when you need "
+        "precise citations with permanent links that survive link rot. For item-level "
+        "results, use search_library instead.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query terms or semantic question.",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["hybrid", "keyword", "semantic"],
+                    "default": "hybrid",
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Filter results by a specific tag.",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by multiple tags (AND).",
+                },
+                "untagged": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Show only items without tags.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Max passages to return.",
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "default": 4000,
+                    "description": (
+                        "Total character budget for all passages "
+                        "combined (~4 chars/token)."
+                    ),
+                },
+                "cursor": {
+                    "type": "string",
+                    "description": "Opaque cursor for pagination.",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Projection: fields to include in response.",
+                },
+            },
+            "required": ["query"],
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    },
+    {
+        "name": "read_item",
+        "description": (
+            "Reads an item's content in paginated chunks for token-efficient "
+            "retrieval. Returns text, next_cursor, total_chunks, and outline. "
+            "Use cursor to page through long articles. For metadata-only access, "
+            "use get_item (which caps content_text by default)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "item_id": {
                     "type": "string",
                     "description": "The unique ID of the library item.",
-                }
+                },
+                "cursor": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Chunk index to start reading from.",
+                },
+                "max_tokens": {
+                    "type": "integer",
+                    "default": 2000,
+                    "description": (
+                        "Approximate token budget for returned text (~4 chars/token)."
+                    ),
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["markdown", "text"],
+                    "default": "markdown",
+                    "description": "Output format.",
+                },
             },
             "required": ["item_id"],
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    },
+    {
+        "name": "get_item",
+        "description": "Retrieves metadata and excerpt of a saved article by item ID. "
+        "By default, content_text is capped to the excerpt for token efficiency. "
+        "Use include_content=true to get full text (not recommended for large items). "
+        "For paginated full-text reading, use read_item instead.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "The unique ID of the library item.",
+                },
+                "include_content": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "If true, returns full content_text. "
+                        "Default false returns excerpt only."
+                    ),
+                },
+            },
+            "required": ["item_id"],
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
         },
     },
     {
         "name": "list_items",
         "description": "Lists recent items from the library with pagination "
-        "and tag filtering.",
+        "and tag filtering. Supports cursor-based pagination. For search, "
+        "use search_library. For reading history with open events, use "
+        "reading_history instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "tag": {"type": "string", "description": "Filter by tag."},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Filter by multiple tags (AND).",
+                },
+                "untagged": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Show only items without tags.",
+                },
                 "limit": {
                     "type": "integer",
                     "default": 20,
@@ -132,7 +389,114 @@ MCP_TOOLS = [
                     "default": 0,
                     "description": "Pagination offset.",
                 },
+                "cursor": {
+                    "type": "string",
+                    "description": "Opaque cursor for pagination (alt. to offset).",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Projection: fields to include in response.",
+                },
             },
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    },
+    {
+        "name": "reading_history",
+        "description": (
+            "Returns reading history with date filtering. Uses created_at (saved) "
+            "and item_opens (opened) tables. Answers 'what did I read about X "
+            "last month'. Supports filtering by event type (saved/opened), "
+            "date range, query, and tag. For simple recent items, use "
+            "list_items instead."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since": {
+                    "type": "string",
+                    "description": "ISO datetime: start of date range (inclusive).",
+                },
+                "until": {
+                    "type": "string",
+                    "description": "ISO datetime: end of date range (inclusive).",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Optional search query over history.",
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Filter by tag.",
+                },
+                "event": {
+                    "type": "string",
+                    "enum": ["saved", "opened", "all"],
+                    "default": "all",
+                    "description": "Event type to filter by.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Max results to return.",
+                },
+                "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Pagination offset.",
+                },
+                "cursor": {
+                    "type": "string",
+                    "description": "Opaque cursor for pagination.",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Projection: fields to include in response.",
+                },
+            },
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
+    },
+    {
+        "name": "related_items",
+        "description": (
+            "Returns related items by vector similarity. Provide either item_id "
+            "(uses item's content as query) or text (embeds the text). Excludes "
+            "the source item itself. Includes one-line reasons (shared tags or "
+            "semantic similarity). No competitor has this feature."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "The library item ID to find related items for.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Alternative: raw text to find similar items for.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Max related items to return.",
+                },
+            },
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
         },
     },
     {
@@ -155,11 +519,16 @@ MCP_TOOLS = [
             },
             "required": ["item_id"],
         },
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+        },
     },
     {
         "name": "delete_item",
         "description": "Permanently deletes an item, its raw/clean snapshots, "
-        "and its vector embeddings.",
+        "and its vector embeddings. This action cannot be undone.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -170,35 +539,10 @@ MCP_TOOLS = [
             },
             "required": ["item_id"],
         },
-    },
-    {
-        "name": "save_note",
-        "description": "Saves a personal note, code snippet, prompt template, "
-        "or idea to the user's personal knowledge vault and indexes it "
-        "for hybrid search.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "title": {
-                    "type": "string",
-                    "description": "Title of the note",
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Markdown body content",
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Optional tags",
-                },
-                "is_pinned": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": "Pin note to top",
-                },
-            },
-            "required": ["title", "content"],
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
         },
     },
     {
@@ -211,6 +555,11 @@ MCP_TOOLS = [
                 "pinned": {"type": "boolean"},
             },
             "required": ["item_id"],
+        },
+        "annotations": {
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
         },
     },
 ]
@@ -234,7 +583,23 @@ async def handle_tool_call(
         tags = arguments.get("tags") or []
         if not isinstance(tags, list):
             tags = [str(tags)]
-        item, is_new = await save_item(db, env, user_id, url, tags, scope=scope)
+        # v2 fields
+        agent_summary = arguments.get("agent_summary")
+        why_saved = arguments.get("why_saved")
+        source_context = arguments.get("source_context")
+        saved_by = arguments.get("saved_by")
+        item, is_new = await save_item(
+            db,
+            env,
+            user_id,
+            url,
+            tags,
+            scope=scope,
+            agent_summary=agent_summary,
+            why_saved=why_saved,
+            source_context=source_context,
+            saved_by=saved_by,
+        )
         return {
             "id": item["id"],
             "url": item["url"],
@@ -245,42 +610,104 @@ async def handle_tool_call(
             else "Existing URL updated with tags.",
         }
 
-    elif tool_name in ("search_library", "search"):
+    elif tool_name == "search_passages":
         query = arguments.get("query", "")
+        if not query:
+            raise ValueError("search_passages requires a query")
         mode = arguments.get("mode", "hybrid")
         tag = arguments.get("tag")
+        tags = arguments.get("tags")
+        untagged = arguments.get("untagged", False)
         limit = arguments.get("limit", 10)
-        items, _ = await hybrid_search(
+        max_chars = arguments.get("max_chars", 4000)
+        passages, total = await search_chunks(
             db,
             env,
             user_id,
             query,
             mode=mode,
             tag=tag,
+            tags=tags,
+            untagged=untagged,
             limit=limit,
+            max_chars=max_chars,
             scope=scope,
         )
-        return [
-            {
-                "id": it["id"],
-                "title": it.get("title") or it["url"],
-                "url": it["url"],
-                "excerpt": it.get("snippet") or it.get("excerpt"),
-                "tags": it.get("tags", []),
-                "status": it.get("status"),
-                "rrf_score": it.get("rrf_score"),
-                "item_type": it.get("item_type", "url"),
-                "is_pinned": bool(it.get("is_pinned", 0)),
-                "user_notes": it.get("user_notes"),
-            }
-            for it in items
-        ]
+        return {
+            "passages": passages,
+            "total": total,
+            "limit": limit,
+            "max_chars": max_chars,
+        }
+
+    elif tool_name == "read_item":
+        item_id = arguments.get("item_id")
+        if not item_id or not isinstance(item_id, str):
+            raise ValueError("item_id is required")
+        cursor = arguments.get("cursor", 0)
+        max_tokens = arguments.get("max_tokens", 2000)
+        format = arguments.get("format", "markdown")
+        result = await read_item_chunks(
+            db,
+            env,
+            user_id,
+            item_id,
+            cursor=cursor,
+            max_tokens=max_tokens,
+            format=format,
+        )
+        return result
+
+    elif tool_name in ("search_library", "search"):
+        query = arguments.get("query", "")
+        mode = arguments.get("mode", "hybrid")
+        tag = arguments.get("tag")
+        tags = arguments.get("tags")
+        untagged = arguments.get("untagged", False)
+        limit = arguments.get("limit", 10)
+        offset = arguments.get("offset", 0)
+        items, total = await hybrid_search(
+            db,
+            env,
+            user_id,
+            query,
+            mode=mode,
+            tag=tag,
+            tags=tags,
+            untagged=untagged,
+            limit=limit,
+            offset=offset,
+            scope=scope,
+        )
+        return {
+            "items": [
+                {
+                    "id": it["id"],
+                    "title": it.get("title") or it["url"],
+                    "url": it["url"],
+                    "excerpt": it.get("snippet") or it.get("excerpt"),
+                    "tags": it.get("tags", []),
+                    "status": it.get("status"),
+                    "rrf_score": it.get("rrf_score"),
+                    "item_type": it.get("item_type", "url"),
+                    "is_pinned": bool(it.get("is_pinned", 0)),
+                    "user_notes": it.get("user_notes"),
+                }
+                for it in items
+            ],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
 
     elif tool_name == "get_item":
         item_id = arguments.get("item_id")
         if not item_id or not isinstance(item_id, str):
             raise ValueError("item_id is required")
-        found_item = await get_item(db, user_id, item_id)
+        include_content = arguments.get("include_content", False)
+        found_item = await get_item(
+            db, user_id, item_id, include_content=include_content
+        )
         if not found_item:
             raise ValueError(f"Item not found with id: {item_id}")
         return {
@@ -301,26 +728,84 @@ async def handle_tool_call(
             "summary": found_item.get("summary"),
             "image_url": found_item.get("image_url"),
             "read_state": found_item.get("read_state", "unread"),
+            "agent_summary": found_item.get("agent_summary"),
+            "why_saved": found_item.get("why_saved"),
+            "source_context": found_item.get("source_context"),
+            "saved_by": found_item.get("saved_by"),
         }
 
     elif tool_name == "list_items":
         tag = arguments.get("tag")
+        tags = arguments.get("tags")
+        untagged = arguments.get("untagged", False)
         limit = arguments.get("limit", 20)
         offset = arguments.get("offset", 0)
-        items = await get_recent_items(db, user_id, tag=tag, limit=limit, offset=offset)
-        return [
-            {
-                "id": it["id"],
-                "title": it.get("title") or it["url"],
-                "url": it["url"],
-                "excerpt": it.get("excerpt"),
-                "tags": it.get("tags", []),
-                "status": it.get("status"),
-                "item_type": it.get("item_type", "url"),
-                "is_pinned": bool(it.get("is_pinned", 0)),
-            }
-            for it in items
-        ]
+        items = await get_recent_items(
+            db,
+            user_id,
+            tag=tag,
+            tags=tags,
+            untagged=untagged,
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "items": [
+                {
+                    "id": it["id"],
+                    "title": it.get("title") or it["url"],
+                    "url": it["url"],
+                    "excerpt": it.get("excerpt"),
+                    "tags": it.get("tags", []),
+                    "status": it.get("status"),
+                    "item_type": it.get("item_type", "url"),
+                    "is_pinned": bool(it.get("is_pinned", 0)),
+                }
+                for it in items
+            ],
+            "limit": limit,
+            "offset": offset,
+        }
+
+    elif tool_name == "reading_history":
+        since = arguments.get("since")
+        until = arguments.get("until")
+        query = arguments.get("query")
+        tag = arguments.get("tag")
+        event = arguments.get("event", "all")
+        limit = arguments.get("limit", 20)
+        offset = arguments.get("offset", 0)
+        items, total = await reading_history(
+            db,
+            user_id,
+            since=since,
+            until=until,
+            query=query,
+            tag=tag,
+            event=event,
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "items": items,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    elif tool_name == "related_items":
+        item_id = arguments.get("item_id")
+        text = arguments.get("text")
+        if not item_id and not text:
+            raise ValueError("related_items requires either item_id or text")
+        limit = arguments.get("limit", 10)
+        items = await related_items(
+            db, env, user_id, item_id=item_id, text=text, limit=limit, scope=scope
+        )
+        return {
+            "items": items,
+            "limit": limit,
+        }
 
     elif tool_name == "tag_item":
         item_id = arguments.get("item_id")
@@ -352,10 +837,26 @@ async def handle_tool_call(
         content = arguments.get("content", "")
         tags = arguments.get("tags", [])
         is_pinned = bool(arguments.get("is_pinned", False))
+        # v2 fields
+        agent_summary = arguments.get("agent_summary")
+        why_saved = arguments.get("why_saved")
+        source_context = arguments.get("source_context")
+        saved_by = arguments.get("saved_by")
         if not (title or "").strip() and not (content or "").strip():
             raise ValueError("save_note requires a title or content")
         note = await save_note(
-            db, env, user_id, title, content, tags, is_pinned, scope=scope
+            db,
+            env,
+            user_id,
+            title,
+            content,
+            tags,
+            is_pinned,
+            scope=scope,
+            agent_summary=agent_summary,
+            why_saved=why_saved,
+            source_context=source_context,
+            saved_by=saved_by,
         )
         return {
             "id": note["id"],
@@ -448,7 +949,7 @@ async def process_mcp_request(
             "result": {
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "keepfor-me-mcp", "version": "0.1.0"},
+                "serverInfo": {"name": "keepfor-me-mcp", "version": "0.2.0"},
             },
         }
 

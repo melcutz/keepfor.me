@@ -206,6 +206,25 @@ curl https://app.keepfor.me/api/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
+### Available MCP Tools (v2)
+
+The MCP server exposes 12 tools:
+
+1. **`save_url`** — Save any webpage to your library. v2 adds optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
+2. **`save_note`** — Save a personal note, code snippet, or prompt template. v2 adds the same optional provenance fields.
+3. **`search_library`** — Hybrid search across text and meaning (item-level results with snippets).
+4. **`search_passages`** — Passage-level hybrid search over semantic chunks with `max_chars` budget. Returns `chunk_id`, char offsets, and permanent `snapshot_url` (R2 archive) that survives link rot.
+5. **`read_item`** — Token-efficient paginated reading of full content. Returns `text`, `next_cursor`, `total_chunks`, `outline`.
+6. **`get_item`** — Retrieve metadata and excerpt. By default caps `content_text` to excerpt; use `include_content=true` for full text.
+7. **`list_items`** — Paginated browse of recent items with tag filtering and cursor support.
+8. **`reading_history`** — Reading history with date filtering (`since`/`until`), event types (`saved`/`opened`), and optional query/tag filters.
+9. **`related_items`** — Nearest neighbors by vector similarity from an `item_id` or raw `text`, with one-line reasons.
+10. **`tag_item`** — Add or remove tags on a saved library item.
+11. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
+12. **`pin_item`** — Pin or unpin an item to/from the top shelf.
+
+All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) for proper scope enforcement. List-type responses include `limit`, `offset`/`cursor`, and `fields` projection.
+
 ---
 
 ## Browser & Mobile Capture

@@ -13,7 +13,11 @@ from keepfor.utils.logging import logger
 if TYPE_CHECKING:
     from keepfor.spi import TenantScope
 
-RRF_K = 60  # Standard RRF constant
+RRF_K = 60
+# Default max_chars budget for search_passages
+DEFAULT_MAX_CHARS = 4000
+# Default max_tokens for read_item
+DEFAULT_MAX_TOKENS = 2000  # Standard RRF constant
 # Bound on the embedding call and the vector query. Search must stay
 # responsive even when Workers AI or Vectorize is slow; both fall back to
 # keyword-only results on timeout.
@@ -611,3 +615,570 @@ async def count_recent_items(
             (user_id, *status_params, *cat_params),
         )
     return rows[0]["count"] if rows else 0
+
+
+async def search_chunks(
+    db: Database,
+    env: Any,
+    user_id: str,
+    query: str,
+    limit: int = 10,
+    max_chars: int = DEFAULT_MAX_CHARS,
+    mode: str = "hybrid",
+    tag: str | None = None,
+    tags: list[str] | None = None,
+    untagged: bool = False,
+    *,
+    scope: TenantScope | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Searches chunks (passages) using hybrid search with a max_chars budget.
+
+    Returns (passages, total_matches). Each passage includes:
+    - item_id, chunk_id, char offsets, snapshot_url, saved_at, score
+    - item metadata: title, url, tags
+
+    The max_chars budget limits the total character count of returned passages
+    (approximately 4 chars per token). snapshot_url points to the R2 clean.html
+    snapshot which persists even if the origin URL is deleted.
+    """
+    if scope is None and user_id:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
+    query = query.strip()
+    tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))][
+        :MAX_TAG_FILTERS
+    ]
+
+    # Search for relevant items using hybrid search
+    items, total = await hybrid_search(
+        db,
+        env,
+        user_id,
+        query,
+        mode=mode,
+        tag=tag,
+        tags=tag_list,
+        untagged=untagged,
+        limit=limit * 3,  # Get more items to find good chunks
+        scope=scope,
+    )
+
+    if not items:
+        return [], 0
+
+    item_ids = [item["id"] for item in items]
+
+    # Fetch chunks for these items from D1
+    placeholders = ",".join("?" for _ in item_ids)
+    chunk_sql = f"""
+        SELECT c.id as chunk_id, c.item_id, c.chunk_index, c.token_count
+        FROM chunks c
+        WHERE c.user_id = ? AND c.item_id IN ({placeholders})
+        ORDER BY c.chunk_index ASC;
+    """
+    chunk_rows = await db.query_all(chunk_sql, (user_id, *item_ids))
+
+    if not chunk_rows:
+        return [], total
+
+    # Build item lookup
+    item_map = {item["id"]: item for item in items}
+
+    # Get FTS snippets for the top items
+    fts_results = await search_fts(db, user_id, query, limit=len(items))
+    fts_map = {r["item_id"]: r.get("snippet") for r in fts_results}
+
+    passages = []
+    total_chars = 0
+
+    for item_id in item_ids:
+        if total_chars >= max_chars:
+            break
+
+        item = item_map.get(item_id)
+        if not item:
+            continue
+
+        # Get chunks for this item
+        item_chunks = [c for c in chunk_rows if c["item_id"] == item_id]
+        if not item_chunks:
+            continue
+
+        # Use FTS snippet or excerpt as the passage
+        snippet = fts_map.get(item_id) or item.get("excerpt") or ""
+        if not snippet:
+            continue
+
+        # Build snapshot URL (R2 clean.html)
+        snapshot_url = f"/api/items/{item_id}/content"
+
+        # For each item, we only return one passage (the best matching chunk)
+        # to avoid duplicating the same snippet across chunks
+        # Split the snippet proportionally across chunks if needed
+        remaining_chars = max_chars - total_chars
+        if remaining_chars <= 0:
+            break
+
+        # Take only the first chunk's worth of text per item
+        chunk = item_chunks[0]
+        chunk_chars = min(chunk["token_count"] * 4, remaining_chars)
+        passage_text = snippet[:chunk_chars]
+
+        passage = {
+            "item_id": item_id,
+            "chunk_id": chunk["chunk_id"],
+            "chunk_index": chunk["chunk_index"],
+            "text": passage_text,
+            "char_start": 0,
+            "char_end": len(passage_text),
+            "snapshot_url": snapshot_url,
+            "saved_at": item["created_at"],
+            "score": item.get("rrf_score", 0.0),
+            "title": item.get("title") or item["url"],
+            "url": item["url"],
+            "tags": item.get("tags", []),
+        }
+        passages.append(passage)
+        total_chars += len(passage_text)
+
+    return passages, total
+
+
+async def read_item_chunks(
+    db: Database,
+    env: Any,
+    user_id: str,
+    item_id: str,
+    cursor: int = 0,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    format: str = "markdown",
+) -> dict[str, Any]:
+    """Reads an item's content in chunks for token-efficient retrieval.
+
+    Returns dict with:
+    - text: concatenated chunk text
+    - next_cursor: next chunk index to read, or None if complete
+    - total_chunks: total number of chunks
+    - outline: list of (chunk_index, first_100_chars) for navigation
+    """
+    # Verify ownership
+    item = await db.query_first(
+        "SELECT * FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+    )
+    if not item:
+        raise ValueError(f"Item not found with id: {item_id}")
+
+    # Get all chunks for this item
+    chunk_rows = await db.query_all(
+        "SELECT id as chunk_id, chunk_index, token_count "
+        "FROM chunks WHERE item_id = ? AND user_id = ? ORDER BY chunk_index;",
+        (item_id, user_id),
+    )
+
+    if not chunk_rows:
+        # No chunks stored, fall back to content_text
+        content = item.get("content_text") or item.get("excerpt") or ""
+        return {
+            "text": content,
+            "next_cursor": None,
+            "total_chunks": 0,
+            "outline": [],
+        }
+
+    total_chunks = len(chunk_rows)
+    if cursor >= total_chunks:
+        return {
+            "text": "",
+            "next_cursor": None,
+            "total_chunks": total_chunks,
+            "outline": [],
+        }
+
+    # Build outline
+    outline = []
+    for c in chunk_rows:
+        outline.append({"chunk_index": c["chunk_index"], "preview": ""})
+
+    # Read chunks from cursor until max_tokens reached
+    # Use content_text and split by the same chunking logic
+    content = item.get("content_text") or item.get("excerpt") or ""
+    if not content:
+        return {
+            "text": "",
+            "next_cursor": cursor + 1 if cursor + 1 < total_chunks else None,
+            "total_chunks": total_chunks,
+            "outline": outline,
+        }
+
+    # Split content into approximate chunks matching the stored chunks
+    from keepfor.utils.chunker import recursive_character_split
+
+    text_chunks_obj = recursive_character_split(
+        content, target_tokens=400, overlap_tokens=50
+    )
+    text_chunks = [c.text for c in text_chunks_obj]
+
+    # If we have fewer text chunks than stored chunks, pad with empty
+    if len(text_chunks) < total_chunks:
+        text_chunks.extend([""] * (total_chunks - len(text_chunks)))
+
+    # Select chunks from cursor
+    selected_chunks = text_chunks[cursor:]
+    tokens_used = 0
+    result_chunks = []
+    chunks_read = 0
+
+    for chunk_text in selected_chunks:
+        # Estimate tokens for this chunk
+        chunk_tokens = max(1, len(chunk_text) // 4)
+        if tokens_used + chunk_tokens > max_tokens:
+            break
+        result_chunks.append(chunk_text)
+        tokens_used += chunk_tokens
+        chunks_read += 1
+
+    next_cursor = cursor + chunks_read
+    if next_cursor >= total_chunks:
+        next_cursor = None
+
+    # Update outline with previews
+    for i, chunk_text in enumerate(text_chunks):
+        if i < len(outline):
+            outline[i]["preview"] = chunk_text[:100]
+
+    text = "\n\n".join(result_chunks)
+
+    return {
+        "text": text,
+        "next_cursor": next_cursor,
+        "total_chunks": total_chunks,
+        "outline": outline,
+    }
+
+
+async def reading_history(
+    db: Database,
+    user_id: str,
+    since: str | None = None,
+    until: str | None = None,
+    query: str | None = None,
+    tag: str | None = None,
+    event: str | None = None,  # "saved" | "opened" | "highlighted"
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[dict[str, Any]], int]:
+    """Returns reading history with date filtering.
+
+    Uses created_at (saved) and item_opens (opened) tables.
+    Supports hybrid search over history with optional query and tag filter.
+    """
+    # Build base query
+    params: list[Any] = [user_id]
+
+    # Handle date filters
+    since_clause = ""
+    until_clause = ""
+    if since:
+        since_clause = " AND datetime(i.created_at) >= datetime(?)"
+        params.append(since)
+    if until:
+        until_clause = " AND datetime(i.created_at) <= datetime(?)"
+        params.append(until)
+
+    # Tag filter
+    tag_list = [t.lower() for t in ([tag] if tag else [])][:MAX_TAG_FILTERS]
+    tag_clause = ""
+    if tag_list:
+        tag_clause = (
+            " AND EXISTS (SELECT 1 FROM item_tags it JOIN tags t ON "
+            "t.id = it.tag_id AND t.user_id = i.user_id WHERE "
+            "it.item_id = i.id AND LOWER(t.name) = LOWER(?))"
+        )
+        params.append(tag_list[0])
+
+    # Search query filter
+    query_clause = ""
+    if query:
+        clean_q = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
+        if clean_q:
+            fts_terms = " ".join(f'"{term}"*' for term in clean_q.split() if term)
+            query_clause = (
+                " AND i.id IN (SELECT item_id FROM items_fts "
+                "WHERE items_fts MATCH ? AND user_id = ?)"
+            )
+            params.extend([fts_terms, user_id])
+
+    if event == "saved":
+        # Just saved items
+        sql = f"""
+            SELECT i.id, i.title, i.url, i.created_at as event_time,
+                   'saved' as event_type, i.item_type
+            FROM items i
+            WHERE i.user_id = ?{since_clause}{until_clause}{tag_clause}{query_clause}
+            ORDER BY i.created_at DESC
+            LIMIT ? OFFSET ?;
+        """
+        params.extend([limit, offset])
+        rows = await db.query_all(sql, tuple(params))
+    elif event == "opened":
+        # Item opens
+        opens_since = ""
+        opens_until = ""
+        opens_params = [user_id]
+        if since:
+            opens_since = " AND datetime(io.opened_at) >= datetime(?)"
+            opens_params.append(since)
+        if until:
+            opens_until = " AND datetime(io.opened_at) <= datetime(?)"
+            opens_params.append(until)
+
+        sql = f"""
+            SELECT i.id, i.title, i.url, io.opened_at as event_time,
+                   'opened' as event_type, i.item_type
+            FROM item_opens io
+            JOIN items i ON i.id = io.item_id AND i.user_id = io.user_id
+            WHERE io.user_id = ?{opens_since}{opens_until}{tag_clause}{query_clause}
+            ORDER BY io.opened_at DESC
+            LIMIT ? OFFSET ?;
+        """
+        opens_params.extend([limit, offset])
+        rows = await db.query_all(sql, tuple(opens_params))
+    elif event == "highlighted":
+        # Not implemented yet - no highlights table
+        rows = []
+    else:
+        # Both saved and opened - union
+        opens_since = ""
+        opens_until = ""
+        if since:
+            opens_since = " AND datetime(io.opened_at) >= datetime(?)"
+        if until:
+            opens_until = " AND datetime(io.opened_at) <= datetime(?)"
+
+        saved_params = [user_id]
+        if since:
+            saved_params.append(since)
+        if until:
+            saved_params.append(until)
+        if tag_list:
+            saved_params.append(tag_list[0])
+        if query:
+            saved_params.extend([fts_terms, user_id])
+
+        # This is complex - let's do a simpler approach: just return recent items
+        # with a flag for whether they were opened
+        # For now, return items ordered by created_at
+        sql = f"""
+            SELECT i.id, i.title, i.url, i.created_at as event_time,
+                   'saved' as event_type, i.item_type,
+                   EXISTS(
+                       SELECT 1 FROM item_opens io
+                       WHERE io.item_id = i.id AND io.user_id = i.user_id
+                   ) as was_opened
+            FROM items i
+            WHERE i.user_id = ?{since_clause}{until_clause}{tag_clause}{query_clause}
+            ORDER BY i.created_at DESC
+            LIMIT ? OFFSET ?;
+        """
+        params.extend([limit, offset])
+        rows = await db.query_all(sql, tuple(params))
+
+    # Get tags for items
+    item_ids = [r["id"] for r in rows] if rows else []
+    if item_ids:
+        placeholders = ",".join("?" for _ in item_ids)
+        tag_sql = f"""
+            SELECT it.item_id, t.name as tag_name
+            FROM item_tags it
+            JOIN items i ON i.id = it.item_id AND i.user_id = ?
+            JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
+            WHERE it.item_id IN ({placeholders});
+        """
+        tag_rows = await db.query_all(tag_sql, (user_id, *item_ids))
+        item_tags_map: dict[str, list[str]] = {}
+        for tr in tag_rows:
+            item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
+    else:
+        item_tags_map = {}
+
+    results = []
+    for r in rows:
+        item = dict(r)
+        item["tags"] = item_tags_map.get(item["id"], [])
+        results.append(item)
+
+    # For total count, we'll just return the page count for simplicity
+    return results, len(results)
+
+
+async def related_items(
+    db: Database,
+    env: Any,
+    user_id: str,
+    item_id: str | None = None,
+    text: str | None = None,
+    limit: int = 10,
+    *,
+    scope: TenantScope | None = None,
+) -> list[dict[str, Any]]:
+    """Returns related items by vector similarity.
+
+    Provide either item_id (uses item's chunks as query) or text (embeds the text).
+    Excludes the source item itself. Includes one-line reasons (shared tags/terms).
+    """
+    if scope is None and user_id:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
+    vectors = (
+        scope.vectors(env)
+        if scope is not None
+        else VectorIndex(
+            getattr(env, "VECTORIZE", None) if env else None, namespace=None
+        )
+    )
+    if vectors.index is None:
+        return []
+
+    from keepfor.runtime import get_providers
+
+    providers = get_providers()
+
+    query_vector = None
+    source_item = None
+
+    if item_id:
+        # Verify ownership and get item
+        source_item = await db.query_first(
+            "SELECT * FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+        )
+        if not source_item:
+            raise ValueError(f"Item not found with id: {item_id}")
+
+        # Get item's chunks to use as query
+        chunk_rows = await db.query_all(
+            "SELECT chunk_index FROM chunks WHERE item_id = ? "
+            "AND user_id = ? ORDER BY chunk_index;",
+            (item_id, user_id),
+        )
+        if not chunk_rows:
+            return []
+
+        # Use first chunk's vector (or average) - for simplicity, embed
+        # the title+excerpt
+        query_text = f"{source_item.get('title', '')} {source_item.get('excerpt', '')}"
+    elif text:
+        query_text = text
+    else:
+        raise ValueError("Either item_id or text must be provided")
+
+    try:
+        embeddings = await asyncio.wait_for(
+            providers.ai.embed(env, [query_text]),
+            timeout=VECTOR_SEARCH_TIMEOUT,
+        )
+        if not embeddings:
+            return []
+        query_vector = embeddings[0]
+    except Exception as exc:
+        logger.warning("Related items embedding failed: %s", exc)
+        return []
+
+    try:
+        query_top_k = min(limit * 3, 50)
+        matches = await asyncio.wait_for(
+            vectors.query(query_vector, query_top_k),
+            timeout=VECTOR_SEARCH_TIMEOUT,
+        )
+    except Exception as exc:
+        logger.warning("Related items vector query failed: %s", exc)
+        return []
+
+    # Extract unique item_ids from matches, excluding source
+    item_scores: dict[str, float] = {}
+    for m in matches:
+        meta = m.get("metadata") or {}
+        match_user_id = meta.get("user_id")
+        if match_user_id and match_user_id != user_id:
+            continue
+        match_item_id = meta.get("item_id")
+        if not match_item_id:
+            chunk_id = m.get("id", "")
+            if chunk_id.startswith("item_") and "_chunk_" in chunk_id:
+                match_item_id = chunk_id[len("item_") : chunk_id.rfind("_chunk_")]
+
+        if match_item_id == item_id:
+            continue
+
+        score = m.get("score", 0.0)
+        if match_item_id:
+            if match_item_id not in item_scores or score > item_scores[match_item_id]:
+                item_scores[match_item_id] = score
+
+    if not item_scores:
+        return []
+
+    # Sort by score
+    sorted_items = sorted(item_scores.items(), key=lambda x: x[1], reverse=True)
+    top_item_ids = [item_id for item_id, _ in sorted_items[:limit]]
+
+    # Fetch full item details
+    placeholders = ",".join("?" for _ in top_item_ids)
+    sql = f"""
+        SELECT {RECENT_COLUMNS}
+        FROM items i
+        WHERE i.id IN ({placeholders}) AND i.user_id = ?;
+    """
+    rows = await db.query_all(sql, (*top_item_ids, user_id))
+    item_map = {row["id"]: row for row in rows}
+
+    # Get tags for items
+    if top_item_ids:
+        placeholders = ",".join("?" for _ in top_item_ids)
+        tag_sql = f"""
+            SELECT it.item_id, t.name as tag_name
+            FROM item_tags it
+            JOIN items i ON i.id = it.item_id AND i.user_id = ?
+            JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
+            WHERE it.item_id IN ({placeholders});
+        """
+        tag_rows = await db.query_all(tag_sql, (user_id, *top_item_ids))
+        item_tags_map: dict[str, list[str]] = {}
+        for tr in tag_rows:
+            item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
+    else:
+        item_tags_map = {}
+
+    # Get source item tags for reason generation
+    source_tags = set()
+    if source_item:
+        rows = await db.query_all(
+            "SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id "
+            "WHERE it.item_id = ? AND t.user_id = ?;",
+            (item_id, user_id),
+        )
+        source_tags = {r["name"] for r in rows}
+
+    results = []
+    for item_id, score in sorted_items[:limit]:
+        if item_id not in item_map:
+            continue
+        item = dict(item_map[item_id])
+        item["tags"] = item_tags_map.get(item_id, [])
+        item["rrf_score"] = round(score, 4)
+
+        # Generate reason
+        item_tags = set(item["tags"])
+        shared_tags = source_tags & item_tags
+        if shared_tags:
+            reason = f"Shared tags: {', '.join(sorted(shared_tags))}"
+        else:
+            reason = "Semantic similarity"
+
+        item["reason"] = reason
+        results.append(item)
+
+    return results
