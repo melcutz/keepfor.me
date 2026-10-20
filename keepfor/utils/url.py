@@ -125,3 +125,20 @@ def canonicalize_url(url: str) -> str:
 
     # Reconstruct without fragment
     return urlunparse((scheme, netloc, path, parsed.params, clean_query, ""))
+
+
+def url_dedupe_key(url: str) -> str:
+    """Normalized URL key used to detect duplicates.
+
+    Canonicalizes (lowercase scheme/host, no tracking params, no trailing
+    slash, no fragment) and drops a leading "www.", so
+    "https://www.example.com/a/" and "https://example.com/a" share a key.
+    """
+    canon = canonicalize_url(url or "")
+    parsed = urlparse(canon)
+    netloc = parsed.netloc
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, "")
+    )

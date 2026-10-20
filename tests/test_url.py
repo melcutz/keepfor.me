@@ -3,7 +3,7 @@
 
 """Tests for URL canonicalization and normalization."""
 
-from keepfor.utils.url import canonicalize_url, extract_url
+from keepfor.utils.url import canonicalize_url, extract_url, url_dedupe_key
 
 
 def test_strip_tracking_params():
@@ -63,6 +63,14 @@ def test_extract_url_embedded_in_share_text():
     # Balanced parens inside URL should be preserved
     wiki = "https://en.wikipedia.org/wiki/Rust_(programming_language)"
     assert extract_url(wiki) == wiki
+
+
+def test_url_dedupe_key_collapses_equivalent_urls():
+    """The dedupe key folds www, tracking params, slashes and fragments."""
+    key = url_dedupe_key("https://www.Example.com/article/?utm_source=x&id=7#top")
+    assert key == "https://example.com/article?id=7"
+    assert url_dedupe_key("https://example.com/article?id=7") == key
+    assert url_dedupe_key("https://example.com/article?id=8") != key
 
 
 def test_extract_url_invalid_inputs():

@@ -8,6 +8,13 @@ import binascii
 import json
 from typing import TYPE_CHECKING, Any
 
+from keepfor.models.cleanup import (
+    CLEANUP_CATEGORIES,
+    DEFAULT_CLEANUP_LIMIT,
+    DEFAULT_OLDER_THAN_DAYS,
+    MAX_CLEANUP_LIMIT,
+    find_cleanup,
+)
 from keepfor.models.db import Database
 from keepfor.models.items import (
     BULK_UPDATE_LIMIT,
@@ -203,6 +210,19 @@ def _dry_run_flag(arguments: dict[str, Any]) -> bool:
     value = arguments["dry_run"]
     if not isinstance(value, bool):
         raise _invalid("dry_run must be a boolean")
+    return value
+
+
+def _bounded_int(
+    value: Any, default: int, name: str, minimum: int, maximum: int
+) -> int:
+    """Reads an integer argument, rejecting anything outside the allowed range."""
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _invalid(f"{name} must be an integer between {minimum} and {maximum}.")
+    if value < minimum or value > maximum:
+        raise _invalid(f"{name} must be between {minimum} and {maximum}, got {value}.")
     return value
 
 
@@ -1163,6 +1183,52 @@ MCP_TOOLS = [
         "annotations": _READ_ONLY,
     },
     {
+        "name": "find_cleanup",
+        "description": "Suggests cleanup candidates in the library: duplicate "
+        "items (same normalized url), dead links, never-opened old items, "
+        "untagged items, and near-duplicate tags. Each category reports the "
+        "candidates, the total number of candidates and whether the list was "
+        "truncated. The item categories list one id with a reason; the group "
+        "categories list one entry per group: duplicates gives the group's ids "
+        "(capped), its size and whether the id list was truncated, "
+        "near-duplicate tags gives the group's tag names. "
+        "Read-only: it reports what could be cleaned up, it never changes "
+        "anything. Dead links are items whose recorded extraction failed; no "
+        "network requests are made, so a link that was never fetched is not "
+        "detected.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "categories": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": list(CLEANUP_CATEGORIES)},
+                    "description": (
+                        "Categories to check (default: all). One or more of "
+                        + ", ".join(CLEANUP_CATEGORIES)
+                        + "."
+                    ),
+                },
+                "older_than_days": {
+                    "type": "integer",
+                    "default": DEFAULT_OLDER_THAN_DAYS,
+                    "description": (
+                        "For never_opened: how old an item must be (in days) "
+                        "to count as never opened."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": DEFAULT_CLEANUP_LIMIT,
+                    "description": (
+                        f"Max entries per category (at most {MAX_CLEANUP_LIMIT})."
+                        " For duplicates, one entry per group of duplicate urls."
+                    ),
+                },
+            },
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
         "name": "delete_item",
         "description": "Permanently deletes an item, its raw/clean snapshots, "
         "and its vector embeddings. This action cannot be undone.",
@@ -1721,6 +1787,40 @@ async def handle_tool_call(
             "unused_tags": await find_unused_tags(db, user_id),
             "untagged_items": await find_untagged_items(db, user_id, limit=limit),
         }
+
+    elif tool_name == "find_cleanup":
+        categories = _as_list(arguments.get("categories"))
+        unknown = [c for c in categories if c not in CLEANUP_CATEGORIES]
+        if unknown:
+            raise _invalid(
+                "Unknown find_cleanup categories: "
+                + ", ".join(unknown)
+                + ". Valid categories: "
+                + ", ".join(CLEANUP_CATEGORIES)
+                + ".",
+                valid_categories=list(CLEANUP_CATEGORIES),
+            )
+        limit = _bounded_int(
+            arguments.get("limit"),
+            DEFAULT_CLEANUP_LIMIT,
+            "limit",
+            1,
+            MAX_CLEANUP_LIMIT,
+        )
+        older_than_days = _bounded_int(
+            arguments.get("older_than_days"),
+            DEFAULT_OLDER_THAN_DAYS,
+            "older_than_days",
+            1,
+            3650,
+        )
+        return await find_cleanup(
+            db,
+            user_id,
+            categories=categories or None,
+            older_than_days=older_than_days,
+            limit=limit,
+        )
 
     elif tool_name == "delete_item":
         item_id = arguments.get("item_id")
