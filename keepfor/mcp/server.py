@@ -52,11 +52,15 @@ from keepfor.models.tags import (
     delete_tag as delete_tag_dry,
 )
 from keepfor.search.engine import (
+    MAX_DIGEST_DATE_CHARS,
+    MAX_DIGEST_TAG_CHARS,
     STATUS_GROUPS,
     find_items,
     hybrid_search,
+    library_digest,
     list_items_compact,
     match_items,
+    normalize_digest_bound,
     read_item_chunks,
     reading_history,
     related_items,
@@ -302,6 +306,45 @@ def _bulk_update_filters(arguments: dict[str, Any]) -> dict[str, Any]:
             "empty filter would match the whole library."
         )
     return filters
+
+
+def _digest_date(value: Any, field: str) -> str | None:
+    """Validates and normalizes an ISO date/datetime argument."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise _invalid(f"{field} must be an ISO date or datetime string")
+    raw = value.strip()
+    if not raw:
+        return None
+    if len(raw) > MAX_DIGEST_DATE_CHARS:
+        raise _invalid(
+            f"{field} must be at most {MAX_DIGEST_DATE_CHARS} characters",
+            max_length=MAX_DIGEST_DATE_CHARS,
+        )
+    try:
+        return normalize_digest_bound(raw)
+    except ValueError as exc:
+        raise _invalid(
+            f"{field} must be an ISO date or datetime, got {value!r}"
+        ) from exc
+
+
+def _digest_tag(value: Any) -> str | None:
+    """Validates the optional tag filter of the digest."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise _invalid("tag must be a string")
+    raw = value.strip()
+    if not raw:
+        return None
+    if len(raw) > MAX_DIGEST_TAG_CHARS:
+        raise _invalid(
+            f"tag must be at most {MAX_DIGEST_TAG_CHARS} characters",
+            max_length=MAX_DIGEST_TAG_CHARS,
+        )
+    return raw
 
 
 MCP_TOOLS = [
@@ -1266,6 +1309,41 @@ MCP_TOOLS = [
         },
         "annotations": _WRITE,
     },
+    {
+        "name": "library_digest",
+        "description": "Summarizes the library for a period: how many items "
+        "were saved and opened, how many are still unread, the most used "
+        "tags, and a short list of unread highlights. Every count covers "
+        "the period (a tag filter narrows it further). Read-only and "
+        "compact: 'truncated' says a list or a string was cut. Use it for "
+        "a recap ('what did I save last week'); use list_items or "
+        "reading_history for the items themselves.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since": {
+                    "type": "string",
+                    "description": (
+                        "ISO date/datetime: only saves and opens at/after it."
+                    ),
+                },
+                "until": {
+                    "type": "string",
+                    "description": (
+                        "ISO date/datetime: only saves and opens at/before it."
+                    ),
+                },
+                "tag": {
+                    "type": "string",
+                    "description": (
+                        "Restrict the digest to items carrying this tag "
+                        "(child tags count)."
+                    ),
+                },
+            },
+        },
+        "annotations": _READ_ONLY,
+    },
 ]
 
 
@@ -1889,6 +1967,19 @@ async def handle_tool_call(
         if bool(target_item.get("is_pinned", 0)) != want:
             await toggle_pin_item(db, user_id, item_id)
         return {"id": item_id, "is_pinned": want}
+
+    elif tool_name == "library_digest":
+        since = _digest_date(arguments.get("since"), "since")
+        until = _digest_date(arguments.get("until"), "until")
+        if since and until and since > until:
+            raise _invalid("since must not be after until")
+        return await library_digest(
+            db,
+            user_id,
+            since=since,
+            until=until,
+            tag=_digest_tag(arguments.get("tag")),
+        )
 
     else:
         raise _not_found(f"Unknown tool: {tool_name}")

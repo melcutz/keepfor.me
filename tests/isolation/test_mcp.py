@@ -568,6 +568,7 @@ NEW_MCP_TOOLS = [
     ("related_tags", {"tag": "tag1"}),
     ("tag_cleanup", {}),
     ("find_cleanup", {}),
+    ("library_digest", {"tag": "tag1"}),
 ]
 
 
@@ -783,3 +784,85 @@ async def test_mcp_find_cleanup_isolation(harness: IsolationHarness):
 
     snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
     assert snap_a_after == snap_a_before, "find_cleanup modified Tenant A"
+
+
+@pytest.mark.asyncio
+async def test_mcp_library_digest_isolation(harness: IsolationHarness):
+    """MCP library_digest as Tenant B never reports Tenant A's library."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+    a_only_tag_name = f"tag_{a.user['id'][:6]}"
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 405,
+            "method": "tools/call",
+            "params": {
+                "name": "library_digest",
+                # A tag Tenant A owns: B's digest must stay on B's items.
+                "arguments": {"tag": "tag1"},
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    text = resp.text
+    assert a.unique_keyword not in text, "library_digest leaked A's keyword"
+    assert a.html_item_id not in text, "library_digest leaked A's item id"
+
+    payload = json.loads(resp.json()["result"]["content"][0]["text"])
+    assert payload["saves"] == 2, "library_digest counted another tenant's saves"
+    for highlight in payload["unread_highlights"]:
+        assert highlight["id"] not in a.item_ids
+        assert highlight["id"] in b.item_ids
+    assert a_only_tag_name not in {t["name"] for t in payload["top_tags"]}
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, "library_digest modified Tenant A"
+
+
+@pytest.mark.asyncio
+async def test_mcp_library_digest_tag_filter_isolated(harness: IsolationHarness):
+    """A tag that only exists for Tenant A resolves to nothing for Tenant B.
+
+    Each seeded tenant owns a private tag (tag_<user id prefix>), so this
+    catches a tag filter that leaks across users.
+    """
+    a = harness.tenant_a
+    b = harness.tenant_b
+    a_only_tag = f"tag_{a.user['id'][:6]}"
+    b_only_tag = f"tag_{b.user['id'][:6]}"
+
+    def _digest(tag: str) -> dict[str, Any]:
+        resp = harness.client.post(
+            "/api/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 406,
+                "method": "tools/call",
+                "params": {
+                    "name": "library_digest",
+                    "arguments": {"tag": tag},
+                },
+            },
+            headers=b.auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        return json.loads(resp.json()["result"]["content"][0]["text"])
+
+    # B's own private tag: exactly one of B's items carries it.
+    own = _digest(b_only_tag)
+    assert own["saves"] == 1
+    assert [h["id"] for h in own["unread_highlights"]] == [b.html_item_id]
+
+    # A's private tag must resolve to nothing at all for B.
+    other = _digest(a_only_tag)
+    assert other["saves"] == 0
+    assert other["unread"] == 0
+    assert other["opens"] == 0
+    assert other["unread_highlights"] == []
+    assert other["top_tags"] == []
