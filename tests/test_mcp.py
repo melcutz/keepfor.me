@@ -1115,6 +1115,19 @@ WRITE_ARGUMENTS = {
     "retag_by_query": {"query": "alpha", "add": ["probe-add"]},
     "bulk_update": {"tags_all": ["work"], "add_tags": ["probe-add"]},
     "set_item_tags": {"item_id": "ITEM", "tags": ["probe-add"]},
+    # Highlights and collections (GitHub issue #24): the collection and the
+    # highlight must exist for the call to change anything, so the shared
+    # defaults above (which name a collection that is not there yet, or one
+    # that already holds the item) are replaced here.
+    "create_collection": {"name": "probe-collection-new"},
+    "add_to_collection": {"collection": "probe-collection-empty", "item_ids": ["ITEM"]},
+    "remove_from_collection": {"collection": "probe-collection", "item_ids": ["ITEM"]},
+    "rename_collection": {
+        "collection": "probe-collection",
+        "new_name": "probe-collection-2",
+    },
+    "delete_collection": {"collection": "probe-collection"},
+    "delete_highlight": {"highlight_id": "probe-highlight"},
 }
 
 
@@ -1155,6 +1168,14 @@ async def _library_state(db, user_id):
             " ORDER BY it.item_id, t.name;",
             (user_id,),
         ),
+        ("SELECT * FROM highlights WHERE user_id = ? ORDER BY id;", (user_id,)),
+        ("SELECT * FROM collections WHERE user_id = ? ORDER BY id;", (user_id,)),
+        (
+            "SELECT ci.collection_id, ci.item_id FROM collection_items ci"
+            " JOIN collections c ON c.id = ci.collection_id AND c.user_id = ?"
+            " ORDER BY ci.collection_id, ci.item_id;",
+            (user_id,),
+        ),
     ):
         parts.append(await db.query_all(sql, params))
     return json.dumps(parts, sort_keys=True, default=str)
@@ -1163,6 +1184,10 @@ async def _library_state(db, user_id):
 @pytest.fixture
 async def scoped_user(db):
     """A user with a library and the tags every write tool acts on."""
+    from keepfor.models.collections import (
+        add_items_to_collection,
+        create_collection,
+    )
     from keepfor.models.items import create_tag
 
     user = await register_user(db, "scoped@example.com", "password123")
@@ -1170,6 +1195,16 @@ async def scoped_user(db):
     item_id = await _make_item(db, env, user["id"])
     for name in ("probe-tag", "probe-tag2", "probe-tag3"):
         await create_tag(db, user["id"], name)
+    # A highlight to delete and two collections: one holding the item (so
+    # removing it changes something) and one empty (so adding it does).
+    await db.execute(
+        "INSERT INTO highlights (id, user_id, item_id, text, start_offset,"
+        " end_offset) VALUES ('probe-highlight', ?, ?, 'quoted', 0, 6);",
+        (user["id"], item_id),
+    )
+    await create_collection(db, user["id"], "probe-collection")
+    await create_collection(db, user["id"], "probe-collection-empty")
+    await add_items_to_collection(db, user["id"], "probe-collection", [item_id])
     return user, env, item_id
 
 
