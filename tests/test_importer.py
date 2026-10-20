@@ -1569,6 +1569,125 @@ async def test_import_route_rejects_enex_entity_expansion(db, monkeypatch):
     assert "rejected for safety" in page.text
 
 
+# ===== Plan limits (Pete review #3) =====
+
+
+class LimitedEntitlements:
+    """Allows a fixed number of `import` units, then refuses (plan limit)."""
+
+    def __init__(self, limit: int):
+        self.limit = limit
+        self.used = 0
+
+    async def check(self, tenant_id, action, qty=1):
+        from keepfor.spi import Decision
+
+        if action != "import":
+            return Decision(allowed=True)
+        return Decision(allowed=self.used + qty <= self.limit, reason="limit")
+
+    async def record(self, tenant_id, action, qty=1):
+        if action == "import":
+            self.used += qty
+
+
+@pytest.mark.asyncio
+async def test_import_notes_stops_at_plan_limit(db):
+    """Notes count against the plan limit; the rest is skipped, not imported."""
+    from keepfor.utils.importer import import_notes
+
+    user = await register_user(db, "planlimit@test.local", "password123")
+    user_id = user["id"]
+
+    providers = MockProviders()
+    providers.entitlements = LimitedEntitlements(limit=2)
+    scope = MockScope(user_id)
+    env = MockEnv(queue=MockQueue())
+
+    notes = [
+        {"title": f"Note {i}", "body": "body", "tags": [], "urls": []} for i in range(3)
+    ]
+    summary = await import_notes(db, env, user_id, notes, providers, scope, "keep")
+
+    assert summary["notes_imported"] == 2
+    assert summary["plan_skipped"] == 1
+    rows = await db.query_all(
+        "SELECT title FROM items WHERE user_id = ? ORDER BY title;", (user_id,)
+    )
+    assert [r["title"] for r in rows] == ["Note 0", "Note 1"]
+
+
+@pytest.mark.asyncio
+async def test_import_notes_urls_count_against_plan_limit(db):
+    """A note's extracted URLs cost plan units too."""
+    from keepfor.utils.importer import import_notes
+
+    user = await register_user(db, "planurl@test.local", "password123")
+    user_id = user["id"]
+
+    providers = MockProviders()
+    providers.entitlements = LimitedEntitlements(limit=2)
+    scope = MockScope(user_id)
+    env = MockEnv(queue=MockQueue())
+
+    notes = [
+        {
+            "title": "Note",
+            "body": "body",
+            "tags": [],
+            "urls": [
+                {"url": "https://example.com/a", "title": "A", "description": ""},
+                {"url": "https://example.com/b", "title": "B", "description": ""},
+            ],
+        }
+    ]
+    summary = await import_notes(db, env, user_id, notes, providers, scope, "keep")
+
+    assert summary["notes_imported"] == 1
+    assert summary["urls_queued"] == 1
+    assert summary["plan_skipped"] == 1
+
+
+@pytest.mark.asyncio
+async def test_import_route_reports_plan_limit(db, monkeypatch):
+    """A plan that cannot fit the whole upload imports what fits and says so."""
+    from fastapi.testclient import TestClient
+
+    from keepfor.app import app
+    from keepfor.auth.service import login_user
+    from keepfor.runtime import set_providers
+    from keepfor.spi import Providers
+
+    limited = Providers(entitlements=LimitedEntitlements(limit=2)).resolved()
+    monkeypatch.setattr(app.state, "providers", limited)
+    set_providers(limited)
+    env = MockEnv(queue=MockQueue())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    client = TestClient(app)
+
+    await register_user(db, "planroute@test.local", "password123")
+    _, session_id = await login_user(db, "planroute@test.local", "password123")
+    client.cookies.set("kfm_session", session_id)
+
+    zip_bytes = _make_keep_takeout_zip(
+        [{"title": f"Note {i}", "textContent": "b"} for i in range(3)]
+    )
+    resp = client.post(
+        "/import",
+        files={"file": ("keep.zip", zip_bytes, "application/zip")},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    summary = _import_summary(resp)
+    assert summary["notes_queued"] == 3
+    assert summary["plan_skipped"] == 1
+
+    # The toast tells the user how many items the plan limit refused.
+    page = client.get("/")
+    assert "1 skipped: plan limit" in page.text
+
+
 # ===== Upload size cap (Pete review #4) =====
 
 

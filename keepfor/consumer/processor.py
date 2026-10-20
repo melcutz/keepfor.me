@@ -643,5 +643,6 @@ async def _process_import_notes_batch(
     logger.info(
         f"import_notes_batch_done source={source} "
         f"imported={summary['notes_imported']} dupes={summary['duplicates_skipped']} "
-        f"urls={summary['urls_queued']} errors={summary['parse_errors']}"
+        f"urls={summary['urls_queued']} errors={summary['parse_errors']} "
+        f"plan_skipped={summary['plan_skipped']}"
     )

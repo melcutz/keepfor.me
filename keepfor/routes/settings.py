@@ -38,6 +38,7 @@ from keepfor.utils.importer import (
     parse_keep_takeout,
     parse_markdown_zip,
     parse_netscape_bookmarks,
+    plan_quota,
 )
 from keepfor.utils.logging import logger
 
@@ -318,6 +319,7 @@ async def import_route(
         "attachments_not_imported": 0,
         "urls_found": 0,
         "parse_errors": 0,
+        "plan_skipped": 0,
         "error": None,
     }
 
@@ -429,13 +431,21 @@ async def import_route(
         # note and every queued URL costs 1 `import` unit.
         total_urls = sum(len(n.get("urls", [])) for n in notes)
         capped_urls = min(total_urls, MAX_URLS_PER_IMPORT)
+        total_items = len(notes) + capped_urls
         decision = await providers.entitlements.check(
-            scope.tenant_id, "import", qty=len(notes) + capped_urls
+            scope.tenant_id, "import", qty=total_items
         )
         if not decision.allowed:
-            from keepfor.spi import EntitlementDenied
+            # The plan covers only part of the upload: import what fits and
+            # report the rest as skipped instead of refusing the whole file.
+            allowed = await plan_quota(
+                providers.entitlements, scope.tenant_id, total_items
+            )
+            if allowed <= 0:
+                from keepfor.spi import EntitlementDenied
 
-            raise EntitlementDenied(decision)
+                raise EntitlementDenied(decision)
+            summary["plan_skipped"] = total_items - allowed
 
         # Attachments are listed in the note body, never stored (spec item 8).
         summary["notes_queued"] = len(notes)

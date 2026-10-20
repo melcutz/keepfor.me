@@ -12,6 +12,7 @@
   {% if summary.attachments_not_imported %}<span>· {{ summary.attachments_not_imported }} attachments not imported</span>{% endif %}
   {% if summary.urls_found %}<span>· {{ summary.urls_found }} URLs queued</span>{% endif %}
   {% if summary.parse_errors %}<span class="text-amber-800">· {{ summary.parse_errors }} files skipped</span>{% endif %}
+  {% if summary.plan_skipped %}<span class="text-amber-800">· {{ summary.plan_skipped }} skipped: plan limit</span>{% endif %}
   {% endif %}
 </div>
 {% endif %}

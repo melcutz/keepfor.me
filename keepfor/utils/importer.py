@@ -672,6 +672,7 @@ async def import_notes(
     source: str,
 ) -> dict[str, Any]:
     """Import parsed notes, deduplicate, extract URLs, and return summary."""
+    from keepfor.spi import EntitlementDenied
     from keepfor.utils.logging import logger
 
     logger.info(f"import_notes_started source={source} notes={len(notes)}")
@@ -681,10 +682,18 @@ async def import_notes(
     urls_queued = 0
     urls_skipped = 0
     parse_errors = 0
+    plan_skipped = 0  # notes and URLs refused because the plan item cap was hit
+    quota_exhausted = False
     total_urls_in_notes = 0
     urls_seen: set[str] = set()
 
     for note in notes:
+        # Plan limit already hit for this tenant: everything outstanding is
+        # refused and counted, never silently aborted with an exception.
+        if quota_exhausted:
+            plan_skipped += 1 + len(note.get("urls", []))
+            continue
+
         # Dedupe on (source, source_id); fall back to a content hash when the
         # source has no stable per-note identifier (spec item 7).
         source_id = (
@@ -697,12 +706,12 @@ async def import_notes(
             duplicates += 1
             continue
 
-        # Check entitlement for the note
+        # Check entitlement for the note: same "import" pool as bookmarks.
         decision = await providers.entitlements.check(scope.tenant_id, "import", qty=1)
         if not decision.allowed:
-            from keepfor.spi import EntitlementDenied
-
-            raise EntitlementDenied(decision)
+            plan_skipped += 1 + len(note.get("urls", []))
+            quota_exhausted = True
+            continue
 
         # Save the note
         try:
@@ -745,12 +754,17 @@ async def import_notes(
                     continue
                 urls_seen.add(canonical)
 
-                # Check entitlement for URL
+                # Check entitlement for the URL: it costs the same unit as
+                # the note it came from.
+                if quota_exhausted:
+                    plan_skipped += 1
+                    continue
                 url_decision = await providers.entitlements.check(
                     scope.tenant_id, "import", qty=1
                 )
                 if not url_decision.allowed:
-                    urls_skipped += 1
+                    plan_skipped += 1
+                    quota_exhausted = True
                     continue
 
                 # Save as URL item (will dedupe on canonical_url)
@@ -769,6 +783,10 @@ async def import_notes(
                             pass
                     else:
                         urls_skipped += 1
+                except EntitlementDenied:
+                    # The plan's item limit refused this URL: count it as a
+                    # plan skip, not as a parse error.
+                    plan_skipped += 1
                 except Exception:
                     urls_skipped += 1
 
@@ -784,8 +802,31 @@ async def import_notes(
         "urls_skipped": urls_skipped,
         "total_urls_found": total_urls_in_notes,
         "parse_errors": parse_errors,
+        "plan_skipped": plan_skipped,
         "attachments_not_imported": sum(n.get("attachments_count", 0) for n in notes),
     }
+
+
+async def plan_quota(entitlements: Any, tenant_id: str, total: int) -> int:
+    """How many of `total` items the plan still allows for this tenant.
+
+    `check` is monotonic (allowed iff the remaining quota covers qty), so the
+    largest allowed quantity is found by bisection: ~11 checks for a
+    1,000-note export, and only when the whole batch does not fit. The
+    per-item check in `import_notes` stays authoritative, so a provider with
+    a non-monotonic `check` can only skew this estimate, never over-quota.
+    """
+    if total <= 0:
+        return 0
+    low, high = 0, total  # `high` is known to be refused by the caller
+    while low < high:
+        mid = (low + high + 1) // 2
+        decision = await entitlements.check(tenant_id, "import", qty=mid)
+        if decision.allowed:
+            low = mid
+        else:
+            high = mid - 1
+    return low
 
 
 async def export_library_json(db: Database, user_id: str) -> list[dict[str, Any]]:
