@@ -889,18 +889,54 @@ async def _fingerprint(db):
 
 
 async def test_find_cleanup_detects_duplicate_urls(cleanup_user):
-    """Two items with the same normalized url are reported as duplicates."""
+    """Two items with the same normalized url are reported as one group."""
     user, env, db = cleanup_user
     first = await _save(db, env, user["id"], "https://example.com/dup")
     second = await _save(db, env, user["id"], "https://www.example.com/dup")
 
     report = (await _cleanup(db, env, user))["duplicates"]
-    assert {e["id"] for e in report["items"]} == {first, second}
-    assert report["count"] == 2
+    assert len(report["items"]) == 1
+    group = report["items"][0]
+    assert set(group["ids"]) == {first, second}
+    assert group["group_size"] == 2
+    assert group["truncated"] is False
+    assert report["count"] == 1
     assert report["truncated"] is False
-    reasons = {e["id"]: e["reason"] for e in report["items"]}
-    assert reasons[first] == f"duplicate of {second}"
-    assert reasons[second] == f"duplicate of {first}"
+
+
+async def test_find_cleanup_keeps_large_duplicate_group_small(cleanup_user):
+    """300 saves of one url report one capped group, not 300 rows of ids."""
+    user, env, db = cleanup_user
+    # Distinct canonical urls (same url + tracking param) that normalize to
+    # one dedupe key -- the shape a library ends up in after many saves.
+    await db.execute_batch(
+        [
+            (
+                "INSERT INTO items (id, user_id, url, canonical_url, status)"
+                " VALUES (?, ?, ?, ?, 'queued');",
+                (
+                    f"dup-{i}",
+                    user["id"],
+                    f"https://example.com/same?utm_source={i}",
+                    f"https://example.com/same?utm_source={i}",
+                ),
+            )
+            for i in range(300)
+        ]
+    )
+
+    res = await _call_cleanup(db, env, user, categories=["duplicates"], limit=100)
+    payload = json.loads(res["result"]["content"][0]["text"])
+    report = payload["duplicates"]
+
+    assert len(report["items"]) == 1
+    group = report["items"][0]
+    assert group["group_size"] == 300
+    assert len(group["ids"]) == 10
+    assert group["truncated"] is True
+    assert report["count"] == 1
+    # The whole payload stays a few KB, not the ~1 MB of 300 x 299 ids.
+    assert len(json.dumps(payload)) < 5000
 
 
 async def test_find_cleanup_detects_dead_links(cleanup_user):

@@ -1187,11 +1187,15 @@ MCP_TOOLS = [
         "description": "Suggests cleanup candidates in the library: duplicate "
         "items (same normalized url), dead links, never-opened old items, "
         "untagged items, and near-duplicate tags. Each category reports the "
-        "item ids with a reason, the total number of candidates and whether "
-        "the list was truncated. Read-only: it reports what could be cleaned "
-        "up, it never changes anything. Dead links are items whose recorded "
-        "extraction failed; no network requests are made, so a link that was "
-        "never fetched is not detected.",
+        "candidates, the total number of candidates and whether the list was "
+        "truncated. The item categories list one id with a reason; the group "
+        "categories list one entry per group: duplicates gives the group's ids "
+        "(capped), its size and whether the id list was truncated, "
+        "near-duplicate tags gives the group's tag names. "
+        "Read-only: it reports what could be cleaned up, it never changes "
+        "anything. Dead links are items whose recorded extraction failed; no "
+        "network requests are made, so a link that was never fetched is not "
+        "detected.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1217,6 +1221,7 @@ MCP_TOOLS = [
                     "default": DEFAULT_CLEANUP_LIMIT,
                     "description": (
                         f"Max entries per category (at most {MAX_CLEANUP_LIMIT})."
+                        " For duplicates, one entry per group of duplicate urls."
                     ),
                 },
             },

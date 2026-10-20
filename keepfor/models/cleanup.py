@@ -32,6 +32,8 @@ MAX_CLEANUP_LIMIT = 100
 DEFAULT_OLDER_THAN_DAYS = 90
 # Longest stored failure reason kept in the report.
 _MAX_REASON_CHARS = 200
+# Max ids listed for one duplicate group; the rest are only counted.
+_MAX_GROUP_IDS = 10
 
 
 def _reason(text: str | None, fallback: str) -> str:
@@ -44,7 +46,12 @@ def _reason(text: str | None, fallback: str) -> str:
 async def _duplicates(
     db: Database, user_id: str, limit: int, older_than_days: int
 ) -> dict[str, Any]:
-    """Items whose urls normalize to the same value."""
+    """Items whose urls normalize to the same value.
+
+    One entry per group of duplicates: the group's ids (capped), how many
+    items it holds and whether the id list was cut. The limit caps groups,
+    not ids, so a group of 300 saves of one url still reports one entry.
+    """
     rows = await db.query_all(
         "SELECT id, url, canonical_url FROM items"
         " WHERE user_id = ? ORDER BY created_at ASC;",
@@ -58,15 +65,15 @@ async def _duplicates(
         key = url_dedupe_key(raw)
         if key:
             groups.setdefault(key, []).append(row["id"])
-    entries: list[dict[str, Any]] = []
-    for ids in groups.values():
-        if len(ids) < 2:
-            continue
-        for item_id in ids:
-            others = [other for other in ids if other != item_id]
-            entries.append(
-                {"id": item_id, "reason": "duplicate of " + ", ".join(others)}
-            )
+    entries = [
+        {
+            "ids": ids[:_MAX_GROUP_IDS],
+            "group_size": len(ids),
+            "truncated": len(ids) > _MAX_GROUP_IDS,
+        }
+        for ids in groups.values()
+        if len(ids) > 1
+    ]
     return _report(entries, limit)
 
 
@@ -170,8 +177,11 @@ async def find_cleanup(
 ) -> dict[str, dict[str, Any]]:
     """Reports cleanup candidates per category.
 
-    Returns {category: {"items": [{id, reason}], "count": int,
-    "truncated": bool}}. Never writes.
+    Returns {category: {"items": [...], "count": int, "truncated": bool}}.
+    Item categories list {"id", "reason"}; the group categories list one
+    entry per group: duplicates gives the group's ids (capped), its size and
+    whether the id list was truncated, near_duplicate_tags gives the group's
+    tag names. Never writes.
     """
     wanted = [
         name for name in CLEANUP_CATEGORIES if not categories or name in categories

@@ -247,7 +247,7 @@ The MCP server exposes 30 tools. Every tool that can change something takes a `d
 25. **`tag_stats`** — Tag usage statistics for the library.
 26. **`related_tags`** — Tags that co-occur with a tag on the same items.
 27. **`tag_cleanup`** — Near-duplicate tags, unused tags and untagged items worth a look.
-28. **`find_cleanup`** — Read-only cleanup report: duplicate items (same normalized url), dead links (recorded extraction failures — no network requests), never-opened old items, untagged items and near-duplicate tags. Takes `categories`, `older_than_days` and a per-category `limit` (max 100); each category reports ids with a reason, a count and a `truncated` flag.
+28. **`find_cleanup`** — Read-only cleanup report: duplicate items (same normalized url), dead links (recorded extraction failures — no network requests), never-opened old items, untagged items and near-duplicate tags. Takes `categories`, `older_than_days` and a per-category `limit` (max 100); each category reports the candidates, a count and a `truncated` flag. The item categories list one id with a reason; the group categories list one entry per group — `duplicates` gives the group's ids (capped at 10), its size and whether the id list was truncated, `near_duplicate_tags` gives the group's tag names — so `limit` caps groups and one url saved 300 times stays a small response.
 29. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
 30. **`pin_item`** — Pin or unpin an item to/from the top shelf.
 
