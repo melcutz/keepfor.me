@@ -255,6 +255,26 @@ All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempoten
 
 Tag filters (`tags_all`, `tags_any`, `tags_none`, `untagged`) work on `list_items`, `search_library`, `search_passages`, `find_item`, `reading_history` and `bulk_update`, and count child tags: filtering on `work` also matches `work/research`.
 
+### MCP Resources and Prompts
+
+The server also speaks the resources and prompts parts of the MCP spec, with the same auth and tenant scoping as the tools.
+
+**Resources** — read-only views of your own library:
+
+| URI | Contents |
+|---|---|
+| `keepfor://item/{item_id}` | One saved article or note: metadata, tags and the stored text (capped at 20,000 characters, `truncated` says when it was cut). |
+| `keepfor://tag/{name}` | One of your tags, with the items carrying it (at most 50; `items_truncated` says when there are more). |
+
+`resources/list` returns your most recent items and most used tags, `resources/templates/list` returns the two URI templates, and `resources/read` returns the payload as JSON.
+
+**Prompts** — reusable templates that read your own data:
+
+| Prompt | Arguments | What it does |
+|---|---|---|
+| `research_brief` | `topic` (required), `max_items` | Briefs the assistant on what you already saved about a topic, so a research session starts from your library. |
+| `weekly_review` | `days`, `tag` | Reviews what you saved over the last days and asks for a summary and what to read next. |
+
 ---
 
 ## Browser & Mobile Capture

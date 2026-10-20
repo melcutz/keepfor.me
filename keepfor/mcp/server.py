@@ -129,6 +129,15 @@ _TAG_FILTER_PROPS = {
     },
 }
 
+# MCP methods served by keepfor.mcp.resources (resources + prompts).
+_RESOURCE_PROMPT_METHODS = (
+    "resources/list",
+    "resources/templates/list",
+    "resources/read",
+    "prompts/list",
+    "prompts/get",
+)
+
 _READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
 _WRITE = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}
 _DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True}
@@ -1948,7 +1957,11 @@ async def process_mcp_request(
             "id": req_id,
             "result": {
                 "protocolVersion": version,
-                "capabilities": {"tools": {"listChanged": False}},
+                "capabilities": {
+                    "tools": {"listChanged": False},
+                    "resources": {"subscribe": False, "listChanged": False},
+                    "prompts": {"listChanged": False},
+                },
                 "serverInfo": {"name": "keepfor-me-mcp", "version": "0.2.0"},
             },
         }
@@ -1999,6 +2012,14 @@ async def process_mcp_request(
                     "data": {"type": "internal_error", "tool": tool_name},
                 },
             }
+
+    elif method in _RESOURCE_PROMPT_METHODS:
+        # Resources and prompts live in their own module: it keeps this
+        # dispatch table small and the module is only imported when a
+        # client actually asks for a resource or a prompt.
+        from keepfor.mcp.resources import handle_resource_request
+
+        return await handle_resource_request(method, body, db, env, user, scope=scope)
 
     else:
         return {

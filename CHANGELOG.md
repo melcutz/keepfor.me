@@ -74,6 +74,13 @@ away in both cases.
 - All new tools include MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`). The annotations are advisory hints for the client — the server does not enforce them, and a token is never rejected for missing scope information.
 - `search_library` and `list_items` now return structured responses with `items`, `total`, `limit`, `offset` (and `cursor`/`fields` support).
 - Tenant isolation verified for all new MCP tools via isolation test suite.
+- **MCP resources and prompts** (GitHub issue #23): the MCP server now also speaks the resources and prompts parts of the spec, with the same auth and tenant scoping as the tools.
+  - Resources: `keepfor://item/{item_id}` (one saved article or note) and `keepfor://tag/{name}` (one tag with the items carrying it). `resources/list` returns the most recent items (at most 50) and the most used tags (at most 50) as concrete resources, `resources/templates/list` returns the two URI templates, and `resources/read` returns the payload as JSON.
+  - Prompts: `research_brief` (arguments `topic`, `max_items`) briefs the assistant on what the user already saved about a topic; `weekly_review` (arguments `days`, `tag`) reviews what the user saved over the last days.
+  - Inputs are capped: a resource URI is limited to 512 characters, one resource carries at most 20,000 characters of text (and reports `truncated`), a tag resource lists at most 50 items (and reports `items_truncated`), a prompt argument is limited to 500 characters, `max_items` to 20 and `days` to 90.
+  - Resources and resource templates carry MCP annotations (`audience`, `priority`); the tools keep their `readOnlyHint`, `destructiveHint` and `idempotentHint` annotations.
+  - Failures use the codes the spec names: `-32002` for a resource that does not exist, `-32602` for invalid arguments or an unknown prompt, `-32603` for internal errors. `error.data.type` keeps the `invalid_arguments` / `not_found` / `internal_error` discriminator the tools use.
+  - Every query is scoped to the caller's `user_id`: reading another tenant's item or tag fails with `not_found`, and neither listing nor a prompt ever quotes another tenant's data. Covered by the isolation test suite.
 
 ### Fixed
 - **Import errors no longer leak internal detail**: a failed note or link used to store the raw exception text (`note: OperationalError: ...`) in `import_status.errors`, which is rendered in the library and settings panels. The stored message is now generic ("note: could not be imported", "link: could not be queued"); the exception goes to the server log.
