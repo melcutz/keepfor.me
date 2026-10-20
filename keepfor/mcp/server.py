@@ -89,6 +89,7 @@ from keepfor.search.engine import (
     resolve_item,
     search_chunks,
 )
+from keepfor.spi import SCOPE_READ, SCOPE_WRITE, scope_grants, scopes_of
 from keepfor.utils.tagger import validate_tag_name
 
 if TYPE_CHECKING:
@@ -167,6 +168,16 @@ _RESOURCE_PROMPT_METHODS = (
 _READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
 _WRITE = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}
 _DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True}
+
+
+def _tool_scope(tool: dict[str, Any]) -> str:
+    """The scope a tool needs.
+
+    The annotations are the source of truth: a read-only tool needs the
+    `read` scope, a write or destructive tool needs the `write` scope.
+    """
+    annotations = tool.get("annotations") or {}
+    return SCOPE_READ if annotations.get("readOnlyHint") else SCOPE_WRITE
 
 
 class ToolError(Exception):
@@ -1604,6 +1615,9 @@ MCP_TOOLS = [
 ]
 
 
+MCP_TOOLS_BY_NAME = {tool["name"]: tool for tool in MCP_TOOLS}
+
+
 async def handle_tool_call(
     tool_name: str,
     arguments: dict[str, Any],
@@ -2447,16 +2461,15 @@ async def process_mcp_request(
 
         providers = get_providers()
         if providers.scope:
-            # Scopes are advisory in core: a token without scope info is never
-            # rejected, it is treated as unrestricted ("*").
-            raw_scopes = user.get("scopes")
+            # A token without scope info is never rejected, it is treated as
+            # unrestricted ("*").
             principal = Principal(
                 user_id=user["id"],
                 tenant_id=user.get("tenant_id", user["id"]),
                 email=user.get("email", ""),
                 role=user.get("role", "user"),
                 plan=user.get("plan", "self_hosted"),
-                scopes=frozenset(raw_scopes) if raw_scopes else frozenset({"*"}),
+                scopes=scopes_of(user),
             )
             scope = await providers.scope.scope_for_principal(principal, env)
         else:
@@ -2466,6 +2479,7 @@ async def process_mcp_request(
 
     method = body.get("method")
     req_id = body.get("id")
+    scopes = scopes_of(user)
 
     if method == "initialize":
         params = body.get("params", {})
@@ -2496,12 +2510,35 @@ async def process_mcp_request(
         }
 
     elif method == "tools/list":
-        return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": MCP_TOOLS}}
+        tools = [t for t in MCP_TOOLS if scope_grants(scopes, _tool_scope(t))]
+        return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools}}
 
     elif method == "tools/call":
         params = body.get("params", {})
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
+        tool = MCP_TOOLS_BY_NAME.get(tool_name)
+        if tool is not None:
+            required = _tool_scope(tool)
+            if not scope_grants(scopes, required):
+                # Refused before the tool runs: nothing is written.
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {
+                        "code": -32001,
+                        "message": (
+                            f"Tool '{tool_name}' needs the '{required}' scope; "
+                            f"this token has {', '.join(sorted(scopes)) or 'none'}."
+                        ),
+                        "data": {
+                            "type": "insufficient_scope",
+                            "tool": tool_name,
+                            "required_scope": required,
+                            "scopes": sorted(scopes),
+                        },
+                    },
+                }
         try:
             res = await handle_tool_call(
                 tool_name, arguments, db, env, user, scope=scope

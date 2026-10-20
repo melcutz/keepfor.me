@@ -982,6 +982,42 @@ async def test_delete_pat(client, db, auth_headers):
     assert response.status_code in [200, 303, 307, 308]
 
 
+@pytest.mark.asyncio
+async def test_create_read_only_pat(client, db, auth_headers):
+    """The token form offers read-only; the token is stored with that scope."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    response = client.post(
+        "/settings/tokens", data={"name": "Read-only Token", "scopes": "read"}
+    )
+    assert response.status_code == 200
+    assert "Read-only Token" in response.text
+    # The token table shows the scope of the token.
+    assert "Read-only</td>" in response.text
+
+    rows = await db.query_all(
+        "SELECT scopes FROM personal_access_tokens WHERE name = ?;",
+        ("Read-only Token",),
+    )
+    assert rows[0]["scopes"] == "read"
+
+
+@pytest.mark.asyncio
+async def test_create_pat_without_scopes_keeps_full_access(client, db, auth_headers):
+    """No scope submitted: NULL means all scopes, so the token is unchanged."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    response = client.post("/settings/tokens", data={"name": "Default Scope Token"})
+    assert response.status_code == 200
+    assert "Full access</td>" in response.text
+
+    rows = await db.query_all(
+        "SELECT scopes FROM personal_access_tokens WHERE name = ?;",
+        ("Default Scope Token",),
+    )
+    assert rows[0]["scopes"] is None
+
+
 # ==========================================
 # Error Handling Tests
 # ==========================================

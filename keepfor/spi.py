@@ -7,6 +7,7 @@ Core ships defaults (see keepfor.defaults); hosted deployments replace them.
 
 from __future__ import annotations
 
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
@@ -16,6 +17,42 @@ if TYPE_CHECKING:
     from keepfor.models.db import Database
 
 CORE_API_VERSION = 1  # also exported from keepfor/__init__.py
+
+# Scope vocabulary, shared by core and hosted deployments.
+# SCOPE_ALL ("*") grants everything and is the default for tokens that
+# carry no scope information (a token created before scopes existed).
+SCOPE_READ = "read"
+SCOPE_WRITE = "write"
+SCOPE_ALL = "*"
+SCOPE_VALUES = (SCOPE_READ, SCOPE_WRITE)
+
+
+def scope_grants(scopes: Collection[str], required: str) -> bool:
+    """True when `scopes` grants the `required` scope.
+
+    "*" grants everything. `write` implies `read`: a token that may change
+    the library may also look at it.
+    """
+    if SCOPE_ALL in scopes:
+        return True
+    if required == SCOPE_READ:
+        return SCOPE_READ in scopes or SCOPE_WRITE in scopes
+    return SCOPE_WRITE in scopes
+
+
+def scopes_of(user: Mapping[str, Any]) -> frozenset[str]:
+    """The scopes granted to a caller.
+
+    No scope information at all means full access ("*"): a token created
+    before scopes existed. An explicit list is taken literally.
+    """
+    raw = user.get("scopes")
+    if raw is None:
+        return frozenset({SCOPE_ALL})
+    if isinstance(raw, str):
+        raw = [raw]
+    return frozenset(str(s) for s in raw)
+
 
 Action = Literal[
     "save_item",

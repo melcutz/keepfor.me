@@ -2,6 +2,7 @@
 # Copyright (C) 2026 Claudiu Branzan
 
 import uuid
+from collections.abc import Iterable
 from typing import Any
 
 from keepfor.auth.crypto import (
@@ -13,6 +14,7 @@ from keepfor.auth.crypto import (
     verify_password,
 )
 from keepfor.models.db import Database
+from keepfor.spi import SCOPE_ALL, SCOPE_VALUES
 from keepfor.utils.logging import logger
 
 
@@ -96,15 +98,47 @@ async def logout_session(db: Database, session_id: str) -> None:
         await db.execute("DELETE FROM sessions WHERE id = ?;", (session_id,))
 
 
-async def create_pat(db: Database, user_id: str, name: str) -> dict[str, Any]:
+def _scope_text(scopes: Iterable[str] | None) -> str | None:
+    """Serializes the granted scopes for storage.
+
+    None or an empty set means "no scope requested" -> NULL in the
+    database, which means "all scopes" ("*"). An unknown scope is
+    rejected instead of being dropped: a typo must not silently widen
+    the token.
+    """
+    if not scopes:
+        return None
+    unknown = [s for s in scopes if s not in SCOPE_VALUES and s != SCOPE_ALL]
+    if unknown:
+        raise ValueError(f"Unknown scope: {unknown[0]}")
+    return ",".join(sorted(set(scopes)))
+
+
+def _scope_list(text: str | None) -> list[str]:
+    """Reads a stored scope set. NULL means "all scopes" ("*").
+
+    Anything else that holds no known scope grants nothing (fail closed).
+    """
+    if text is None:
+        return [SCOPE_ALL]
+    parts = {p.strip() for p in text.split(",") if p.strip()}
+    if SCOPE_ALL in parts:
+        return [SCOPE_ALL]
+    return sorted(p for p in parts if p in SCOPE_VALUES)
+
+
+async def create_pat(
+    db: Database, user_id: str, name: str, scopes: Iterable[str] | None = None
+) -> dict[str, Any]:
     raw_token, token_hash = generate_pat()
     pat_id = str(uuid.uuid4())
+    scope_text = _scope_text(scopes)
     await db.execute(
-        "INSERT INTO personal_access_tokens (id, user_id, name, token_hash) "
-        "VALUES (?, ?, ?, ?);",
-        (pat_id, user_id, name.strip() or "Default PAT", token_hash),
+        "INSERT INTO personal_access_tokens (id, user_id, name, token_hash, scopes) "
+        "VALUES (?, ?, ?, ?, ?);",
+        (pat_id, user_id, name.strip() or "Default PAT", token_hash, scope_text),
     )
-    return {"id": pat_id, "name": name, "token": raw_token}
+    return {"id": pat_id, "name": name, "token": raw_token, "scopes": scope_text}
 
 
 async def validate_pat(db: Database, raw_token: str) -> dict[str, Any] | None:
@@ -115,7 +149,7 @@ async def validate_pat(db: Database, raw_token: str) -> dict[str, Any] | None:
     token_hash = hash_token(raw_token)
     row = await db.query_first(
         """
-        SELECT u.id, u.email, u.role, p.id as pat_id
+        SELECT u.id, u.email, u.role, p.id as pat_id, p.scopes
         FROM personal_access_tokens p
         JOIN users u ON p.user_id = u.id
         WHERE p.token_hash = ? AND (p.expires_at IS NULL OR
@@ -132,12 +166,17 @@ async def validate_pat(db: Database, raw_token: str) -> dict[str, Any] | None:
         "WHERE id = ? AND user_id = ?;",
         (row["pat_id"], row["id"]),
     )
-    return {"id": row["id"], "email": row["email"], "role": row["role"]}
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "role": row["role"],
+        "scopes": _scope_list(row["scopes"]),
+    }
 
 
 async def list_pats(db: Database, user_id: str) -> list[dict[str, Any]]:
     return await db.query_all(
-        "SELECT id, name, last_used_at, created_at "
+        "SELECT id, name, scopes, last_used_at, created_at "
         "FROM personal_access_tokens WHERE user_id = ? "
         "ORDER BY created_at DESC;",
         (user_id,),

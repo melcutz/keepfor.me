@@ -68,6 +68,13 @@ class CreatePATRequest(BaseModel):
     """Request to create a personal access token."""
 
     name: str = Field(..., description="Token name", min_length=1, max_length=100)
+    scopes: List[Literal["read", "write", "*"]] = Field(
+        default_factory=list,
+        description=(
+            "Granted scopes. An empty list means all scopes ('*'), the "
+            "default for tokens created before scopes existed."
+        ),
+    )
 
 
 class LoginRequest(BaseModel):

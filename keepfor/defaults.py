@@ -10,10 +10,12 @@ from typing import TYPE_CHECKING, Any
 from keepfor.auth.service import validate_pat, validate_session
 from keepfor.models.db import Database
 from keepfor.spi import (
+    SCOPE_ALL,
     Action,
     Decision,
     Principal,
     TenantScope,
+    scopes_of,
 )
 
 if TYPE_CHECKING:
@@ -51,7 +53,9 @@ class SessionPatAuthProvider:
                     email=user["email"],
                     role=user.get("role", "user"),
                     plan="self_hosted",
-                    scopes=frozenset({"*"}),
+                    # No scope information means "all scopes" ("*"), so a
+                    # token created before scopes existed keeps full access.
+                    scopes=scopes_of(user),
                     auth_kind="pat",
                 )
 
@@ -68,7 +72,7 @@ class SessionPatAuthProvider:
                     email=user["email"],
                     role=user.get("role", "user"),
                     plan="self_hosted",
-                    scopes=frozenset({"*"}),
+                    scopes=frozenset({SCOPE_ALL}),
                     auth_kind="session",
                 )
 

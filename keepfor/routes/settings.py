@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import datetime
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from fastapi import (
     APIRouter,
@@ -195,17 +195,27 @@ async def settings_page(request: Request, new_token: str | None = None):
 
 
 @router.post("/settings/tokens", response_class=HTMLResponse)
-async def create_token_route(request: Request, name: str = Form(...)):
+async def create_token_route(
+    request: Request, name: str = Form(...), scopes: str = Form("")
+):
     user = await deps.require_user(request)
     db = deps.get_db(request)
     # Validate input with model
     try:
-        validated = CreatePATRequest(name=name)
+        validated = CreatePATRequest(
+            name=name,
+            # The model validates the scope names; the cast only tells mypy
+            # what pydantic guarantees.
+            scopes=cast(
+                list[Literal["read", "write", "*"]],
+                [p.strip() for p in scopes.split(",") if p.strip()],
+            ),
+        )
     except Exception as e:
         logger.warning(f"PAT creation validation failed: {e}")
         return RedirectResponse(url="/settings", status_code=303)
 
-    res = await create_pat(db, user["id"], validated.name)
+    res = await create_pat(db, user["id"], validated.name, scopes=validated.scopes)
     # Re-render settings with the new token visible (raw token is shown once).
     pats = await list_pats(db, user["id"])
     base_url = str(request.base_url).rstrip("/")
