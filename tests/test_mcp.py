@@ -295,7 +295,7 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 30
+    assert len(names) == 31
     assert "save_url" in names
     assert "save_note" in names
     assert "pin_item" in names
@@ -312,6 +312,8 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     assert "tag_cleanup" in names
     # Bulk updates
     assert "bulk_update" in names
+    # Library recap
+    assert "library_digest" in names
     # Every tool declares annotations
     for tool in res.json()["result"]["tools"]:
         assert set(tool["annotations"]) == {
@@ -431,6 +433,7 @@ TOOL_ARGUMENTS = {
     "find_cleanup": {},
     "delete_item": {"item_id": "ITEM"},
     "pin_item": {"item_id": "ITEM"},
+    "library_digest": {},
 }
 
 

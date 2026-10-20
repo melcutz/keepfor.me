@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
+import json
 from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
@@ -1520,3 +1522,164 @@ async def related_items(
         results.append(item)
 
     return results
+
+
+# --------------------------------------------------------------------------
+# Library digest (MCP library_digest tool)
+# --------------------------------------------------------------------------
+
+# Caps that keep the digest compact: agents read it, so every list in the
+# response is bounded (and so are the inputs that shape it).
+MAX_DIGEST_TAGS = 10
+MAX_DIGEST_HIGHLIGHTS = 5
+MAX_DIGEST_ITEM_TAGS = 5
+MAX_DIGEST_TITLE_CHARS = 120
+MAX_DIGEST_URL_CHARS = 200
+MAX_DIGEST_DATE_CHARS = 32
+MAX_DIGEST_TAG_CHARS = 64
+# Hard byte budget for the whole digest payload: agents pay for every byte,
+# so a pathological library (long titles, many tags) is trimmed, not shipped.
+MAX_DIGEST_BYTES = 4096
+
+
+def _cap_text(value: Any, limit: int) -> str:
+    """Shortens a string to a cap; an ellipsis marks the cut."""
+    text = (value or "").strip()
+    if len(text) > limit:
+        return text[: limit - 1] + "…"
+    return text
+
+
+def _digest_bytes(payload: dict[str, Any]) -> int:
+    """Size of the payload as it goes over the wire (the MCP server dumps it)."""
+    return len(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+
+def normalize_digest_bound(value: str) -> str:
+    """Normalizes an ISO date/datetime to SQLite's 'YYYY-MM-DD HH:MM:SS' (UTC).
+
+    A naive value is read as UTC, exactly like SQLite's datetime() reads it.
+    """
+    parsed = datetime.datetime.fromisoformat(value.strip())
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def library_digest(
+    db: Database,
+    user_id: str,
+    *,
+    since: str | None = None,
+    until: str | None = None,
+    tag: str | None = None,
+    limit_tags: int = MAX_DIGEST_TAGS,
+    limit_highlights: int = MAX_DIGEST_HIGHLIGHTS,
+) -> dict[str, Any]:
+    """A compact recap of the library for a period.
+
+    Reports how many items were saved and opened, the most used tags and a
+    short list of unread highlights. Every query is scoped to user_id.
+    """
+    tag_clause, tag_params = await tag_filter_clause(
+        db, user_id, tags_all=[tag] if tag else None
+    )
+
+    def _window(column: str) -> tuple[str, list[Any]]:
+        """Date window on a timestamp column (saved vs opened)."""
+        clause = ""
+        params: list[Any] = []
+        if since:
+            clause += f" AND datetime({column}) >= datetime(?)"
+            params.append(since)
+        if until:
+            clause += f" AND datetime({column}) <= datetime(?)"
+            params.append(until)
+        return clause, params
+
+    # Saves and highlights are bounded by the save date, opens by the open
+    # date: the two events have their own clocks.
+    saved_window, saved_params = _window("i.created_at")
+    opened_window, opened_params = _window("io.opened_at")
+
+    saves_sql = (
+        "SELECT COUNT(*) AS n FROM items i WHERE i.user_id = ?"
+        f"{saved_window}{tag_clause};"
+    )
+    unread_sql = (
+        "SELECT COUNT(*) AS n FROM items i"
+        " WHERE i.user_id = ? AND i.read_state = 'unread'"
+        f"{saved_window}{tag_clause};"
+    )
+    opens_sql = (
+        "SELECT COUNT(DISTINCT io.item_id) AS n FROM item_opens io"
+        " JOIN items i ON i.id = io.item_id AND i.user_id = io.user_id"
+        f" WHERE io.user_id = ?{opened_window}{tag_clause};"
+    )
+    top_tags_sql = (
+        "SELECT t.name AS name, COUNT(it.item_id) AS count FROM tags t"
+        " JOIN item_tags it ON it.tag_id = t.id"
+        " JOIN items i ON i.id = it.item_id AND i.user_id = t.user_id"
+        f" WHERE t.user_id = ?{saved_window}{tag_clause}"
+        " GROUP BY t.id, t.name ORDER BY count DESC, t.name ASC LIMIT ?;"
+    )
+    highlights_sql = (
+        "SELECT i.id, i.title, i.url, i.created_at AS saved_at FROM items i"
+        " WHERE i.user_id = ? AND i.read_state = 'unread'"
+        f"{saved_window}{tag_clause}"
+        " ORDER BY i.created_at DESC, i.id DESC LIMIT ?;"
+    )
+
+    # Independent reads: one roundtrip instead of five sequential ones.
+    saves_row, unread_row, opens_row, tag_rows, highlight_rows = await asyncio.gather(
+        db.query_first(saves_sql, (user_id, *saved_params, *tag_params)),
+        db.query_first(unread_sql, (user_id, *saved_params, *tag_params)),
+        db.query_first(opens_sql, (user_id, *opened_params, *tag_params)),
+        db.query_all(
+            top_tags_sql, (user_id, *saved_params, *tag_params, limit_tags + 1)
+        ),
+        db.query_all(
+            highlights_sql,
+            (user_id, *saved_params, *tag_params, limit_highlights + 1),
+        ),
+    )
+
+    top_tags = [
+        {"name": _cap_text(r["name"], MAX_DIGEST_TAG_CHARS), "count": r["count"]}
+        for r in tag_rows[:limit_tags]
+    ]
+    highlights = await _attach_tags(
+        db, user_id, [dict(r) for r in highlight_rows[:limit_highlights]]
+    )
+    truncated = len(tag_rows) > limit_tags or len(highlight_rows) > limit_highlights
+    for highlight in highlights:
+        for field, limit in (
+            ("title", MAX_DIGEST_TITLE_CHARS),
+            ("url", MAX_DIGEST_URL_CHARS),
+        ):
+            original = (highlight.get(field) or "").strip()
+            capped = _cap_text(original, limit)
+            if len(capped) < len(original):
+                truncated = True
+            highlight[field] = capped
+        tags = highlight.get("tags", [])
+        if len(tags) > MAX_DIGEST_ITEM_TAGS:
+            truncated = True
+            tags = tags[:MAX_DIGEST_ITEM_TAGS]
+        highlight["tags"] = [_cap_text(t, MAX_DIGEST_TAG_CHARS) for t in tags]
+
+    payload = {
+        "period": {"since": since, "until": until},
+        "tag": tag,
+        "saves": (saves_row or {}).get("n", 0),
+        "opens": (opens_row or {}).get("n", 0),
+        "unread": (unread_row or {}).get("n", 0),
+        "top_tags": top_tags,
+        "unread_highlights": highlights,
+        "truncated": truncated,
+    }
+    # Byte budget: drop the oldest highlights until the payload fits.
+    while highlights and _digest_bytes(payload) > MAX_DIGEST_BYTES:
+        highlights.pop()
+        payload["truncated"] = True
+    return payload

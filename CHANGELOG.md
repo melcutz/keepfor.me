@@ -23,6 +23,7 @@ away in both cases.
   page under 4 KB.
 
 ### Added
+- **MCP `library_digest`** (GitHub issue #22): a read-only recap of the library for a period — how many items were **saved** and **opened**, how many are still **unread**, the **top tags**, and a short list of **unread highlights**. Takes optional `since`, `until` and `tag` (child tags count). Inputs are bounded (32-character dates, 64-character tag; unparsable or reversed ranges are rejected) and the response is capped (10 tags, 5 highlights, 5 tags per highlight, 120-character titles, 200-character urls) and stays under 4 KB.
 - **Persisted notes-import status** (GitHub issue #18): every notes upload now
   writes one `import_status` record per user. The record holds the running
   counters (notes imported, duplicates skipped, links queued, attachments not
