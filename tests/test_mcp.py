@@ -295,7 +295,7 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 31
+    assert len(names) == 40
     assert "save_url" in names
     assert "save_note" in names
     assert "pin_item" in names
@@ -314,6 +314,16 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     assert "bulk_update" in names
     # Library recap
     assert "library_digest" in names
+    # New highlights and collections tools
+    assert "create_highlight" in names
+    assert "list_highlights" in names
+    assert "delete_highlight" in names
+    assert "create_collection" in names
+    assert "list_collections" in names
+    assert "add_to_collection" in names
+    assert "remove_from_collection" in names
+    assert "rename_collection" in names
+    assert "delete_collection" in names
     # Every tool declares annotations
     for tool in res.json()["result"]["tools"]:
         assert set(tool["annotations"]) == {
@@ -434,6 +444,18 @@ TOOL_ARGUMENTS = {
     "delete_item": {"item_id": "ITEM"},
     "pin_item": {"item_id": "ITEM"},
     "library_digest": {},
+    "create_highlight": {"item_id": "ITEM", "text": "quoted", "end_offset": 6},
+    "list_highlights": {"item_id": "ITEM"},
+    "delete_highlight": {"highlight_id": "ITEM"},
+    "create_collection": {"name": "probe-collection"},
+    "list_collections": {},
+    "add_to_collection": {"collection": "probe-collection", "item_ids": ["ITEM"]},
+    "remove_from_collection": {"collection": "probe-collection", "item_ids": ["ITEM"]},
+    "rename_collection": {
+        "collection": "probe-collection",
+        "new_name": "probe-collection-2",
+    },
+    "delete_collection": {"collection": "probe-collection-2"},
 }
 
 

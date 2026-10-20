@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
@@ -12,6 +13,9 @@ from keepfor.utils.url import canonicalize_url
 
 if TYPE_CHECKING:
     from keepfor.spi import TenantScope
+
+# D1 allows 100 bound parameters per query; the user_id takes one of them.
+_ID_CHUNK = 90
 
 
 async def save_item(
@@ -314,6 +318,47 @@ async def get_item_clean_html(
     return f"<h1>{heading}</h1>{paragraphs}"
 
 
+async def purge_item_children(
+    db: Database, user_id: str, item_ids: Sequence[str]
+) -> None:
+    """Drops the highlights and the collection links of the given items.
+
+    The item rows are left alone: only the rows that hang off them go.
+
+    The hard delete calls this before it removes the items. The Trash
+    purge ("delete forever", GitHub issue #35) MUST call it too: trashing
+    an item keeps its highlights, so only the permanent purge drops them.
+    Trashing and restoring must not touch this function.
+
+    A missing table (migration 0013 not applied yet) must never block the
+    delete, so a failure is logged and swallowed.
+    """
+    ids = [i for i in item_ids if i]
+    if not ids:
+        return
+    try:
+        for start in range(0, len(ids), _ID_CHUNK):
+            chunk = ids[start : start + _ID_CHUNK]
+            placeholders = ",".join("?" for _ in chunk)
+            await db.execute_batch(
+                [
+                    (
+                        "DELETE FROM highlights WHERE item_id IN"
+                        f" ({placeholders}) AND user_id = ?;",
+                        (*chunk, user_id),
+                    ),
+                    (
+                        "DELETE FROM collection_items WHERE item_id IN"
+                        " (SELECT id FROM items WHERE id IN"
+                        f" ({placeholders}) AND user_id = ?);",
+                        (*chunk, user_id),
+                    ),
+                ]
+            )
+    except Exception as exc:
+        logger.warning("Failed to clear highlights for items %s: %s", ids, exc)
+
+
 async def delete_item(
     db: Database,
     env: Any,
@@ -362,6 +407,10 @@ async def delete_item(
         logger.warning("Failed to delete R2 snapshots for item %s: %s", item_id, exc)
 
     # 3. Delete from D1 (triggers cascade deletions on chunks, item_tags)
+    # Highlights and collection links point at the item: drop them before
+    # the item row goes, the foreign key cascade is not guaranteed to be on.
+    await purge_item_children(db, user_id, [item_id])
+
     await db.execute_batch(
         [
             (

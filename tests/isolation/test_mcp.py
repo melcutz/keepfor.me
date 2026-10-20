@@ -866,3 +866,145 @@ async def test_mcp_library_digest_tag_filter_isolated(harness: IsolationHarness)
     assert other["opens"] == 0
     assert other["unread_highlights"] == []
     assert other["top_tags"] == []
+
+
+# ==========================================
+# Highlights and collections (GitHub issue #24)
+# ==========================================
+
+
+async def _call_as_tenant(
+    harness: IsolationHarness, tenant, tool, arguments, req_id=500
+):
+    """Calls one MCP tool as the given tenant and returns the response."""
+    return harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": arguments},
+        },
+        headers=tenant.auth_headers,
+    )
+
+
+@pytest.mark.asyncio
+async def test_mcp_highlights_isolation(harness: IsolationHarness):
+    """Tenant B can neither read nor change Tenant A's highlights."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+
+    # B cannot highlight A's item.
+    resp = await _call_as_tenant(
+        harness,
+        b,
+        "create_highlight",
+        {"item_id": a.html_item_id, "text": "hijack"},
+    )
+    assert resp.status_code == 200
+    assert "error" in resp.json()
+    assert a.html_item_id not in resp.text
+
+    # B cannot read A's highlights.
+    resp = await _call_as_tenant(
+        harness, b, "list_highlights", {"item_id": a.html_item_id}
+    )
+    assert resp.status_code == 200
+    assert a.unique_keyword not in resp.text
+    assert a.html_item_id not in resp.text
+
+    # B cannot delete A's highlight.
+    row = await a.db.query_first(
+        "SELECT id FROM highlights WHERE user_id = ? AND item_id = ?;",
+        (a.user["id"], a.html_item_id),
+    )
+    assert row is not None
+    resp = await _call_as_tenant(
+        harness, b, "delete_highlight", {"highlight_id": row["id"]}
+    )
+    assert resp.status_code == 200
+    assert "error" in resp.json()
+    assert row["id"] not in resp.text
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, "highlights of Tenant A were modified"
+
+
+@pytest.mark.asyncio
+async def test_mcp_collections_isolation(harness: IsolationHarness):
+    """Tenant B can neither see nor change Tenant A's collections."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    row = await a.db.query_first(
+        "SELECT name FROM collections WHERE user_id = ?;", (a.user["id"],)
+    )
+    assert row is not None
+    collection_name = row["name"]
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+
+    # B does not see A's collections.
+    resp = await _call_as_tenant(harness, b, "list_collections", {})
+    assert resp.status_code == 200
+    assert collection_name not in resp.text
+    assert a.html_item_id not in resp.text
+
+    # B cannot touch A's collection in any way.
+    for tool, arguments in (
+        (
+            "add_to_collection",
+            {"collection": collection_name, "item_ids": [b.item_ids[0]]},
+        ),
+        (
+            "remove_from_collection",
+            {"collection": collection_name, "item_ids": [a.item_ids[0]]},
+        ),
+        ("rename_collection", {"collection": collection_name, "new_name": "hijacked"}),
+        ("delete_collection", {"collection": collection_name}),
+    ):
+        resp = await _call_as_tenant(harness, b, tool, arguments)
+        assert resp.status_code == 200
+        assert "error" in resp.json(), f"{tool} did not refuse a foreign collection"
+        assert collection_name not in resp.text, f"{tool} leaked A's collection"
+        assert a.html_item_id not in resp.text, f"{tool} leaked A's item id"
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, "collections of Tenant A were modified"
+
+
+@pytest.mark.asyncio
+async def test_mcp_collection_items_stay_tenant_scoped(harness: IsolationHarness):
+    """A collection never holds an item that belongs to somebody else."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    resp = await _call_as_tenant(
+        harness, b, "create_collection", {"name": "B collection"}
+    )
+    assert resp.status_code == 200
+    assert "error" not in resp.json()
+
+    resp = await _call_as_tenant(
+        harness,
+        b,
+        "add_to_collection",
+        {"collection": "B collection", "item_ids": [a.html_item_id]},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    if "result" in data:
+        payload = json.loads(data["result"]["content"][0]["text"])
+        assert payload["added"] == 0
+        assert payload["item_count"] == 0
+    assert a.html_item_id not in resp.text
+
+    links = await b.db.query_all(
+        "SELECT ci.item_id FROM collection_items ci JOIN collections c"
+        " ON c.id = ci.collection_id WHERE c.user_id = ? AND ci.item_id = ?;",
+        (b.user["id"], a.html_item_id),
+    )
+    assert links == []

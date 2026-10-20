@@ -15,7 +15,29 @@ from keepfor.models.cleanup import (
     MAX_CLEANUP_LIMIT,
     find_cleanup,
 )
+from keepfor.models.collections import (
+    MAX_COLLECTION_DESCRIPTION,
+    MAX_COLLECTION_NAME,
+    MAX_COLLECTIONS_LIMIT,
+    add_items_to_collection,
+    create_collection,
+    delete_collection,
+    list_collections,
+    remove_items_from_collection,
+    rename_collection,
+)
 from keepfor.models.db import Database
+from keepfor.models.highlights import (
+    MAX_HIGHLIGHT_COLOR,
+    MAX_HIGHLIGHT_NOTE,
+    MAX_HIGHLIGHT_OFFSET,
+    MAX_HIGHLIGHT_TEXT,
+    MAX_HIGHLIGHTS_LIMIT,
+    create_highlight,
+    delete_highlight,
+    item_content_length,
+    list_highlights,
+)
 from keepfor.models.items import (
     BULK_UPDATE_LIMIT,
     add_tags_to_item,
@@ -237,6 +259,21 @@ def _bounded_int(
     if value < minimum or value > maximum:
         raise _invalid(f"{name} must be between {minimum} and {maximum}, got {value}.")
     return value
+
+
+def _int_arg(value: Any, default: int, *, maximum: int | None = None) -> int:
+    """Reads an integer argument, rejecting non-integers and capping the value."""
+    if value is None:
+        number = default
+    elif isinstance(value, bool) or not isinstance(value, int):
+        raise _invalid("Expected an integer argument.")
+    else:
+        number = value
+    if number < 0:
+        raise _invalid("Expected a non-negative integer argument.")
+    if maximum is not None and number > maximum:
+        number = maximum
+    return number
 
 
 def _tag_filters(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -1281,6 +1318,226 @@ MCP_TOOLS = [
         "annotations": _READ_ONLY,
     },
     {
+        "name": "create_highlight",
+        "description": "Highlights a passage of a saved item: stores the quoted "
+        "text and the character offsets it covers inside the item's "
+        "content_text. Use it to mark the parts of an article worth "
+        "re-reading. Use list_highlights to read the highlights of an item "
+        "back and delete_highlight to remove one.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "The library item ID the highlight belongs to.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "The quoted passage.",
+                },
+                "start_offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": (
+                        "First character offset of the passage inside "
+                        "content_text. Defaults to 0."
+                    ),
+                },
+                "end_offset": {
+                    "type": "integer",
+                    "description": (
+                        "Offset just past the last character of the passage. "
+                        "Defaults to start_offset plus the length of text."
+                    ),
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Optional note about the highlight.",
+                },
+                "color": {
+                    "type": "string",
+                    "description": "Optional color, e.g. #ffd60a.",
+                },
+            },
+            "required": ["item_id", "text"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "list_highlights",
+        "description": "Lists the highlights of one saved item, ordered by "
+        "their position in the text. Each highlight carries the quoted text, "
+        "its character offsets in content_text, an optional note and color. "
+        "Use get_item to fetch the content the offsets refer to.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "The library item ID to list highlights of.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Max highlights to return (at most 100).",
+                },
+                "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Pagination offset.",
+                },
+            },
+            "required": ["item_id"],
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "delete_highlight",
+        "description": "Deletes one highlight. The item it belongs to is never "
+        "deleted.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "highlight_id": {
+                    "type": "string",
+                    "description": "The highlight ID to delete.",
+                },
+            },
+            "required": ["highlight_id"],
+        },
+        "annotations": _DESTRUCTIVE,
+    },
+    {
+        "name": "create_collection",
+        "description": "Creates a collection: a named bucket of library items, "
+        "optionally with a description. Idempotent: an existing collection "
+        "with the same name is returned unchanged. Use list_collections to "
+        "see the collections and what they hold.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Collection name.",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Optional human description of the collection.",
+                },
+            },
+            "required": ["name"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "list_collections",
+        "description": "Lists the user's collections with the number of items "
+        "each holds and the ids of the items it holds (at most 20 per "
+        "collection, with items_truncated when there are more). Use "
+        "add_to_collection to put items in and remove_from_collection to "
+        "take them out.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Max collections to return (at most 50).",
+                },
+                "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Pagination offset.",
+                },
+            },
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "add_to_collection",
+        "description": "Adds library items to a collection, addressed by "
+        "collection name or id. Items that are not yours, that do not exist, "
+        "or that are already in the collection are skipped: the result "
+        "reports how many were added. At most 100 items are processed per "
+        "call.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "collection": {
+                    "type": "string",
+                    "description": "Collection name or id.",
+                },
+                "item_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Library item ids to add (at most 100).",
+                },
+            },
+            "required": ["collection", "item_ids"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "remove_from_collection",
+        "description": "Removes library items from a collection. The items "
+        "themselves are never deleted, only the link to the collection. At "
+        "most 100 items are processed per call.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "collection": {
+                    "type": "string",
+                    "description": "Collection name or id.",
+                },
+                "item_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Library item ids to remove (at most 100).",
+                },
+            },
+            "required": ["collection", "item_ids"],
+        },
+        "annotations": _DESTRUCTIVE,
+    },
+    {
+        "name": "rename_collection",
+        "description": "Renames a collection, addressed by its current name or "
+        "id. The new name must be free; an existing collection is never "
+        "merged into.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "collection": {
+                    "type": "string",
+                    "description": "Current collection name or id.",
+                },
+                "new_name": {
+                    "type": "string",
+                    "description": "The new collection name.",
+                },
+            },
+            "required": ["collection", "new_name"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "delete_collection",
+        "description": "Deletes a collection and its links. The items it held "
+        "are never deleted. To empty a collection without deleting it, use "
+        "remove_from_collection.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "collection": {
+                    "type": "string",
+                    "description": "Collection name or id.",
+                },
+            },
+            "required": ["collection"],
+        },
+        "annotations": _DESTRUCTIVE,
+    },
+    {
         "name": "delete_item",
         "description": "Permanently deletes an item, its raw/clean snapshots, "
         "and its vector embeddings. This action cannot be undone.",
@@ -1908,6 +2165,187 @@ async def handle_tool_call(
             older_than_days=older_than_days,
             limit=limit,
         )
+
+    elif tool_name == "create_highlight":
+        item_id = arguments.get("item_id")
+        if not item_id or not isinstance(item_id, str):
+            raise _invalid("create_highlight requires an item_id")
+        text = arguments.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise _invalid("create_highlight requires text")
+        text = text.strip()
+        if len(text) > MAX_HIGHLIGHT_TEXT:
+            raise _invalid(
+                f"Highlight text is limited to {MAX_HIGHLIGHT_TEXT} characters.",
+                max_chars=MAX_HIGHLIGHT_TEXT,
+                received=len(text),
+            )
+        note = arguments.get("note")
+        if note is not None:
+            if not isinstance(note, str):
+                raise _invalid("note must be a string")
+            if len(note) > MAX_HIGHLIGHT_NOTE:
+                raise _invalid(
+                    f"A highlight note is limited to {MAX_HIGHLIGHT_NOTE} characters.",
+                    max_chars=MAX_HIGHLIGHT_NOTE,
+                )
+        color = arguments.get("color")
+        if color is not None:
+            if not isinstance(color, str):
+                raise _invalid("color must be a string")
+            if len(color) > MAX_HIGHLIGHT_COLOR:
+                raise _invalid(
+                    f"A highlight color is limited to {MAX_HIGHLIGHT_COLOR}"
+                    " characters.",
+                    max_chars=MAX_HIGHLIGHT_COLOR,
+                )
+        start_offset = _int_arg(arguments.get("start_offset"), 0)
+        end_offset = _int_arg(arguments.get("end_offset"), start_offset + len(text))
+        if end_offset < start_offset:
+            raise _invalid("end_offset must not be smaller than start_offset")
+        if end_offset > MAX_HIGHLIGHT_OFFSET:
+            raise _invalid(
+                f"Offsets are limited to {MAX_HIGHLIGHT_OFFSET} characters.",
+                max_offset=MAX_HIGHLIGHT_OFFSET,
+            )
+        content_length = await item_content_length(db, user_id, item_id)
+        if content_length is None:
+            raise _not_found("Item not found.")
+        # A length of 0 means the item has no stored content yet (still
+        # queued): there is nothing to check the offsets against.
+        if content_length and end_offset > content_length:
+            raise _invalid(
+                f"end_offset {end_offset} is past the end of the item content"
+                f" ({content_length} characters).",
+                content_length=content_length,
+            )
+        highlight = await create_highlight(
+            db,
+            user_id,
+            item_id,
+            text,
+            start_offset,
+            end_offset,
+            note=note,
+            color=color,
+        )
+        if not highlight:
+            raise _not_found("Item not found.")
+        return {"highlight": highlight, "created": True}
+
+    elif tool_name == "list_highlights":
+        item_id = arguments.get("item_id")
+        if not item_id or not isinstance(item_id, str):
+            raise _invalid("list_highlights requires an item_id")
+        limit = _int_arg(arguments.get("limit"), 20, maximum=MAX_HIGHLIGHTS_LIMIT)
+        offset = _int_arg(arguments.get("offset"), 0)
+        highlights = await list_highlights(
+            db, user_id, item_id, limit=limit, offset=offset
+        )
+        return {
+            "highlights": highlights,
+            "count": len(highlights),
+            "limit": limit,
+            "offset": offset,
+        }
+
+    elif tool_name == "delete_highlight":
+        highlight_id = arguments.get("highlight_id")
+        if not highlight_id or not isinstance(highlight_id, str):
+            raise _invalid("delete_highlight requires a highlight_id")
+        deleted = await delete_highlight(db, user_id, highlight_id)
+        if not deleted:
+            raise _not_found("Highlight not found.")
+        return {"id": highlight_id, "deleted": True}
+
+    elif tool_name == "create_collection":
+        name = arguments.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise _invalid("create_collection requires a name")
+        if len(name.strip()) > MAX_COLLECTION_NAME:
+            raise _invalid(
+                f"A collection name is limited to {MAX_COLLECTION_NAME} characters.",
+                max_chars=MAX_COLLECTION_NAME,
+            )
+        description = arguments.get("description")
+        if description is not None:
+            if not isinstance(description, str):
+                raise _invalid("description must be a string")
+            if len(description) > MAX_COLLECTION_DESCRIPTION:
+                raise _invalid(
+                    f"A collection description is limited to"
+                    f" {MAX_COLLECTION_DESCRIPTION} characters.",
+                    max_chars=MAX_COLLECTION_DESCRIPTION,
+                )
+        collection = await create_collection(db, user_id, name, description=description)
+        if not collection:
+            raise _invalid("Invalid collection name.")
+        return collection
+
+    elif tool_name == "list_collections":
+        limit = _int_arg(arguments.get("limit"), 20, maximum=MAX_COLLECTIONS_LIMIT)
+        offset = _int_arg(arguments.get("offset"), 0)
+        collections = await list_collections(db, user_id, limit=limit, offset=offset)
+        return {
+            "collections": collections,
+            "count": len(collections),
+            "limit": limit,
+            "offset": offset,
+        }
+
+    elif tool_name == "add_to_collection":
+        collection = arguments.get("collection")
+        if not collection or not isinstance(collection, str):
+            raise _invalid("add_to_collection requires a collection")
+        item_ids = [i for i in _as_list(arguments.get("item_ids")) if i]
+        if not item_ids:
+            raise _invalid("add_to_collection requires item_ids")
+        result = await add_items_to_collection(db, user_id, collection, item_ids)
+        if not result["found"]:
+            raise _not_found("Collection not found.")
+        return result
+
+    elif tool_name == "remove_from_collection":
+        collection = arguments.get("collection")
+        if not collection or not isinstance(collection, str):
+            raise _invalid("remove_from_collection requires a collection")
+        item_ids = [i for i in _as_list(arguments.get("item_ids")) if i]
+        if not item_ids:
+            raise _invalid("remove_from_collection requires item_ids")
+        result = await remove_items_from_collection(db, user_id, collection, item_ids)
+        if not result["found"]:
+            raise _not_found("Collection not found.")
+        return result
+
+    elif tool_name == "rename_collection":
+        collection = arguments.get("collection")
+        new_name = arguments.get("new_name")
+        if not collection or not isinstance(collection, str):
+            raise _invalid("rename_collection requires a collection")
+        if not isinstance(new_name, str) or not new_name.strip():
+            raise _invalid("rename_collection requires a new_name")
+        if len(new_name.strip()) > MAX_COLLECTION_NAME:
+            raise _invalid(
+                f"A collection name is limited to {MAX_COLLECTION_NAME} characters.",
+                max_chars=MAX_COLLECTION_NAME,
+            )
+        outcome = await rename_collection(db, user_id, collection, new_name)
+        if outcome == "not_found":
+            raise _not_found("Collection not found.")
+        if outcome == "invalid":
+            raise _invalid("Invalid collection name.")
+        if outcome == "exists":
+            raise _invalid("A collection with that name already exists.")
+        return {"collection": new_name.strip(), "renamed": True}
+
+    elif tool_name == "delete_collection":
+        collection = arguments.get("collection")
+        if not collection or not isinstance(collection, str):
+            raise _invalid("delete_collection requires a collection")
+        collection_row = await delete_collection(db, user_id, collection)
+        if not collection_row:
+            raise _not_found("Collection not found.")
+        return collection_row
 
     elif tool_name == "delete_item":
         item_id = arguments.get("item_id")

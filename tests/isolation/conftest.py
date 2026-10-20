@@ -24,7 +24,9 @@ from keepfor.auth.service import (
     validate_pat,
     validate_session,
 )
+from keepfor.models.collections import add_items_to_collection, create_collection
 from keepfor.models.db import Database
+from keepfor.models.highlights import create_highlight
 from keepfor.models.items import (
     add_suggestions,
     create_rule,
@@ -243,7 +245,31 @@ async def snapshot(
     if rows:
         res["import_status"] = _hash_rows(rows)
 
-    # 13. R2 objects
+    # 13. highlights
+    rows = await db.query_all(
+        "SELECT * FROM highlights WHERE user_id = ? ORDER BY id;", (user_id,)
+    )
+    if rows:
+        res["highlights"] = _hash_rows(rows)
+
+    # 14. collections
+    rows = await db.query_all(
+        "SELECT * FROM collections WHERE user_id = ? ORDER BY id;", (user_id,)
+    )
+    if rows:
+        res["collections"] = _hash_rows(rows)
+
+    # 15. collection_items
+    rows = await db.query_all(
+        "SELECT ci.* FROM collection_items ci JOIN collections c"
+        " ON c.id = ci.collection_id WHERE c.user_id = ?"
+        " ORDER BY ci.collection_id, ci.item_id;",
+        (user_id,),
+    )
+    if rows:
+        res["collection_items"] = _hash_rows(rows)
+
+    # 16. R2 objects
     bucket = getattr(env, "BUCKET", None) if env else (scope.bucket if scope else None)
     if bucket is not None and hasattr(bucket, "store"):
         r2_items = []
@@ -265,7 +291,7 @@ async def snapshot(
         if r2_items:
             res["_r2"] = _hash_obj(r2_items)
 
-    # 14. Vectorize vectors
+    # 17. Vectorize vectors
     vec = getattr(env, "VECTORIZE", None) if env else (scope.index if scope else None)
     if vec is not None and hasattr(vec, "store"):
         vec_items = []
@@ -374,6 +400,15 @@ async def _seed_single_tenant(
     await toggle_pin_item(db, user_id, item3["id"])
     await update_user_notes(db, user_id, item3["id"], f"Notes for {email}")
     await record_open(db, user_id, item3["id"])
+
+    # 1 highlight and 1 collection (issue #24): the isolation snapshot covers
+    # them, so every tenant owns something that must never leak.
+    await create_highlight(
+        db, user_id, item1["id"], f"Highlight {unique_keyword}", 0, 8
+    )
+    collection_name = f"Collection {unique_keyword}"
+    await create_collection(db, user_id, collection_name)
+    await add_items_to_collection(db, user_id, collection_name, [item1["id"]])
 
     # 1 rule
     rule_id = await create_rule(

@@ -158,7 +158,7 @@ working.
 ## Connecting AI Agents (Remote MCP)
 
 Keepfor.me hosts a remote Streamable HTTP MCP server at `https://app.keepfor.me/api/mcp`,
-exposing 31 tools for capturing, finding, reading and tagging your library:
+exposing 40 tools for capturing, finding, reading and tagging your library:
 1. `save_url`: Save any webpage to your library.
 2. `save_note`: Save a note, snippet or prompt template.
 3. `search_library`: Hybrid search across text and meaning.
@@ -176,6 +176,8 @@ exposing 31 tools for capturing, finding, reading and tagging your library:
 15. `find_cleanup`: Read-only cleanup report (duplicate urls, dead links, never-opened old items, untagged items, near-duplicate tags).
 16. `delete_item` / `pin_item`: Remove or pin an item.
 17. `library_digest`: A compact recap — saves, opens, top tags, unread highlights.
+18. `create_highlight` / `list_highlights` / `delete_highlight`: Quote a passage of an item, anchored by character offsets.
+19. `create_collection` / `list_collections` / `add_to_collection` / `remove_from_collection` / `rename_collection` / `delete_collection`: Named buckets of library items.
 
 The server is stateless (no sessions, plain JSON responses, no SSE stream) and
 authenticates with the same Personal Access Tokens as the REST API.
@@ -219,7 +221,7 @@ curl https://app.keepfor.me/api/mcp \
 
 ### Available MCP Tools (Server 0.2.0)
 
-The MCP server exposes 31 tools. Every tool that can change something takes a `dry_run` flag: it is only accepted as a JSON boolean (omitted means `true`, a preview), and anything else is rejected rather than applied.
+The MCP server exposes 40 tools. The tools that change many items at once take a `dry_run` flag: it is only accepted as a JSON boolean (omitted means `true`, a preview), and anything else is rejected rather than applied.
 
 1. **`save_url`** — Save any webpage to your library. Accepts optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
 2. **`save_note`** — Save a personal note, code snippet, or prompt template. Accepts the same optional provenance fields.
@@ -252,6 +254,15 @@ The MCP server exposes 31 tools. Every tool that can change something takes a `d
 29. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
 30. **`pin_item`** — Pin or unpin an item to/from the top shelf.
 31. **`library_digest`** — Read-only recap of the library for a period: saves, opens, top tags and unread highlights. Takes optional `since`, `until` and `tag`; every list in the response is capped.
+32. **`create_highlight`** — Quote a passage of an item and anchor it with the character offsets it covers inside `content_text`. `start_offset` defaults to `0`, `end_offset` to `start_offset + len(text)`; an end offset past the end of the item's content is refused.
+33. **`list_highlights`** — The highlights of one item, ordered by their position in the text, with the quoted text, offsets, optional note and color.
+34. **`delete_highlight`** — Remove one highlight. The item it belongs to is never deleted.
+35. **`create_collection`** — Create a named bucket of library items, with an optional description. Creating one with an existing name returns it unchanged.
+36. **`list_collections`** — Your collections with their item count and item ids (at most 20 per collection, with `items_truncated` when there are more).
+37. **`add_to_collection`** — Put items in a collection, addressed by name or id. At most 100 items per call; the result reports `added`, `skipped` and `truncated`.
+38. **`remove_from_collection`** — Take items out of a collection. The items themselves are never deleted.
+39. **`rename_collection`** — Rename a collection. Renaming onto a name that is already taken is refused, never merged.
+40. **`delete_collection`** — Delete a collection and its links. The items it held are never deleted; use `remove_from_collection` to empty it.
 
 All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) as advisory hints for the client — the server does not enforce them, and a token is never rejected for missing scope information. Each description says when to use a tool versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
 
