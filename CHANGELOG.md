@@ -40,8 +40,10 @@ away in both cases.
     `npx wrangler d1 migrations apply keepfor-me-db --remote`. Without the
     column PAT authentication fails; with it, NULL means "all scopes", so
     tokens created before the migration are unaffected.
-  - Scopes are enforced on the MCP endpoint; the REST API is not scope-gated
-    yet.
+  - Scopes are enforced over MCP (per tool) and over REST: a read-only token
+    gets `403` on every write route. `/api/search` and `/search` are the
+    exception — a search is a read — and PATs are refused on `/settings/*`
+    entirely, so a token can never mint a broader one.
 - **Persisted notes-import status** (GitHub issue #18): every notes upload now
   writes one `import_status` record per user. The record holds the running
   counters (notes imported, duplicates skipped, links queued, attachments not

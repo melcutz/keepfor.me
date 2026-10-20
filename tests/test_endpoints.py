@@ -1087,6 +1087,35 @@ async def test_read_only_pat_get_routes_still_work(client, db, pat_tokens):
     assert response.status_code == 404
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path,kwargs",
+    [
+        ("/api/search", {"json": {"query": "test", "mode": "keyword"}}),
+        ("/search", {"data": {"query": "test"}}),
+    ],
+)
+async def test_read_only_pat_can_post_search_routes(
+    client, db, pat_tokens, path, kwargs
+):
+    """Search reads, so a read-only PAT may POST the search routes."""
+    response = client.post(path, headers=pat_tokens["read_only"], **kwargs)
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_read_only_pat_write_routes_still_refused(client, db, pat_tokens):
+    """The read-only POST allowlist does not open the write routes."""
+    response = client.post(
+        "/api/items",
+        headers=pat_tokens["read_only"],
+        json={"url": "https://example.com/ro-bypass"},
+    )
+    assert response.status_code == 403
+
+    assert await db.query_all("SELECT * FROM items;") == []
+
+
 # ==========================================
 # Error Handling Tests
 # ==========================================

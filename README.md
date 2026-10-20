@@ -310,9 +310,10 @@ A Personal Access Token can be limited to **read-only**. Create it on
 Tokens created before scopes existed keep their full access: their stored
 scope is NULL and means "all". Scopes are enforced everywhere a token works:
 over MCP each tool needs the scope its annotations declare, and over REST a
-read-only token gets `403` on every non-GET route (`/api/mcp` excepted — it
-enforces scopes per tool). PATs are refused on `/settings/*` entirely, so a
-token can never mint a broader one.
+read-only token gets `403` on every write route. The exception is the
+read-only POST routes `/api/search` and `/search`: a search is a read, so a
+read-only token may use them. `/api/mcp` enforces scopes per tool. PATs are
+refused on `/settings/*` entirely, so a token can never mint a broader one.
 
 Self-hosters: the scope column comes from migration `0012_pat_scopes.sql`, so
 apply the migrations (step 3 above) before deploying.

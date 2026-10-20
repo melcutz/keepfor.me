@@ -39,13 +39,19 @@ def get_providers(request: Request) -> Providers:
     return get_runtime_providers()
 
 
+# POST routes that only read. A read-only token may use them: search is a
+# read, the POST body is just the query.
+READ_ONLY_POST_PATHS = frozenset({"/api/search", "/search"})
+
+
 def _enforce_pat_scope(request: Request, principal: Principal) -> None:
     """Refuse token-authenticated requests the token's scope doesn't cover.
 
     A PAT is an API credential: it may read, but every non-GET/HEAD route
     needs the `write` scope — except `/api/mcp`, which enforces scopes per
-    tool. PATs are refused on /settings/* altogether, so a token can never
-    mint a broader one.
+    tool, and the read-only POST routes in READ_ONLY_POST_PATHS. PATs are
+    refused on /settings/* altogether, so a token can never mint a broader
+    one.
     """
     if principal.auth_kind != "pat":
         return
@@ -56,6 +62,8 @@ def _enforce_pat_scope(request: Request, principal: Principal) -> None:
             detail="Personal access tokens cannot manage account settings.",
         )
     if request.method in ("GET", "HEAD") or path == "/api/mcp":
+        return
+    if request.method == "POST" and path in READ_ONLY_POST_PATHS:
         return
     if not scope_grants(principal.scopes, SCOPE_WRITE):
         raise HTTPException(status_code=403, detail="This token is read-only.")
