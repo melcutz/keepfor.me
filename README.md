@@ -22,6 +22,7 @@ A thin, fast read-it-later and personal library application running entirely on 
 - **Resilient Content Extraction**: Automated body parsing via `trafilatura` with OpenGraph metadata fallback so bookmarks are never lost. Browser-identical request headers plus an optional reader-proxy fallback (configurable via `READER_PROXY_BASE`, off by default) recover many bot-walled (HTTP 403) origins.
 - **Visible Extraction State**: Every item shows `Extracting…`, content, or a **failed reason** (e.g. `HTTP 403`) rather than silently stalling. Bulk imports fan out through the queue, never blocking the request.
 - **Dual Snapshots in R2**: Raw original HTML snapshot (`raw.html`) and sanitized reader HTML (`clean.html`).
+- **Trash, Not Data Loss**: Deleting (from the UI or from an agent) moves an item to the Trash instead of destroying it. The row, the snapshots and the vectors stay, so **Restore** is instant; **Delete forever** in the Trash view is the only permanent path, and a scheduled purge clears the Trash after 30 days.
 - **Zero-Config Single-Tenant Lock**: First registration automatically claims admin ownership and locks out external signups.
 - **Model Context Protocol (MCP)**: Remote Streamable HTTP server at `/api/mcp` (stateless, Bearer PAT auth) for opencode, Claude Desktop, and Cursor — no local install needed.
 - **Instant Browser Capture**: Drag-and-drop JavaScript bookmarklet and unpacked Manifest V3 extension.
@@ -62,6 +63,28 @@ Two deliberate design choices:
 
 If messages are ever lost, **Settings → Re-queue stuck items** re-sends jobs for rows
 stuck in `queued` (skips fresh rows so live messages aren't duplicated).
+
+### Trash and restore
+
+Deleting never destroys. MCP `delete_item` and `DELETE /api/items/{id}` set
+`items.deleted_at` and stop there: the row, the R2 snapshots and the vector
+embeddings stay, so an agent cannot destroy library data. Trashed items are
+invisible everywhere (library, search, MCP reads, counts, exports) until they
+are restored.
+
+The **Trash** view (`/trash`) lists them with two actions: **Restore** brings
+an item back into the library, **Delete forever** is the only permanent
+delete. Hosts can also run the scheduled cleanup themselves:
+
+```python
+from keepfor.models.items import purge_trash
+
+# Hard-deletes trashed items older than 30 days (row, snapshots, vectors).
+await purge_trash(db, env, user_id=None, older_than_days=30)
+```
+
+Nothing is deleted behind the user's back: without a scheduler the Trash
+just grows.
 
 ### Reader Proxy Fallback (`READER_PROXY_BASE`)
 
@@ -253,7 +276,7 @@ The MCP server exposes 40 tools. The tools that change many items at once take a
 26. **`related_tags`** — Tags that co-occur with a tag on the same items.
 27. **`tag_cleanup`** — Near-duplicate tags, unused tags and untagged items worth a look.
 28. **`find_cleanup`** — Read-only cleanup report: duplicate items (same normalized url), dead links (recorded extraction failures — no network requests), never-opened old items, untagged items and near-duplicate tags. Takes `categories`, `older_than_days` and a per-category `limit` (max 100); each category reports the candidates, a count and a `truncated` flag. The item categories list one id with a reason; the group categories list one entry per group — `duplicates` gives the group's ids (capped at 10), its size and whether the id list was truncated, `near_duplicate_tags` gives the group's tag names — so `limit` caps groups and one url saved 300 times stays a small response.
-29. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
+29. **`delete_item`** — Move an item to the Trash. The item leaves the library but is not destroyed: it stays restorable for 30 days, and only the user can delete it for good from the Trash view.
 30. **`pin_item`** — Pin or unpin an item to/from the top shelf.
 31. **`library_digest`** — Read-only recap of the library for a period: saves, opens, top tags and unread highlights. Takes optional `since`, `until` and `tag`; every list in the response is capped.
 32. **`create_highlight`** — Quote a passage of an item and anchor it with the character offsets it covers inside `content_text`. `start_offset` defaults to `0`, `end_offset` to `start_offset + len(text)`; an end offset past the end of the item's content is refused.

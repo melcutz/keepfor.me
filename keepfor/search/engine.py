@@ -152,7 +152,7 @@ async def get_status_counts(
 
     rows = await db.query_all(
         f"SELECT status, COUNT(*) as count FROM items "
-        f"WHERE user_id = ? {extra} GROUP BY status;",
+        f"WHERE user_id = ? AND deleted_at IS NULL {extra} GROUP BY status;",
         params,
     )
     raw = {r["status"]: r["count"] for r in rows}
@@ -172,7 +172,8 @@ async def search_fts(
         url_sql = """
             SELECT id as item_id, -100.0 as rank, excerpt as snippet
             FROM items
-            WHERE user_id = ? AND (canonical_url LIKE ? OR url LIKE ?)
+            WHERE user_id = ? AND deleted_at IS NULL
+              AND (canonical_url LIKE ? OR url LIKE ?)
             LIMIT ?;
         """
         clean_domain = query.strip()
@@ -197,17 +198,23 @@ async def search_fts(
                        snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
                 FROM items_fts
                 WHERE items_fts MATCH ? AND user_id = ?
+                  AND EXISTS (SELECT 1 FROM items i
+                              WHERE i.id = items_fts.item_id AND i.user_id = ?
+                                AND i.deleted_at IS NULL)
                 ORDER BY rank
                 LIMIT ?;
             """
             try:
-                fts_matches = await db.query_all(sql, (fts_terms, user_id, limit))
+                fts_matches = await db.query_all(
+                    sql, (fts_terms, user_id, user_id, limit)
+                )
             except Exception:
                 # Fallback to simple title/url LIKE search if FTS query syntax error
                 fallback_sql = """
                     SELECT id as item_id, 0.0 as rank, excerpt as snippet
                     FROM items
-                    WHERE user_id = ? AND (title LIKE ? OR url LIKE ?)
+                    WHERE user_id = ? AND deleted_at IS NULL
+                      AND (title LIKE ? OR url LIKE ?)
                     LIMIT ?;
                 """
                 like_term = f"%{clean_q}%"
@@ -307,6 +314,24 @@ async def search_vectorize(
         return []
 
 
+async def _drop_trashed(db: Database, user_id: str, item_ids: list[str]) -> list[str]:
+    """Keeps only the ids of items that are not in the Trash.
+
+    Trashed items keep their vectors, so a vector query still finds them;
+    they must not reach the results.
+    """
+    if not item_ids:
+        return []
+    placeholders = ",".join("?" for _ in item_ids)
+    rows = await db.query_all(
+        f"SELECT id FROM items WHERE user_id = ? AND deleted_at IS NULL"
+        f" AND id IN ({placeholders});",
+        (user_id, *item_ids),
+    )
+    live = {r["id"] for r in rows}
+    return [i for i in item_ids if i in live]
+
+
 async def hybrid_search(
     db: Database,
     env: Any,
@@ -394,6 +419,14 @@ async def hybrid_search(
     elif want_vec:
         vec_results = await search_vectorize(env, user_id, query, limit=50, scope=scope)
 
+    # Trashed items keep their vectors: drop them before they take a slot
+    # in the fused ranking.
+    if vec_results:
+        live = set(
+            await _drop_trashed(db, user_id, [r["item_id"] for r in vec_results])
+        )
+        vec_results = [r for r in vec_results if r["item_id"] in live]
+
     # Reciprocal Rank Fusion
     rrf_scores: dict[str, float] = {}
     snippets: dict[str, str] = {}
@@ -443,7 +476,8 @@ async def hybrid_search(
         SELECT {RECENT_COLUMNS}
         FROM items i
         WHERE i.id IN ({placeholders})
-          AND i.user_id = ?{status_clause}{cat_clause}{quick_clause};
+          AND i.user_id = ? AND i.deleted_at IS NULL
+          {status_clause}{cat_clause}{quick_clause};
     """
     rows = await db.query_all(sql, (*top_ids, user_id, *status_params, *cat_params))
     item_map = {row["id"]: row for row in rows}
@@ -526,7 +560,8 @@ async def get_recent_items(
         sql = f"""
         SELECT {RECENT_COLUMNS}
         FROM items i
-        WHERE i.user_id = ?{status_clause}{cat_clause}{quick_clause} {exists}
+        WHERE i.user_id = ? AND i.deleted_at IS NULL
+          {status_clause}{cat_clause}{quick_clause} {exists}
         ORDER BY i.created_at DESC
         LIMIT ? OFFSET ?;
     """
@@ -537,7 +572,7 @@ async def get_recent_items(
         sql = f"""
             SELECT {RECENT_COLUMNS_BARE}
             FROM items
-            WHERE user_id = ?{bare_status}{bare_cat}{bare_quick}
+            WHERE user_id = ? AND deleted_at IS NULL{bare_status}{bare_cat}{bare_quick}
               AND NOT EXISTS (SELECT 1 FROM item_tags itx WHERE itx.item_id = items.id)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?;
@@ -549,7 +584,7 @@ async def get_recent_items(
         sql = f"""
             SELECT {RECENT_COLUMNS_BARE}
             FROM items
-            WHERE user_id = ?{bare_status}{bare_cat}{bare_quick}
+            WHERE user_id = ? AND deleted_at IS NULL{bare_status}{bare_cat}{bare_quick}
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?;
         """
@@ -617,21 +652,24 @@ async def count_recent_items(
         )
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items i "
-            f"WHERE i.user_id = ?{tag_clause}{cat_clause_i}{quick_clause_i} {exists};",
+            f"WHERE i.user_id = ? AND i.deleted_at IS NULL"
+            f"{tag_clause}{cat_clause_i}{quick_clause_i} {exists};",
             (user_id, *status_params, *cat_params, *tag_list),
         )
     elif untagged:
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items "
-            f"WHERE user_id = ?{status_clause}{cat_clause}{quick_clause} "
+            "WHERE user_id = ? AND deleted_at IS NULL"
+            f"{status_clause}{cat_clause}{quick_clause} "
             "AND NOT EXISTS (SELECT 1 FROM item_tags itx "
             "WHERE itx.item_id = items.id);",
             (user_id, *status_params, *cat_params),
         )
     else:
         rows = await db.query_all(
-            f"SELECT COUNT(*) as count FROM items"
-            f" WHERE user_id = ?{status_clause}{cat_clause}{quick_clause};",
+            "SELECT COUNT(*) as count FROM items"
+            " WHERE user_id = ? AND deleted_at IS NULL"
+            f"{status_clause}{cat_clause}{quick_clause};",
             (user_id, *status_params, *cat_params),
         )
     return rows[0]["count"] if rows else 0
@@ -656,14 +694,17 @@ async def match_items_by_url(db: Database, user_id: str, url: str) -> list[str]:
         return []
     canon = canonicalize_url(raw)
     rows = await db.query_all(
-        "SELECT id FROM items WHERE user_id = ? AND (url = ? OR canonical_url = ?);",
+        "SELECT id FROM items WHERE user_id = ? AND deleted_at IS NULL"
+        " AND (url = ? OR canonical_url = ?);",
         (user_id, raw, canon),
     )
     if rows:
         return [r["id"] for r in rows]
     key = url_dedupe_key(raw)
     scan = await db.query_all(
-        "SELECT id, url, canonical_url FROM items WHERE user_id = ?;", (user_id,)
+        "SELECT id, url, canonical_url FROM items"
+        " WHERE user_id = ? AND deleted_at IS NULL;",
+        (user_id,),
     )
     return [
         r["id"]
@@ -689,7 +730,8 @@ async def resolve_item(
     """
     if item_id:
         row = await db.query_first(
-            "SELECT * FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+            "SELECT * FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+            (item_id, user_id),
         )
         return dict(row) if row else None
     if url:
@@ -697,12 +739,14 @@ async def resolve_item(
         if not ids:
             return None
         row = await db.query_first(
-            "SELECT * FROM items WHERE id = ? AND user_id = ?;", (ids[0], user_id)
+            "SELECT * FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+            (ids[0], user_id),
         )
         return dict(row) if row else None
     if title:
         row = await db.query_first(
-            "SELECT * FROM items WHERE user_id = ? AND LOWER(title) = LOWER(?)"
+            "SELECT * FROM items WHERE user_id = ? AND deleted_at IS NULL"
+            " AND LOWER(title) = LOWER(?)"
             " ORDER BY created_at DESC LIMIT 1;",
             (user_id, title.strip()),
         )
@@ -753,7 +797,7 @@ async def _item_filter_clause(
     The items table must be aliased as `i`. `status` uses the UI status
     groups ('saved', 'extracting', 'failed'); see STATUS_GROUPS.
     """
-    extra: list[str] = []
+    extra: list[str] = [" AND i.deleted_at IS NULL"]
     params: list[Any] = []
     status_values = _status_values(status)
     if status_values:
@@ -913,7 +957,7 @@ async def find_items(
     The title matches exactly (case-insensitive) or as a prefix. The url
     matches exactly or after normalization (canonical form, no www.).
     """
-    extra: list[str] = []
+    extra: list[str] = [" AND i.deleted_at IS NULL"]
     params: list[Any] = []
     if title:
         clean = title.strip()
@@ -1107,7 +1151,8 @@ async def read_item_chunks(
     """
     # Verify ownership
     item = await db.query_first(
-        "SELECT * FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+        "SELECT * FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        (item_id, user_id),
     )
     if not item:
         raise ValueError(f"Item not found with id: {item_id}")
@@ -1275,7 +1320,8 @@ async def reading_history(
             SELECT i.id, i.title, i.url, i.created_at as event_time,
                    'saved' as event_type, i.item_type
             FROM items i
-            WHERE i.user_id = ?{since_clause}{until_clause}{tag_clause}{query_clause}
+            WHERE i.user_id = ? AND i.deleted_at IS NULL
+              {since_clause}{until_clause}{tag_clause}{query_clause}
             ORDER BY i.created_at DESC
             LIMIT ? OFFSET ?;
         """
@@ -1300,6 +1346,7 @@ async def reading_history(
                    'opened' as event_type, i.item_type
             FROM item_opens io
             JOIN items i ON i.id = io.item_id AND i.user_id = io.user_id
+                AND i.deleted_at IS NULL
             WHERE io.user_id = ?{opens_since}{opens_until}{tag_clause}{query_clause}
             ORDER BY io.opened_at DESC
             LIMIT ? OFFSET ?;
@@ -1318,7 +1365,8 @@ async def reading_history(
                        WHERE io.item_id = i.id AND io.user_id = i.user_id
                    ) as was_opened
             FROM items i
-            WHERE i.user_id = ?{since_clause}{until_clause}{tag_clause}{query_clause}
+            WHERE i.user_id = ? AND i.deleted_at IS NULL
+              {since_clause}{until_clause}{tag_clause}{query_clause}
             ORDER BY i.created_at DESC
             LIMIT ? OFFSET ?;
         """
@@ -1393,7 +1441,8 @@ async def related_items(
     if item_id:
         # Verify ownership and get item
         source_item = await db.query_first(
-            "SELECT * FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+            "SELECT * FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+            (item_id, user_id),
         )
         if not source_item:
             raise ValueError(f"Item not found with id: {item_id}")
@@ -1470,7 +1519,7 @@ async def related_items(
     sql = f"""
         SELECT {RECENT_COLUMNS}
         FROM items i
-        WHERE i.id IN ({placeholders}) AND i.user_id = ?;
+        WHERE i.id IN ({placeholders}) AND i.user_id = ? AND i.deleted_at IS NULL;
     """
     rows = await db.query_all(sql, (*top_item_ids, user_id))
     item_map = {row["id"]: row for row in rows}
@@ -1603,29 +1652,29 @@ async def library_digest(
     opened_window, opened_params = _window("io.opened_at")
 
     saves_sql = (
-        "SELECT COUNT(*) AS n FROM items i WHERE i.user_id = ?"
+        "SELECT COUNT(*) AS n FROM items i WHERE i.user_id = ? AND i.deleted_at IS NULL"
         f"{saved_window}{tag_clause};"
     )
     unread_sql = (
         "SELECT COUNT(*) AS n FROM items i"
-        " WHERE i.user_id = ? AND i.read_state = 'unread'"
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL AND i.read_state = 'unread'"
         f"{saved_window}{tag_clause};"
     )
     opens_sql = (
         "SELECT COUNT(DISTINCT io.item_id) AS n FROM item_opens io"
         " JOIN items i ON i.id = io.item_id AND i.user_id = io.user_id"
-        f" WHERE io.user_id = ?{opened_window}{tag_clause};"
+        f" WHERE io.user_id = ? AND i.deleted_at IS NULL{opened_window}{tag_clause};"
     )
     top_tags_sql = (
         "SELECT t.name AS name, COUNT(it.item_id) AS count FROM tags t"
         " JOIN item_tags it ON it.tag_id = t.id"
         " JOIN items i ON i.id = it.item_id AND i.user_id = t.user_id"
-        f" WHERE t.user_id = ?{saved_window}{tag_clause}"
+        f" WHERE t.user_id = ? AND i.deleted_at IS NULL{saved_window}{tag_clause}"
         " GROUP BY t.id, t.name ORDER BY count DESC, t.name ASC LIMIT ?;"
     )
     highlights_sql = (
         "SELECT i.id, i.title, i.url, i.created_at AS saved_at FROM items i"
-        " WHERE i.user_id = ? AND i.read_state = 'unread'"
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL AND i.read_state = 'unread'"
         f"{saved_window}{tag_clause}"
         " ORDER BY i.created_at DESC, i.id DESC LIMIT ?;"
     )

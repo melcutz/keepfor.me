@@ -9,7 +9,7 @@ import pytest
 
 from keepfor.auth.service import register_user
 from keepfor.mcp.server import MCP_TOOLS, process_mcp_request
-from keepfor.models.items import save_item
+from keepfor.models.items import save_item, trash_item
 
 
 class FakeQueue:
@@ -242,6 +242,44 @@ async def test_library_digest_caps_tags_per_highlight(digest_user):
     assert len(payload["unread_highlights"]) == 1
     assert len(payload["unread_highlights"][0]["tags"]) == 5
     assert payload["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_library_digest_excludes_trashed_items(digest_user):
+    """A trashed item is gone from the digest: counts, top tags and highlights."""
+    user, env, db = digest_user
+
+    await _save(
+        db,
+        env,
+        user["id"],
+        "https://example.com/kept",
+        ["tech"],
+        title="Kept",
+        saved_at="2026-06-01 09:00:00",
+    )
+    trashed = await _save(
+        db,
+        env,
+        user["id"],
+        "https://example.com/trashed",
+        ["secret"],
+        title="Trashed",
+        saved_at="2026-06-02 09:00:00",
+    )
+    await db.execute(
+        "INSERT INTO item_opens (user_id, item_id, opened_at) VALUES (?, ?, ?);",
+        (user["id"], trashed["id"], "2026-06-04 09:00:00"),
+    )
+    await trash_item(db, user["id"], trashed["id"])
+
+    payload = await _call(db, env, user, {})
+
+    assert payload["saves"] == 1
+    assert payload["unread"] == 1
+    assert payload["opens"] == 0
+    assert {t["name"] for t in payload["top_tags"]} == {"tech"}
+    assert [h["title"] for h in payload["unread_highlights"]] == ["Kept"]
 
 
 @pytest.mark.asyncio

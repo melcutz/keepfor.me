@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Breaking
-MCP Server 0.2.0 changes two tool defaults. The old behaviour is one argument
-away in both cases.
+MCP Server 0.2.0 changes three tool behaviours. The old behaviour is one
+argument away in the first two cases.
 
 - `get_item` no longer returns unbounded `content_text`. It is capped to the
   excerpt by default; pass `include_content=true` for the full text. The
@@ -21,6 +21,15 @@ away in both cases.
   `fields=[...]` to opt into the extra fields. Tool results are serialized as
   compact JSON instead of indented JSON, which keeps the default `list_items`
   page under 4 KB.
+- **MCP `delete_item` no longer destroys anything** (GitHub issue #30): it
+  moves the item to the Trash, where the user can restore it for 30 days. The
+  R2 snapshots and the vector embeddings are kept, the row is kept, and only
+  `items.deleted_at` is set. The tool result changed with it: it now returns
+  `{"id", "trashed", "message"}` instead of `{"id", "deleted"}`. `trashed` is
+  `false` when the item does not exist (or belongs to somebody else).
+- `DELETE /api/items/{id}` is a soft delete too, for the same reason: the
+  agent-reachable REST path may not destroy library data. The row, the
+  snapshots and the vectors stay until the user deletes the item for good.
 
 ### Added
 - **MCP `library_digest`** (GitHub issue #22): a read-only recap of the library for a period — how many items were **saved** and **opened**, how many are still **unread**, the **top tags**, and a short list of **unread highlights**. Takes optional `since`, `until` and `tag` (child tags count). Inputs are bounded (32-character dates, 64-character tag; unparsable or reversed ranges are rejected) and the response is capped (10 tags, 5 highlights, 5 tags per highlight, 120-character titles, 200-character urls) and stays under 4 KB.
@@ -44,6 +53,42 @@ away in both cases.
     gets `403` on every write route. `/api/search` and `/search` are the
     exception — a search is a read — and PATs are refused on `/settings/*`
     entirely, so a token can never mint a broader one.
+- **Trash** (GitHub issue #30): a deleted item is never lost. MCP
+  `delete_item` and `DELETE /api/items/{id}` set `items.deleted_at` and stop
+  there — the row, the raw/clean R2 snapshots and the vector embeddings stay,
+  so a restore is instant.
+  - A **Trash** view (nav → Trash, or `/trash`) lists the trashed items with
+    two actions: **Restore** (back into the library) and **Delete forever**
+    (the only permanent path; it reuses the existing hard delete, so the row,
+    the snapshots and the vectors go). It pages, so nothing hides behind the
+    first 50 rows.
+  - Trashed items are excluded everywhere: library, pinned shelf, search (FTS
+    and vector results), MCP `list_items`/`search_library`/`search_passages`/
+    `find_item`/`read_item`/`get_item`/`related_items`/`reading_history`/
+    `library_digest`, the
+    MCP resources and prompts, the status pills, the tag counts and
+    co-occurrence, the tag cleanup report, the `find_cleanup` report,
+    `bulk_update` matching, the pending tag suggestions, the stats page and
+    the library export (JSON and HTML). The highlights and the collections
+    too: a trashed item takes no new highlight, its highlights are not
+    listed, and it is neither counted nor listed in a collection.
+  - The trash keeps the annotations of an item: trashing and restoring never
+    touch its highlights or its collection links, so a restore gives them
+    back. Only the permanent delete (Trash → Delete forever, the 30-day
+    purge, the cleanup of the failed extractions) drops them.
+  - A trashed item is also immutable: it cannot be pinned, annotated,
+    archived or re-tagged while it waits in the Trash.
+  - `purge_trash(db, env, user_id=None, older_than_days=30)` hard-deletes
+    trashed items older than the window, so a host can schedule the 30-day
+    purge. Without a `user_id` it purges every user of the database.
+  - Migration `0014_trash.sql` (additive): the nullable `items.deleted_at`
+    column and its `(user_id, deleted_at)` index. Apply it before deploying:
+    `npx wrangler d1 migrations apply keepfor-me-db --remote`.
+  - Saving a url that sits in the Trash brings it back: the canonical url is
+    unique per user, so re-saving restores the existing row.
+  - **Settings → Cleanup failed items** only touches live failed extractions.
+    A trashed one stays in the Trash until the user deletes it for good or the
+    30-day purge takes it.
 - **Persisted notes-import status** (GitHub issue #18): every notes upload now
   writes one `import_status` record per user. The record holds the running
   counters (notes imported, duplicates skipped, links queued, attachments not

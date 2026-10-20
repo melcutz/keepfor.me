@@ -232,4 +232,4 @@ class MCPTagItemArgs(BaseModel):
 class MCPDeleteItemArgs(BaseModel):
     """MCP: delete_item tool arguments."""
 
-    item_id: str = Field(..., description="The library item ID to delete")
+    item_id: str = Field(..., description="The library item ID to move to the Trash")

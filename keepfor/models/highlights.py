@@ -27,10 +27,13 @@ MAX_HIGHLIGHTS_LIMIT = 100
 
 
 async def item_content_length(db: Database, user_id: str, item_id: str) -> int | None:
-    """Length of an owned item's stored content, or None when it is not owned."""
+    """Length of an owned item's stored content, or None when it is not owned.
+
+    A trashed item counts as not owned: it left the library.
+    """
     row = await db.query_first(
         "SELECT LENGTH(COALESCE(content_text, '')) AS n FROM items"
-        " WHERE id = ? AND user_id = ?;",
+        " WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
         (item_id, user_id),
     )
     return int(row["n"] or 0) if row else None
@@ -49,11 +52,12 @@ async def create_highlight(
 ) -> dict[str, Any] | None:
     """Creates a highlight on an item the user owns.
 
-    Returns the stored highlight, or None when the item does not exist or
-    belongs to another user.
+    Returns the stored highlight, or None when the item does not exist, is
+    in the Trash, or belongs to another user.
     """
     owned = await db.query_first(
-        "SELECT id FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+        "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        (item_id, user_id),
     )
     if not owned:
         return None
@@ -86,12 +90,15 @@ async def create_highlight(
 async def list_highlights(
     db: Database, user_id: str, item_id: str, *, limit: int = 20, offset: int = 0
 ) -> list[dict[str, Any]]:
-    """Lists the highlights of one owned item, ordered by their position."""
+    """Lists the highlights of one owned item, ordered by their position.
+
+    A trashed item is not in the library: its highlights are not listed.
+    """
     rows = await db.query_all(
         "SELECT h.id, h.item_id, h.text, h.start_offset, h.end_offset, h.note,"
         " h.color, h.created_at FROM highlights h"
         " JOIN items i ON i.id = h.item_id AND i.user_id = ?"
-        " WHERE h.user_id = ? AND h.item_id = ?"
+        " WHERE h.user_id = ? AND h.item_id = ? AND i.deleted_at IS NULL"
         " ORDER BY h.start_offset ASC, h.created_at ASC LIMIT ? OFFSET ?;",
         (user_id, user_id, item_id, limit, offset),
     )

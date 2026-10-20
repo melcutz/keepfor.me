@@ -133,31 +133,34 @@ async def get_user_stats(db, user_id: str) -> dict:
     ) = await asyncio.gather(
         db.query_all(
             "SELECT DATE(created_at) AS day, COUNT(*) AS n FROM items"
-            " WHERE user_id = ? GROUP BY day;",
+            " WHERE user_id = ? AND deleted_at IS NULL GROUP BY day;",
             (user_id,),
         ),
         db.query_all(
             "SELECT DATE(it.created_at) AS day, COUNT(*) AS n FROM item_tags it"
             " JOIN tags t ON t.id = it.tag_id"
             " JOIN items i ON i.id = it.item_id AND i.user_id = ?"
-            " WHERE t.user_id = ? GROUP BY day;",
+            " WHERE t.user_id = ? AND i.deleted_at IS NULL GROUP BY day;",
             (user_id, user_id),
         ),
         db.query_all(
             "SELECT DATE(updated_at) AS day, COUNT(*) AS n FROM items"
-            " WHERE user_id = ? AND user_notes IS NOT NULL GROUP BY day;",
+            " WHERE user_id = ? AND deleted_at IS NULL"
+            " AND user_notes IS NOT NULL GROUP BY day;",
             (user_id,),
         ),
         db.query_all(
             "SELECT DATE(updated_at) AS day, COUNT(*) AS n FROM items"
-            " WHERE user_id = ? AND is_pinned = 1 GROUP BY day;",
+            " WHERE user_id = ? AND deleted_at IS NULL"
+            " AND is_pinned = 1 GROUP BY day;",
             (user_id,),
         ),
         # Approximation: archive transitions are not timestamped anywhere,
         # so archived rows are attributed to DATE(updated_at).
         db.query_all(
             "SELECT DATE(updated_at) AS day, COUNT(*) AS n FROM items"
-            " WHERE user_id = ? AND read_state = 'archived' GROUP BY day;",
+            " WHERE user_id = ? AND deleted_at IS NULL"
+            " AND read_state = 'archived' GROUP BY day;",
             (user_id,),
         ),
         db.query_all(
@@ -169,20 +172,24 @@ async def get_user_stats(db, user_id: str) -> dict:
             "SELECT COUNT(*) AS total,"
             " COALESCE(SUM(read_state = 'archived'), 0) AS archived,"
             " COALESCE(SUM(read_state = 'unread'), 0) AS unread"
-            " FROM items WHERE user_id = ?;",
+            " FROM items WHERE user_id = ? AND deleted_at IS NULL;",
             (user_id,),
         ),
         db.query_first(
             "SELECT id, title, canonical_url, url, created_at FROM items"
-            " WHERE user_id = ? AND read_state = 'unread'"
+            " WHERE user_id = ? AND deleted_at IS NULL AND read_state = 'unread'"
             " ORDER BY created_at ASC LIMIT 1;",
             (user_id,),
         ),
         list_user_tags(db, user_id),
-        db.query_all("SELECT canonical_url FROM items WHERE user_id = ?;", (user_id,)),
+        db.query_all(
+            "SELECT canonical_url FROM items WHERE user_id = ? AND deleted_at IS NULL;",
+            (user_id,),
+        ),
         db.query_first(
             "SELECT COALESCE(SUM(word_count), 0) AS total_words FROM items"
-            " WHERE user_id = ? AND (read_state = 'archived' OR id IN ("
+            " WHERE user_id = ? AND deleted_at IS NULL"
+            " AND (read_state = 'archived' OR id IN ("
             "   SELECT DISTINCT item_id FROM item_opens WHERE user_id = ?"
             " ));",
             (user_id, user_id),

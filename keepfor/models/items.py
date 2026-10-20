@@ -18,6 +18,13 @@ if TYPE_CHECKING:
 _ID_CHUNK = 90
 
 
+# Extra per-item rows removed by the permanent delete, beyond what the item
+# row's ON DELETE CASCADE already takes. Each statement gets the item id and
+# the owner id. PR #32 (highlights, collections) plugs its tables in here:
+# the trash and the restore never run them, so a restored item keeps them.
+ITEM_EXTRA_DELETES: tuple[str, ...] = ()
+
+
 async def save_item(
     db: Database,
     env: Any,
@@ -50,13 +57,18 @@ async def save_item(
 
     # Check for existing item
     existing = await db.query_first(
-        "SELECT id, url, canonical_url, title, status, created_at "
+        "SELECT id, url, canonical_url, title, status, created_at, deleted_at "
         "FROM items WHERE user_id = ? AND canonical_url = ?;",
         (user_id, clean_url),
     )
 
     if existing:
         item_id = existing["id"]
+        if existing["deleted_at"]:
+            # Saving a trashed url again brings the item back: the canonical
+            # url is unique per user, so a second row is not an option.
+            await restore_item(db, user_id, item_id)
+            existing = {**existing, "deleted_at": None}
         # Merge new tags if provided
         if tags:
             await add_tags_to_item(db, user_id, item_id, tags)
@@ -188,7 +200,8 @@ async def add_tags_to_item(
         (
             "INSERT OR IGNORE INTO item_tags (item_id, tag_id) "
             "SELECT i.id, t.id FROM items i JOIN tags t ON t.user_id = i.user_id "
-            "WHERE i.id = ? AND i.user_id = ? AND t.id = ?;",
+            "WHERE i.id = ? AND i.user_id = ? AND t.id = ?"
+            " AND i.deleted_at IS NULL;",
             (item_id, user_id, tag_map[t]),
         )
         for t in clean_tags
@@ -249,12 +262,16 @@ async def get_item(
             content for token efficiency; every other caller (UI, API) wants
             the full body, so the default is True.
 
+    A trashed item is not found: it left the library. The Trash view reads
+    the trashed rows through `list_trash`.
+
     The result always carries `content_length` (the length of the stored
     content) and `truncated` (True when the returned text is shorter than
     the stored content), so a caller can tell that the content was capped.
     """
     row = await db.query_first(
-        "SELECT * FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+        "SELECT * FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        (item_id, user_id),
     )
     if not row:
         return None
@@ -367,7 +384,13 @@ async def delete_item(
     *,
     scope: TenantScope | None = None,
 ) -> bool:
-    """Deletes item, its D1 records, R2 snapshots, and Vectorize chunks."""
+    """Deletes item, its D1 records, R2 snapshots, and Vectorize chunks.
+
+    This is the only permanent delete path: the Trash view ("Delete forever")
+    and the 30-day purge both come through here. Trashing and restoring
+    never touch the extra per-item tables (ITEM_EXTRA_DELETES), so a
+    restored item keeps them.
+    """
     if scope is None:
         from keepfor.defaults import default_scope
 
@@ -411,15 +434,17 @@ async def delete_item(
     # the item row goes, the foreign key cascade is not guaranteed to be on.
     await purge_item_children(db, user_id, [item_id])
 
-    await db.execute_batch(
-        [
-            (
-                "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
-                (item_id, user_id),
-            ),
-            ("DELETE FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)),
-        ]
-    )
+    # The extra per-item tables go first: their rows may be selected through
+    # the item row.
+    statements = [(sql, (item_id, user_id)) for sql in ITEM_EXTRA_DELETES]
+    statements += [
+        (
+            "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
+            (item_id, user_id),
+        ),
+        ("DELETE FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)),
+    ]
+    await db.execute_batch(statements)
     from keepfor.runtime import get_providers
 
     providers = get_providers()
@@ -436,6 +461,94 @@ async def delete_item(
         logger.warning("Failed to publish item.deleted event for %s: %s", item_id, exc)
 
     return True
+
+
+# ==========================================
+# Trash (soft delete)
+# ==========================================
+
+
+async def trash_item(db: Database, user_id: str, item_id: str) -> bool:
+    """Moves an item to the Trash: it leaves the library but stays restorable.
+
+    Nothing is destroyed. The row, the R2 snapshots and the vector chunks
+    stay, so a restore is instant. Only the Trash view ("Delete forever")
+    or `purge_trash` removes the data for good.
+    """
+    row = await db.query_first(
+        "SELECT id, deleted_at FROM items WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    if not row:
+        return False
+    if not row["deleted_at"]:
+        await db.execute(
+            "UPDATE items SET deleted_at = CURRENT_TIMESTAMP,"
+            " updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+            (item_id, user_id),
+        )
+    return True
+
+
+async def restore_item(db: Database, user_id: str, item_id: str) -> bool:
+    """Brings a trashed item back into the library."""
+    row = await db.query_first(
+        "SELECT id, deleted_at FROM items WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    if not row or not row["deleted_at"]:
+        return False
+    await db.execute(
+        "UPDATE items SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP"
+        " WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    return True
+
+
+async def list_trash(
+    db: Database, user_id: str, limit: int = 50, offset: int = 0
+) -> list[dict[str, Any]]:
+    """The user's trashed items, most recently trashed first."""
+    rows = await db.query_all(
+        "SELECT id, url, canonical_url, title, item_type, created_at, deleted_at"
+        " FROM items WHERE user_id = ? AND deleted_at IS NOT NULL"
+        " ORDER BY deleted_at DESC LIMIT ? OFFSET ?;",
+        (user_id, limit, offset),
+    )
+    return [dict(r) for r in rows]
+
+
+async def purge_trash(
+    db: Database,
+    env: Any,
+    user_id: str | None = None,
+    *,
+    older_than_days: int = 30,
+) -> int:
+    """Hard-deletes trashed items older than `older_than_days`.
+
+    `user_id` limits the purge to one user; None purges every user in the
+    database, which is the shape a host cron wants. The data goes through
+    the same hard delete as before: row, R2 snapshots and vectors.
+    """
+    if user_id is None:
+        users = await db.query_all("SELECT id FROM users;")
+        targets = [r["id"] for r in users]
+    else:
+        targets = [user_id]
+
+    purged = 0
+    for uid in targets:
+        rows = await db.query_all(
+            "SELECT id FROM items WHERE user_id = ? AND deleted_at IS NOT NULL"
+            " AND datetime(deleted_at) < datetime('now', ?);",
+            (uid, f"-{int(older_than_days)} days"),
+        )
+        for row in rows:
+            if await delete_item(db, env, uid, row["id"]):
+                purged += 1
+    return purged
 
 
 async def create_tag(
@@ -638,10 +751,10 @@ async def suggest_tags(
     fetch_limit = limit + min(len(excluded), limit)
     rows = await db.query_all(
         """
-        SELECT t.name, COUNT(it.item_id) AS count, MAX(i.created_at) AS recent
+        SELECT t.name, COUNT(i.id) AS count, MAX(i.created_at) AS recent
         FROM tags t
         LEFT JOIN item_tags it ON t.id = it.tag_id
-        LEFT JOIN items i ON i.id = it.item_id
+        LEFT JOIN items i ON i.id = it.item_id AND i.deleted_at IS NULL
         WHERE t.user_id = ? AND LOWER(t.name) LIKE ? ESCAPE '\\'
         GROUP BY t.id, t.name
         ORDER BY count DESC, recent DESC
@@ -673,7 +786,7 @@ async def bulk_update_tags(
     done = 0
     for item_id in (item_ids or [])[:BULK_TAG_LIMIT]:
         row = await db.query_first(
-            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
             (item_id, user_id),
         )
         if not row:
@@ -899,13 +1012,14 @@ async def suggest_rules(
     """
     rows = await db.query_all(
         "SELECT i.canonical_url, t.name FROM item_tags it"
-        " JOIN items i ON i.id = it.item_id"
+        " JOIN items i ON i.id = it.item_id AND i.deleted_at IS NULL"
         " JOIN tags t ON t.id = it.tag_id"
         " WHERE i.user_id = ?;",
         (user_id,),
     )
     url_rows = await db.query_all(
-        "SELECT canonical_url FROM items WHERE user_id = ?;", (user_id,)
+        "SELECT canonical_url FROM items WHERE user_id = ? AND deleted_at IS NULL;",
+        (user_id,),
     )
     from collections import Counter
     from urllib.parse import urlparse
@@ -1036,6 +1150,7 @@ async def list_pending_suggestions(
             "SELECT s.id, s.item_id, s.phrase, s.score, i.title"
             " FROM suggested_tags s LEFT JOIN items i ON i.id = s.item_id"
             " WHERE s.user_id = ? AND s.item_id = ? AND s.status = 'pending'"
+            " AND i.deleted_at IS NULL"
             " ORDER BY s.score DESC LIMIT ?;",
             (user_id, item_id, limit),
         )
@@ -1043,6 +1158,7 @@ async def list_pending_suggestions(
         "SELECT s.id, s.item_id, s.phrase, s.score, i.title"
         " FROM suggested_tags s LEFT JOIN items i ON i.id = s.item_id"
         " WHERE s.user_id = ? AND s.status = 'pending'"
+        " AND i.deleted_at IS NULL"
         " ORDER BY s.score DESC LIMIT ?;",
         (user_id, limit),
     )
@@ -1051,9 +1167,11 @@ async def list_pending_suggestions(
 async def list_user_tags(db: Database, user_id: str) -> list[dict[str, Any]]:
     return await db.query_all(
         """
-        SELECT t.name, COUNT(it.item_id) as count
+        SELECT t.name, COUNT(i.id) as count
         FROM tags t
         LEFT JOIN item_tags it ON t.id = it.tag_id
+        LEFT JOIN items i ON i.id = it.item_id AND i.user_id = t.user_id
+            AND i.deleted_at IS NULL
         WHERE t.user_id = ?
         GROUP BY t.id, t.name
         ORDER BY count DESC, t.name ASC;
@@ -1100,7 +1218,8 @@ async def _refresh_fts_for_item(db: Database, user_id: str, item_id: str) -> Non
 async def toggle_pin_item(db: Database, user_id: str, item_id: str) -> bool | None:
     """Toggle is_pinned; returns new pinned state, or None if not owned."""
     row = await db.query_first(
-        "SELECT is_pinned FROM items WHERE id = ? AND user_id = ?;",
+        "SELECT is_pinned FROM items WHERE id = ? AND user_id = ?"
+        " AND deleted_at IS NULL;",
         (item_id, user_id),
     )
     if not row:
@@ -1118,7 +1237,7 @@ async def get_pinned_items(db: Database, user_id: str) -> list[dict[str, Any]]:
     """Pinned shelf items, newest first, with tags attached."""
     rows = await db.query_all(
         "SELECT * FROM items WHERE user_id = ? AND is_pinned = 1"
-        " ORDER BY created_at DESC;",
+        " AND deleted_at IS NULL ORDER BY created_at DESC;",
         (user_id,),
     )
     if not rows:
@@ -1153,7 +1272,7 @@ async def update_user_notes(
 ) -> bool:
     """Persist 'why I kept this' notes; re-indexes FTS. Returns owned."""
     row = await db.query_first(
-        "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+        "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
         (item_id, user_id),
     )
     if not row:
@@ -1306,7 +1425,7 @@ async def save_note(
 async def archive_item(db: Database, user_id: str, item_id: str) -> bool:
     """Move a reading-queue item to the archive. Returns owned."""
     row = await db.query_first(
-        "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+        "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
         (item_id, user_id),
     )
     if not row:
@@ -1322,7 +1441,7 @@ async def archive_item(db: Database, user_id: str, item_id: str) -> bool:
 async def unarchive_item(db: Database, user_id: str, item_id: str) -> bool:
     """Return an archived item to the unread inbox. Returns owned."""
     row = await db.query_first(
-        "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+        "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
         (item_id, user_id),
     )
     if not row:

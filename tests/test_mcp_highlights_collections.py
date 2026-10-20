@@ -9,7 +9,15 @@ import pytest
 
 from keepfor.auth.service import register_user
 from keepfor.mcp.server import process_mcp_request
-from keepfor.models.items import save_item
+from keepfor.models.collections import (
+    add_items_to_collection,
+    list_collections,
+)
+from keepfor.models.highlights import (
+    create_highlight,
+    list_highlights,
+)
+from keepfor.models.items import delete_item, restore_item, save_item, trash_item
 
 
 class FakeQueue:
@@ -610,13 +618,17 @@ async def test_collections_are_scoped_to_their_owner(db, owner, stranger):
 
 
 # ==========================================
-# Deleting an item cleans up its annotations
+# Deleting an item is a soft delete (Trash, #35)
 # ==========================================
 
 
 @pytest.mark.asyncio
-async def test_delete_item_removes_highlights_and_collection_links(db, owner):
-    """A deleted item takes its highlights and collection links with it."""
+async def test_delete_item_trashes_and_keeps_highlights_and_collection_links(db, owner):
+    """The delete_item tool trashes: the annotations survive it.
+
+    Trashing an item keeps its highlights and its collection links, so a
+    restore gives them back. Only the permanent purge drops them.
+    """
     user, env = owner
     item_id = await _make_item(db, env, user["id"], content="Hello world.")
     await _call(
@@ -632,16 +644,113 @@ async def test_delete_item_removes_highlights_and_collection_links(db, owner):
     )
 
     deleted = await _call(db, env, user, "delete_item", {"item_id": item_id})
-    assert deleted["deleted"] is True
+    assert deleted["trashed"] is True
 
+    # The rows are still there: the trash is not a purge.
     highlights = await db.query_all(
         "SELECT id FROM highlights WHERE item_id = ?;", (item_id,)
     )
-    assert highlights == []
+    assert highlights != []
     links = await db.query_all(
         "SELECT collection_id FROM collection_items WHERE item_id = ?;", (item_id,)
     )
-    assert links == []
+    assert links != []
+
+    # A restore brings the item and its annotations back.
+    assert await restore_item(db, user["id"], item_id) is True
+    listed = await _call(db, env, user, "list_highlights", {"item_id": item_id})
+    assert len(listed["highlights"]) == 1
+    collections = await _call(db, env, user, "list_collections", {})
+    assert collections["collections"][0]["item_ids"] == [item_id]
+
+    # The permanent purge takes them with it.
+    assert await delete_item(db, env, user["id"], item_id) is True
+    assert (
+        await db.query_all("SELECT id FROM highlights WHERE item_id = ?;", (item_id,))
+        == []
+    )
+    assert (
+        await db.query_all(
+            "SELECT collection_id FROM collection_items WHERE item_id = ?;", (item_id,)
+        )
+        == []
+    )
+
+
+# ==========================================
+# A trashed item is invisible to the highlights and the collections
+# ==========================================
+
+
+@pytest.mark.asyncio
+async def test_list_highlights_skips_a_trashed_item(db, owner):
+    """The highlights of a trashed item are not listed."""
+    user, env = owner
+    item_id = await _make_item(db, env, user["id"], content="Hello world.")
+    await _call(
+        db, env, user, "create_highlight", {"item_id": item_id, "text": "Hello"}
+    )
+
+    assert await list_highlights(db, user["id"], item_id) != []
+
+    await trash_item(db, user["id"], item_id)
+
+    assert await list_highlights(db, user["id"], item_id) == []
+
+
+@pytest.mark.asyncio
+async def test_create_highlight_refuses_a_trashed_item(db, owner):
+    """A trashed item takes no new highlight."""
+    user, env = owner
+    item_id = await _make_item(db, env, user["id"], content="Hello world.")
+    await trash_item(db, user["id"], item_id)
+
+    assert await create_highlight(db, user["id"], item_id, "Hello", 0, 5) is None
+
+
+@pytest.mark.asyncio
+async def test_list_collections_skips_a_trashed_item(db, owner):
+    """A trashed item is neither counted nor listed in a collection."""
+    user, env = owner
+    item_id = await _make_item(db, env, user["id"], content="Hello world.")
+    await _call(db, env, user, "create_collection", {"name": "Reading"})
+    await _call(
+        db,
+        env,
+        user,
+        "add_to_collection",
+        {"collection": "Reading", "item_ids": [item_id]},
+    )
+
+    collections = await list_collections(db, user["id"])
+    assert collections[0]["item_count"] == 1
+    assert collections[0]["item_ids"] == [item_id]
+
+    await trash_item(db, user["id"], item_id)
+
+    collections = await list_collections(db, user["id"])
+    assert collections[0]["item_count"] == 0
+    assert collections[0]["item_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_add_to_collection_skips_a_trashed_item(db, owner):
+    """A trashed item is not added to a collection."""
+    user, env = owner
+    item_id = await _make_item(db, env, user["id"], content="Hello world.")
+    await _call(db, env, user, "create_collection", {"name": "Reading"})
+    await trash_item(db, user["id"], item_id)
+
+    result = await add_items_to_collection(db, user["id"], "Reading", [item_id])
+
+    assert result["added"] == 0
+    assert result["item_count"] == 0
+    assert (
+        await db.query_all(
+            "SELECT collection_id FROM collection_items WHERE item_id = ?;", (item_id,)
+        )
+        == []
+    )
 
 
 # ==========================================

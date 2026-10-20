@@ -140,7 +140,7 @@ async def list_tags(
 
     having = ""
     if min_count is not None:
-        having = " HAVING COUNT(it.item_id) >= ?"
+        having = " HAVING COUNT(i.id) >= ?"
         params.append(min_count)
 
     if sort == "name":
@@ -152,15 +152,17 @@ async def list_tags(
 
     rows = await db.query_all(
         "SELECT t.name, t.description, t.color, t.parent_id, p.name AS parent,"
-        " COUNT(it.item_id) AS count, MAX(i.created_at) AS last_saved,"
+        " COUNT(i.id) AS count, MAX(i.created_at) AS last_saved,"
         " MAX(COALESCE((SELECT MAX(io.opened_at) FROM item_opens io"
         "   JOIN items io_i ON io_i.id = io.item_id AND io_i.user_id = t.user_id"
+        "     AND io_i.deleted_at IS NULL"
         "   JOIN item_tags io_it ON io_it.item_id = io_i.id AND io_it.tag_id = t.id),"
         "   i.created_at)) AS last_used"
         " FROM tags t"
         " LEFT JOIN tags p ON p.id = t.parent_id AND p.user_id = t.user_id"
         " LEFT JOIN item_tags it ON it.tag_id = t.id"
         " LEFT JOIN items i ON i.id = it.item_id AND i.user_id = t.user_id"
+        "     AND i.deleted_at IS NULL"
         f" WHERE t.user_id = ?{prefix_clause}"
         " GROUP BY t.id, t.name, t.description, t.color, t.parent_id, p.name"
         f"{having} ORDER BY {order};",
@@ -222,6 +224,8 @@ async def related_tags(
     rows = await db.query_all(
         "SELECT t2.name, COUNT(*) as cooccurrence"
         " FROM item_tags it1"
+        " JOIN items i ON i.id = it1.item_id AND i.user_id = ?"
+        "   AND i.deleted_at IS NULL"
         " JOIN item_tags it2 ON it2.item_id = it1.item_id AND it2.tag_id != it1.tag_id"
         " JOIN tags t1 ON t1.id = it1.tag_id AND t1.user_id = ?"
         " JOIN tags t2 ON t2.id = it2.tag_id AND t2.user_id = t1.user_id"
@@ -229,7 +233,7 @@ async def related_tags(
         " GROUP BY t2.id, t2.name"
         " ORDER BY cooccurrence DESC, t2.name ASC"
         " LIMIT ?;",
-        (user_id, clean, limit),
+        (user_id, user_id, clean, limit),
     )
     return [dict(r) for r in rows]
 
@@ -240,22 +244,26 @@ async def tag_stats(db: Database, user_id: str) -> dict[str, Any]:
         "SELECT COUNT(*) as c FROM tags WHERE user_id = ?;", (user_id,)
     )
     total_items = await db.query_first(
-        "SELECT COUNT(*) as c FROM items WHERE user_id = ?;", (user_id,)
+        "SELECT COUNT(*) as c FROM items WHERE user_id = ? AND deleted_at IS NULL;",
+        (user_id,),
     )
     tagged_items = await db.query_first(
         "SELECT COUNT(DISTINCT it.item_id) as c FROM item_tags it"
         " JOIN items i ON i.id = it.item_id AND i.user_id = ?"
-        " WHERE i.user_id = ?;",
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL;",
         (user_id, user_id),
     )
     untagged = await db.query_first(
-        "SELECT COUNT(*) as c FROM items i WHERE i.user_id = ? AND NOT EXISTS"
+        "SELECT COUNT(*) as c FROM items i WHERE i.user_id = ?"
+        " AND i.deleted_at IS NULL AND NOT EXISTS"
         " (SELECT 1 FROM item_tags it WHERE it.item_id = i.id);",
         (user_id,),
     )
     top = await db.query_all(
         "SELECT t.name, COUNT(it.item_id) as count FROM tags t"
         " JOIN item_tags it ON it.tag_id = t.id"
+        " JOIN items i ON i.id = it.item_id AND i.user_id = t.user_id"
+        " AND i.deleted_at IS NULL"
         " WHERE t.user_id = ? GROUP BY t.id, t.name"
         " ORDER BY count DESC, t.name ASC LIMIT 5;",
         (user_id,),
@@ -339,11 +347,13 @@ async def find_duplicate_tags(db: Database, user_id: str) -> list[dict[str, Any]
 
 
 async def find_unused_tags(db: Database, user_id: str) -> list[dict[str, Any]]:
-    """Tags with zero items attached."""
+    """Tags with zero live items attached (trashed items do not count)."""
     rows = await db.query_all(
         "SELECT t.name, t.description FROM tags t"
         " LEFT JOIN item_tags it ON it.tag_id = t.id"
-        " WHERE t.user_id = ? AND it.item_id IS NULL"
+        " LEFT JOIN items i ON i.id = it.item_id AND i.user_id = t.user_id"
+        " AND i.deleted_at IS NULL"
+        " WHERE t.user_id = ? AND i.id IS NULL"
         " ORDER BY t.name ASC;",
         (user_id,),
     )
@@ -356,7 +366,7 @@ async def find_untagged_items(
     """Items with no tags attached."""
     rows = await db.query_all(
         "SELECT i.id, i.title, i.url, i.created_at FROM items i"
-        " WHERE i.user_id = ? AND NOT EXISTS"
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL AND NOT EXISTS"
         " (SELECT 1 FROM item_tags it WHERE it.item_id = i.id)"
         " ORDER BY i.created_at DESC LIMIT ?;",
         (user_id, limit),
@@ -384,12 +394,14 @@ async def delete_tag(
     linked = await db.query_all(
         "SELECT it.item_id FROM item_tags it"
         " JOIN items i ON i.id = it.item_id AND i.user_id = ?"
+        "   AND i.deleted_at IS NULL"
         " WHERE it.tag_id = ? LIMIT ?;",
         (user_id, row["id"], SAMPLE_LIMIT),
     )
     match_count = await db.query_first(
         "SELECT COUNT(*) as c FROM item_tags it"
         " JOIN items i ON i.id = it.item_id AND i.user_id = ?"
+        "   AND i.deleted_at IS NULL"
         " WHERE it.tag_id = ?;",
         (user_id, row["id"]),
     )
@@ -434,7 +446,8 @@ async def tag_items(
         chunk = ids[start : start + _ID_CHUNK]
         placeholders = ",".join("?" for _ in chunk)
         rows = await db.query_all(
-            f"SELECT id FROM items WHERE user_id = ? AND id IN ({placeholders});",
+            f"SELECT id FROM items WHERE user_id = ? AND deleted_at IS NULL"
+            f" AND id IN ({placeholders});",
             (user_id, *chunk),
         )
         owned.extend(r["id"] for r in rows)
@@ -462,7 +475,8 @@ async def set_item_tags(
 ) -> dict[str, Any]:
     """Replaces all tags on an item with the given set. Returns owned."""
     row = await db.query_first(
-        "SELECT id FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+        "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        (item_id, user_id),
     )
     if not row:
         return {"found": False, "tags": []}
@@ -507,7 +521,8 @@ async def retag_by_query(
 
     params = (user_id, f"%{q}%", f"%{q}%", f"%{q}%", *tag_params)
     count_row = await db.query_first(
-        "SELECT COUNT(*) as c FROM items i WHERE i.user_id = ? AND ("
+        "SELECT COUNT(*) as c FROM items i WHERE i.user_id = ?"
+        " AND i.deleted_at IS NULL AND ("
         " LOWER(i.title) LIKE ? OR LOWER(i.url) LIKE ? OR LOWER(i.canonical_url) LIKE ?"
         f"{tag_clause});",
         params,
@@ -516,7 +531,7 @@ async def retag_by_query(
     truncated = total_matched > BULK_TAG_LIMIT
 
     rows = await db.query_all(
-        "SELECT i.id FROM items i WHERE i.user_id = ? AND ("
+        "SELECT i.id FROM items i WHERE i.user_id = ? AND i.deleted_at IS NULL AND ("
         " LOWER(i.title) LIKE ? OR LOWER(i.url) LIKE ? OR LOWER(i.canonical_url) LIKE ?"
         f"{tag_clause}) ORDER BY i.created_at DESC LIMIT {BULK_TAG_LIMIT};",
         params,
@@ -539,7 +554,7 @@ async def suggest_tags_for_item(
 
     item = await db.query_first(
         "SELECT title, excerpt, url, content_text FROM items"
-        " WHERE id = ? AND user_id = ?;",
+        " WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
         (item_id, user_id),
     )
     if not item:
