@@ -12,10 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dedupe on `(user_id, source, source_id)` with a content-hash fallback: re-importing the same export inserts nothing new.
   - Parsed notes fan out through the queue in chunks (same as bookmark imports), so a 1,000-note export never times out the request.
   - Upload caps: 50 MB for `.zip`/`.enex`, 10 MB for HTML/CSV. Attachments are listed in the note body (`📎 file (not imported)`) but never stored.
-  - Each imported note and each queued URL costs 1 `import` entitlement unit; the whole import is pre-checked before anything is queued.
-  - Import results (and any error) show as a one-shot toast on the library page; logs contain counts only, never note content.
+  - Each imported note and each queued URL costs 1 `import` entitlement unit (the same pool as bookmarks); the import stops at the remaining quota and reports the refused items as "N skipped: plan limit".
+  - Import results (and any error) show as a one-shot toast on the library page; a failed upload also shows its error on the settings page it lands on. Logs contain counts only, never note content.
   - Migration `0008_import_sources.sql` (additive): `items.source`, `items.source_id` and a unique index backing the dedupe.
   - MCP `search_library` now surfaces imported notes alongside articles.
+
+### Fixed
+- **Zip bombs in notes import**: both zip parsers (Google Keep Takeout and Markdown/text) now check the archive metadata before opening a single member — at most 20,000 members and 200 MB of declared uncompressed size — and read every member with a bounded read (2 MB per file, bigger ones are skipped and counted). Breaking a cap gives a visible error and imports nothing.
+- **XML entity expansion in `.enex`**: ENEX files are parsed with `defusedxml`, so a DTD/entity payload (billion laughs) is rejected with a visible error instead of being expanded.
+- **Plan limits on notes import**: imported notes and the URLs inside them count against the plan's item limit like bookmarks. The import stops at the remaining quota and reports "N skipped: plan limit" instead of aborting the whole upload (or refusing a file that only partly fits).
 
 ## [1.1.2] - 2026-10-10
 
