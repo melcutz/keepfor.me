@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Notes import** (GitHub issue #15): upload a **Google Keep Takeout zip**, an **Evernote `.enex`** file, or a **zip of Markdown/text files** (Obsidian vault, Apple Notes via Exporter, Simplenote) from Settings → Import. Notes become searchable Keepfor notes with tags and original creation dates; Keep checklists render as Markdown tasks, archived Keep notes land in the archive, and trashed Keep notes are skipped. Links inside notes (body URLs, Keep `WEBLINK` annotations, ENEX `source-url` web clips) become regular URL saves tagged `from-notes`.
+  - Dedupe on `(user_id, source, source_id)` with a content-hash fallback: re-importing the same export inserts nothing new.
+  - Parsed notes fan out through the queue in chunks (same as bookmark imports), so a 1,000-note export never times out the request.
+  - Upload caps: 50 MB for `.zip`/`.enex`, 10 MB for HTML/CSV. Attachments are listed in the note body (`📎 file (not imported)`) but never stored.
+  - Each imported note and each queued URL costs 1 `import` entitlement unit; the whole import is pre-checked before anything is queued.
+  - Import results (and any error) show as a one-shot toast on the library page; logs contain counts only, never note content.
+  - Migration `0008_import_sources.sql` (additive): `items.source`, `items.source_id` and a unique index backing the dedupe.
+  - MCP `search_library` now surfaces imported notes alongside articles.
+
 ## [1.1.2] - 2026-10-10
 
 ### Fixed
