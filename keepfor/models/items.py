@@ -235,14 +235,15 @@ async def get_item(
     db: Database,
     user_id: str,
     item_id: str,
-    include_content: bool = False,
+    include_content: bool = True,
 ) -> dict[str, Any] | None:
     """Retrieves an item by ID.
 
     Args:
-        include_content: If False (default), returns only excerpt/snippet instead of
-            full content_text. This is a breaking change from v1 where full content
-            was always returned.
+        include_content: If False, returns only excerpt/snippet instead of
+            full content_text. The MCP `get_item` tool passes False to cap
+            content for token efficiency; every other caller (UI, API) wants
+            the full body, so the default is True.
 
     The result always carries `content_length` (the length of the stored
     content) and `truncated` (True when the returned text is shorter than
@@ -258,8 +259,9 @@ async def get_item(
     full_length = len(item.get("content_text") or "")
     item["content_length"] = full_length
     if not include_content:
-        # Cap content_text to excerpt for token efficiency
-        item["content_text"] = item.get("excerpt") or ""
+        # Cap content_text to excerpt for token efficiency. Items without an
+        # excerpt (notes) keep their body: there is nothing to cap it to.
+        item["content_text"] = item.get("excerpt") or item.get("content_text") or ""
     item["truncated"] = len(item.get("content_text") or "") < full_length
     return item
 
