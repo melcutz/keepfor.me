@@ -23,6 +23,23 @@ away in both cases.
   page under 4 KB.
 
 ### Added
+- **Persisted notes-import status** (GitHub issue #18): every notes upload now
+  writes one `import_status` record per user. The record holds the running
+  counters (notes imported, duplicates skipped, links queued, attachments not
+  imported, parse errors, items skipped by the plan limit) plus a capped list
+  of error messages, and it is updated chunk by chunk while the queue consumer
+  works through the uploaded notes. The import panel on the library and
+  settings pages shows the live progress ("12 of 60 notes processed") and the
+  final result, and it is still there after a refresh — the one-shot toast
+  only ever said how many notes were queued. A rejected upload (zip bomb,
+  ENEX entity payload, unreadable file, plan limit) leaves a failed record
+  with the reason.
+  - Migration `0011_import_status.sql` (additive): the `import_status` table
+    and its `(user_id, created_at)` index. Apply it before deploying:
+    `npx wrangler d1 migrations apply keepfor-me-db --remote`. Without it the
+    import still works, only the status panel stays empty.
+  - The status record is a tenant table: every query is scoped by `user_id`
+    and the tenant-isolation suite covers it.
 - **Notes import** (GitHub issue #15): upload a **Google Keep Takeout zip**, an **Evernote `.enex`** file, or a **zip of Markdown/text files** (Obsidian vault, Apple Notes via Exporter, Simplenote) from Settings → Import. Notes become searchable Keepfor notes with tags and original creation dates; Keep checklists render as Markdown tasks, archived Keep notes land in the archive, and trashed Keep notes are skipped. Links inside notes (body URLs, Keep `WEBLINK` annotations, ENEX `source-url` web clips) become regular URL saves tagged `from-notes`.
   - Dedupe on `(user_id, source, source_id)` with a content-hash fallback: re-importing the same export inserts nothing new.
   - Parsed notes fan out through the queue in chunks (same as bookmark imports), so a 1,000-note export never times out the request.
@@ -51,6 +68,7 @@ away in both cases.
 - Tenant isolation verified for all new MCP tools via isolation test suite.
 
 ### Fixed
+- **Import errors no longer leak internal detail**: a failed note or link used to store the raw exception text (`note: OperationalError: ...`) in `import_status.errors`, which is rendered in the library and settings panels. The stored message is now generic ("note: could not be imported", "link: could not be queued"); the exception goes to the server log.
 - **Zip bombs in notes import**: both zip parsers (Google Keep Takeout and Markdown/text) now check the archive metadata before opening a single member — at most 20,000 members and 200 MB of declared uncompressed size — and read every member with a bounded read (2 MB per file, bigger ones are skipped and counted). Breaking a cap gives a visible error and imports nothing.
 - **XML entity expansion in `.enex`**: ENEX files are parsed with `defusedxml`, so a DTD/entity payload (billion laughs) is rejected with a visible error instead of being expanded.
 - **Plan limits on notes import**: imported notes and the URLs inside them count against the plan's item limit like bookmarks. The import stops at the remaining quota and reports "N skipped: plan limit" instead of aborting the whole upload (or refusing a file that only partly fits).

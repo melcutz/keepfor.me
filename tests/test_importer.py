@@ -1664,6 +1664,58 @@ async def test_import_notes_urls_count_against_plan_limit(db):
 
 
 @pytest.mark.asyncio
+async def test_import_errors_never_expose_the_exception_text(db, monkeypatch):
+    """A failing import stores a generic message, never the exception text.
+
+    The exception text can carry SQL, D1 or other internal detail, and the
+    stored errors are rendered in Settings and the Library.
+    """
+    from keepfor.models.imports import create_import, get_import
+    from keepfor.utils.importer import import_notes
+
+    user = await register_user(db, "leak@test.local", "password123")
+    user_id = user["id"]
+    import_id = await create_import(db, user_id, source="keep", filename="takeout.zip")
+
+    secret = "D1_ERROR: no such column: users.password_hash"
+
+    async def fake_save_note(**kwargs):
+        if kwargs["title"] == "Broken note":
+            raise RuntimeError(secret)
+        return await save_note(**kwargs)
+
+    async def fake_save_item(**kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr("keepfor.utils.importer.save_note", fake_save_note)
+    monkeypatch.setattr("keepfor.utils.importer.save_item", fake_save_item)
+
+    providers = MockProviders()
+    scope = MockScope(user_id)
+    env = MockEnv(queue=MockQueue())
+
+    notes = [
+        {"title": "Broken note", "body": "b", "tags": [], "urls": []},
+        {
+            "title": "Note with a link",
+            "body": "b",
+            "tags": [],
+            "urls": [{"url": "https://example.com/a", "title": "A", "description": ""}],
+        },
+    ]
+    summary = await import_notes(
+        db, env, user_id, notes, providers, scope, "keep", import_id=import_id
+    )
+
+    record = await get_import(db, user_id, import_id)
+    errors = record["errors"]
+    assert errors == ["note: could not be imported", "link: could not be queued"]
+    assert secret not in json.dumps(errors)
+    assert "RuntimeError" not in json.dumps(errors)
+    assert summary["parse_errors"] == 1
+
+
+@pytest.mark.asyncio
 async def test_import_route_reports_plan_limit(db, monkeypatch):
     """A plan that cannot fit the whole upload imports what fits and says so."""
     from fastapi.testclient import TestClient

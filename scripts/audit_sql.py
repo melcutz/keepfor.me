@@ -32,6 +32,7 @@ except ImportError:
         "item_opens",
         "sessions",
         "personal_access_tokens",
+        "import_status",
     )
 
 SQL_KEYWORDS = re.compile(

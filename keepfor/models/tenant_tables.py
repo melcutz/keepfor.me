@@ -15,4 +15,5 @@ TENANT_TABLES: tuple[str, ...] = (
     "item_opens",
     "sessions",
     "personal_access_tokens",
+    "import_status",
 )

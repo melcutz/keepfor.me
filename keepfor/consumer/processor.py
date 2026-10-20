@@ -599,6 +599,7 @@ async def process_queue_batch(batch: Any, env: Any) -> None:
                     body.get("user_id"),
                     body.get("import_notes_batch") or [],
                     body.get("source") or "markdown",
+                    body.get("import_id"),
                 )
                 if hasattr(msg, "ack"):
                     msg.ack()
@@ -645,7 +646,11 @@ async def _process_import_batch(
 
 
 async def _process_import_notes_batch(
-    env: Any, user_id: str | None, notes: list[dict], source: str
+    env: Any,
+    user_id: str | None,
+    notes: list[dict],
+    source: str,
+    import_id: str | None = None,
 ) -> None:
     """Saves one chunk of an uploaded notes export (Keep/ENEX/Markdown)."""
     if not user_id or not notes:
@@ -656,7 +661,7 @@ async def _process_import_notes_batch(
     providers = get_providers()
     scope = await providers.scope.scope_for_tenant(user_id, env)
     summary = await import_notes(
-        scope.db, env, user_id, notes, providers, scope, source
+        scope.db, env, user_id, notes, providers, scope, source, import_id=import_id
     )
     # Counts only: never log note titles or bodies (privacy invariant).
     logger.info(

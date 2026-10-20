@@ -60,6 +60,7 @@ from keepfor.routes._shared import (
     _safe_next,
     build_ai_markdown,
     tag_styles_for,
+    user_import_status,
 )
 from keepfor.search.engine import (
     get_status_counts,
@@ -259,7 +260,7 @@ async def library_page(
             scope=scope,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
-    tags, status_counts, pinned_items = await asyncio.gather(
+    tags, status_counts, pinned_items, import_status = await asyncio.gather(
         list_user_tags(db, user["id"]),
         get_status_counts(
             db,
@@ -270,6 +271,7 @@ async def library_page(
             quick=bool(quick),
         ),
         get_pinned_items(db, user["id"]),
+        user_import_status(db, user["id"], limit=1),
     )
     tag_styles = tag_styles_for([t["name"] for t in tags])
     total_count = status_counts.get("all", 0)
@@ -308,6 +310,7 @@ async def library_page(
         active_category=clean_category or "all",
         active_quick=bool(quick),
         import_summary=import_summary,
+        import_status=import_status,
         **pager,
     )
     response = HTMLResponse(content=html)

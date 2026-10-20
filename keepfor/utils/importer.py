@@ -18,6 +18,11 @@ from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import iterparse
 
 from keepfor.models.db import Database
+from keepfor.models.imports import (
+    MAX_ERROR_LENGTH,
+    MAX_IMPORT_ERRORS,
+    apply_chunk_counts,
+)
 from keepfor.models.items import save_item, save_note
 from keepfor.utils.url import canonicalize_url
 
@@ -149,8 +154,17 @@ def _zip_guard(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
     return infos
 
 
+def _add_parse_error(stats: dict[str, Any] | None, message: str) -> None:
+    """Records a per-file parse error for the import status list."""
+    if stats is None:
+        return
+    errors = stats.setdefault("errors", [])
+    if len(errors) < MAX_IMPORT_ERRORS:
+        errors.append(message[:MAX_ERROR_LENGTH])
+
+
 def _zip_member_read(
-    zf: zipfile.ZipFile, info: zipfile.ZipInfo, stats: dict[str, int] | None
+    zf: zipfile.ZipFile, info: zipfile.ZipInfo, stats: dict[str, Any] | None
 ) -> bytes | None:
     """Bounded read of one zip member; None if it is over the per-member cap.
 
@@ -160,6 +174,7 @@ def _zip_member_read(
     if info.file_size > ZIP_MAX_MEMBER_BYTES:
         if stats is not None:
             stats["parse_errors"] = stats.get("parse_errors", 0) + 1
+        _add_parse_error(stats, f"{info.filename}: file is too large")
         return None
     try:
         with zf.open(info) as f:
@@ -169,17 +184,19 @@ def _zip_member_read(
         # size and the CRC check fails. Skip it instead of failing the import.
         if stats is not None:
             stats["parse_errors"] = stats.get("parse_errors", 0) + 1
+        _add_parse_error(stats, f"{info.filename}: could not be read")
         return None
     if len(raw) > ZIP_MAX_MEMBER_BYTES:
         # The declared size lied: the member is over the cap anyway.
         if stats is not None:
             stats["parse_errors"] = stats.get("parse_errors", 0) + 1
+        _add_parse_error(stats, f"{info.filename}: file is too large")
         return None
     return raw
 
 
 def parse_keep_takeout(
-    zip_bytes: bytes, stats: dict[str, int] | None = None
+    zip_bytes: bytes, stats: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     """Parse Google Keep Takeout zip export.
 
@@ -209,6 +226,7 @@ def parse_keep_takeout(
             except (UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile):
                 if stats is not None:
                     stats["parse_errors"] = stats.get("parse_errors", 0) + 1
+                _add_parse_error(stats, f"{name}: invalid note file")
                 continue
 
             # Skip trashed notes (counted in the summary)
@@ -508,7 +526,7 @@ def _extract_inline_tags(text: str) -> list[str]:
 
 
 def parse_markdown_zip(
-    zip_bytes: bytes, stats: dict[str, int] | None = None
+    zip_bytes: bytes, stats: dict[str, Any] | None = None
 ) -> list[dict[str, Any]]:
     """Parse a zip of Markdown (.md) and text (.txt) files.
 
@@ -670,8 +688,14 @@ async def import_notes(
     providers: Any,
     scope: Any,
     source: str,
+    import_id: str | None = None,
 ) -> dict[str, Any]:
-    """Import parsed notes, deduplicate, extract URLs, and return summary."""
+    """Import parsed notes, deduplicate, extract URLs, and return summary.
+
+    With `import_id` the summary is also added to the persisted import
+    record, so the progress and the final counts are visible after a
+    refresh.
+    """
     from keepfor.spi import EntitlementDenied
     from keepfor.utils.logging import logger
 
@@ -686,6 +710,7 @@ async def import_notes(
     quota_exhausted = False
     total_urls_in_notes = 0
     urls_seen: set[str] = set()
+    errors: list[str] = []
 
     for note in notes:
         # Plan limit already hit for this tenant: everything outstanding is
@@ -787,15 +812,27 @@ async def import_notes(
                     # The plan's item limit refused this URL: count it as a
                     # plan skip, not as a parse error.
                     plan_skipped += 1
-                except Exception:
+                except Exception as exc:
                     urls_skipped += 1
+                    # The exception text can carry SQL, D1 or other internal
+                    # detail: it goes to the log, never to the user's list.
+                    logger.warning(
+                        f"import_notes link failed: {type(exc).__name__}: {exc}"
+                    )
+                    if len(errors) < MAX_IMPORT_ERRORS:
+                        errors.append("link: could not be queued")
 
-        except Exception:
+        except Exception as exc:
             parse_errors += 1
+            # Same rule as above: the exception text is logged, not shown.
+            logger.warning(f"import_notes note failed: {type(exc).__name__}: {exc}")
+            if len(errors) < MAX_IMPORT_ERRORS:
+                errors.append("note: could not be imported")
             continue
 
-    return {
+    summary = {
         "notes_imported": imported,
+        "notes_processed": len(notes),
         "duplicates_skipped": duplicates,
         "trashed_skipped": trashed_skipped,
         "urls_queued": urls_queued,
@@ -804,7 +841,18 @@ async def import_notes(
         "parse_errors": parse_errors,
         "plan_skipped": plan_skipped,
         "attachments_not_imported": sum(n.get("attachments_count", 0) for n in notes),
+        "errors": errors[:MAX_IMPORT_ERRORS],
     }
+
+    if import_id:
+        # The status record is a nicety: a failure here must not fail the
+        # import itself.
+        try:
+            await apply_chunk_counts(db, user_id, import_id, summary)
+        except Exception as exc:
+            logger.warning(f"import status update failed: {exc}")
+
+    return summary
 
 
 async def plan_quota(entitlements: Any, tenant_id: str, total: int) -> int:

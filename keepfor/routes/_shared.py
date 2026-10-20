@@ -10,10 +10,27 @@ from urllib.parse import urlparse
 
 from fastapi import Response
 
+from keepfor.models.imports import list_imports
 from keepfor.models.items import list_user_tags
 from keepfor.templating import jinja_env
+from keepfor.utils.logging import logger
 
 PER_PAGE_OPTIONS = [10, 20, 30, 50]
+
+
+async def user_import_status(
+    db: Any, user_id: str, limit: int = 5
+) -> list[dict[str, Any]]:
+    """The user's persisted import records, newest first.
+
+    Empty when the status table is not there yet (migration not applied):
+    a missing table must never break a page.
+    """
+    try:
+        return await list_imports(db, user_id, limit=limit)
+    except Exception:
+        logger.warning("import status unreadable", exc_info=True)
+        return []
 
 
 class PagerContext(TypedDict):

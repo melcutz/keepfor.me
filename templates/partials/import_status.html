@@ -1,0 +1,41 @@
+{# Persisted import status: counts only, never note content (privacy invariant). #}
+{% macro import_status_panel(records) %}
+{% if records %}
+<div class="mb-4 space-y-2">
+  {% for r in records %}
+  <div class="p-3 rounded-lg border text-xs {% if r.status == 'failed' %}bg-red-50 border-red-200 text-red-800{% else %}bg-slate-50 border-slate-200 text-slate-700{% endif %}">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="font-semibold">{% if r.status == 'failed' %}Import failed{% elif r.status == 'completed' %}Import complete{% else %}Import in progress{% endif %}</span>
+      {% if r.source %}<span class="text-slate-500">{{ r.source }}</span>{% endif %}
+      {% if r.filename %}<span class="text-slate-500 truncate max-w-[14rem]">{{ r.filename }}</span>{% endif %}
+      <span class="text-slate-400">{{ r.created_at[:16] | replace('T', ' ') }}</span>
+    </div>
+    {% if r.error %}<p class="mt-1">{{ r.error }}</p>{% endif %}
+    {% if r.status == 'running' and r.notes_total %}
+    <div class="mt-2 h-1.5 w-full rounded bg-slate-200 overflow-hidden">
+      <div class="h-full bg-blue-600" style="width: {{ r.progress }}%"></div>
+    </div>
+    <p class="mt-1 text-slate-500">{{ r.notes_processed }} of {{ r.notes_total }} notes processed</p>
+    {% endif %}
+    {% if r.status != 'running' %}
+    <div class="mt-2 flex flex-wrap gap-2 text-slate-600">
+      <span>· {{ r.notes_imported }} note{% if r.notes_imported != 1 %}s{% endif %} imported</span>
+      {% if r.duplicates_skipped %}<span>· {{ r.duplicates_skipped }} duplicate{% if r.duplicates_skipped != 1 %}s{% endif %} skipped</span>{% endif %}
+      {% if r.urls_queued %}<span>· {{ r.urls_queued }} link{% if r.urls_queued != 1 %}s{% endif %} queued</span>{% endif %}
+      {% if r.urls_skipped %}<span>· {{ r.urls_skipped }} link{% if r.urls_skipped != 1 %}s{% endif %} skipped</span>{% endif %}
+      {% if r.attachments_not_imported %}<span>· {{ r.attachments_not_imported }} attachment{% if r.attachments_not_imported != 1 %}s{% endif %} not imported</span>{% endif %}
+      {% if r.trashed_skipped %}<span>· {{ r.trashed_skipped }} trashed skipped</span>{% endif %}
+      {% if r.parse_errors %}<span class="text-amber-700">· {{ r.parse_errors }} parse error{% if r.parse_errors != 1 %}s{% endif %}</span>{% endif %}
+      {% if r.plan_skipped %}<span class="text-amber-700">· {{ r.plan_skipped }} skipped: plan limit</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if r.errors %}
+    <ul class="mt-2 list-disc list-inside text-red-700">
+      {% for e in r.errors %}<li>{{ e }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}

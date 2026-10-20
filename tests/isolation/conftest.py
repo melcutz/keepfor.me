@@ -148,7 +148,7 @@ async def snapshot(
 ) -> dict[str, str]:
     """Capture a cryptographic hash of all data belonging to tenant.
 
-    Includes all 11 tenant tables from TENANT_TABLES, plus R2 blob keys and
+    Includes all 12 tenant tables from TENANT_TABLES, plus R2 blob keys and
     Vectorize vectors if env/scope is provided.
     Returns an empty dict if the tenant has no data anywhere.
     """
@@ -235,7 +235,15 @@ async def snapshot(
     if rows:
         res["personal_access_tokens"] = _hash_rows(rows)
 
-    # 12. R2 objects
+    # 12. import_status
+    rows = await db.query_all(
+        "SELECT * FROM import_status WHERE user_id = ? ORDER BY id;",
+        (user_id,),
+    )
+    if rows:
+        res["import_status"] = _hash_rows(rows)
+
+    # 13. R2 objects
     bucket = getattr(env, "BUCKET", None) if env else (scope.bucket if scope else None)
     if bucket is not None and hasattr(bucket, "store"):
         r2_items = []
@@ -257,7 +265,7 @@ async def snapshot(
         if r2_items:
             res["_r2"] = _hash_obj(r2_items)
 
-    # 13. Vectorize vectors
+    # 14. Vectorize vectors
     vec = getattr(env, "VECTORIZE", None) if env else (scope.index if scope else None)
     if vec is not None and hasattr(vec, "store"):
         vec_items = []
