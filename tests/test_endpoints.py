@@ -982,6 +982,140 @@ async def test_delete_pat(client, db, auth_headers):
     assert response.status_code in [200, 303, 307, 308]
 
 
+@pytest.mark.asyncio
+async def test_create_read_only_pat(client, db, auth_headers):
+    """The token form offers read-only; the token is stored with that scope."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    response = client.post(
+        "/settings/tokens", data={"name": "Read-only Token", "scopes": "read"}
+    )
+    assert response.status_code == 200
+    assert "Read-only Token" in response.text
+    # The token table shows the scope of the token.
+    assert "Read-only</td>" in response.text
+
+    rows = await db.query_all(
+        "SELECT scopes FROM personal_access_tokens WHERE name = ?;",
+        ("Read-only Token",),
+    )
+    assert rows[0]["scopes"] == "read"
+
+
+@pytest.mark.asyncio
+async def test_create_pat_without_scopes_keeps_full_access(client, db, auth_headers):
+    """No scope submitted: NULL means all scopes, so the token is unchanged."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    response = client.post("/settings/tokens", data={"name": "Default Scope Token"})
+    assert response.status_code == 200
+    assert "Full access</td>" in response.text
+
+    rows = await db.query_all(
+        "SELECT scopes FROM personal_access_tokens WHERE name = ?;",
+        ("Default Scope Token",),
+    )
+    assert rows[0]["scopes"] is None
+
+
+# ==========================================
+# PAT scope enforcement on REST (GitHub issue #29)
+# ==========================================
+
+
+@pytest.fixture
+async def pat_tokens(db, setup_users):
+    """A read-only and a full-access PAT for the admin user."""
+    from keepfor.auth.service import create_pat
+
+    admin = setup_users["admin"]
+    read_only = await create_pat(db, admin["id"], "RO token", scopes=["read"])
+    full = await create_pat(db, admin["id"], "Full token")
+    return {
+        "read_only": {"Authorization": f"Bearer {read_only['token']}"},
+        "full": {"Authorization": f"Bearer {full['token']}"},
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,path,kwargs",
+    [
+        ("post", "/api/save", {"json": {"url": "https://example.com/ro-bypass"}}),
+        ("post", "/api/items", {"json": {"url": "https://example.com/ro-bypass"}}),
+        ("delete", "/api/items/some-item-id", {}),
+        ("post", "/save", {"data": {"url": "https://example.com/ro-bypass"}}),
+        ("post", "/settings/tokens", {"data": {"name": "escalated"}}),
+    ],
+)
+async def test_read_only_pat_gets_403_on_write_routes(
+    client, db, pat_tokens, method, path, kwargs
+):
+    """Every non-GET route refuses a read-only PAT, and nothing is written."""
+    response = getattr(client, method)(path, headers=pat_tokens["read_only"], **kwargs)
+    assert response.status_code == 403
+
+    # Nothing was written: no item saved, no broader token minted.
+    assert await db.query_all("SELECT * FROM items;") == []
+    rows = await db.query_all(
+        "SELECT * FROM personal_access_tokens WHERE name = ?;", ("escalated",)
+    )
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_full_pat_is_refused_on_settings(client, db, pat_tokens):
+    """No PAT manages account settings, full access included."""
+    response = client.get("/settings", headers=pat_tokens["full"])
+    assert response.status_code == 403
+
+    response = client.post(
+        "/settings/tokens", data={"name": "escalated"}, headers=pat_tokens["full"]
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_read_only_pat_get_routes_still_work(client, db, pat_tokens):
+    """Read-only means read-only, not useless: GET routes keep working."""
+    response = client.get("/api/items", headers=pat_tokens["read_only"])
+    assert response.status_code == 200
+    assert response.json() == []
+
+    # 404, not 403: the gate passed, the item just isn't there.
+    response = client.get("/api/items/missing-id", headers=pat_tokens["read_only"])
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path,kwargs",
+    [
+        ("/api/search", {"json": {"query": "test", "mode": "keyword"}}),
+        ("/search", {"data": {"query": "test"}}),
+    ],
+)
+async def test_read_only_pat_can_post_search_routes(
+    client, db, pat_tokens, path, kwargs
+):
+    """Search reads, so a read-only PAT may POST the search routes."""
+    response = client.post(path, headers=pat_tokens["read_only"], **kwargs)
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_read_only_pat_write_routes_still_refused(client, db, pat_tokens):
+    """The read-only POST allowlist does not open the write routes."""
+    response = client.post(
+        "/api/items",
+        headers=pat_tokens["read_only"],
+        json={"url": "https://example.com/ro-bypass"},
+    )
+    assert response.status_code == 403
+
+    assert await db.query_all("SELECT * FROM items;") == []
+
+
 # ==========================================
 # Error Handling Tests
 # ==========================================

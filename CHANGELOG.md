@@ -24,6 +24,26 @@ away in both cases.
 
 ### Added
 - **MCP `library_digest`** (GitHub issue #22): a read-only recap of the library for a period — how many items were **saved** and **opened**, how many are still **unread**, the **top tags**, and a short list of **unread highlights**. Takes optional `since`, `until` and `tag` (child tags count). Inputs are bounded (32-character dates, 64-character tag; unparsable or reversed ranges are rejected) and the response is capped (10 tags, 5 highlights, 5 tags per highlight, 120-character titles, 200-character urls) and stays under 4 KB.
+- **Read-only MCP tokens** (GitHub issue #29, part of keepfor-cloud#61): a
+  Personal Access Token can now be limited to read-only. Over MCP a read-only
+  token sees only the read tools in `tools/list`, and every write or
+  destructive tool is refused with a JSON-RPC error
+  (`error.data.type` = `insufficient_scope`) **before it runs**, so nothing
+  is written.
+  - Scopes: `read`, `write` and `*` (all). `*` is the default and is what a
+    token without scope information gets, so existing tokens keep their full
+    access. `write` implies `read`.
+  - The token form on the settings page offers **Read-only** next to **Full
+    access**, and the token table shows the scope of every token.
+  - Migration `0012_pat_scopes.sql` (additive): the nullable `scopes` column
+    on `personal_access_tokens`. Apply it **before** deploying:
+    `npx wrangler d1 migrations apply keepfor-me-db --remote`. Without the
+    column PAT authentication fails; with it, NULL means "all scopes", so
+    tokens created before the migration are unaffected.
+  - Scopes are enforced over MCP (per tool) and over REST: a read-only token
+    gets `403` on every write route. `/api/search` and `/search` are the
+    exception — a search is a read — and PATs are refused on `/settings/*`
+    entirely, so a token can never mint a broader one.
 - **Persisted notes-import status** (GitHub issue #18): every notes upload now
   writes one `import_status` record per user. The record holds the running
   counters (notes imported, duplicates skipped, links queued, attachments not
@@ -79,7 +99,7 @@ away in both cases.
   - Every bulk or destructive tag operation (`delete_tag`, `tag_items`, `retag_by_query`) defaults to `dry_run=true` and returns the affected count plus a sample; applying requires `dry_run=false`. `tag_items` and `retag_by_query` cap at 100 items per call and report `truncated` and `total_matched`; `merge_tags` accepts at most 20 source tags.
   - Tool errors are structured: `error.data.type` is one of `invalid_arguments`, `not_found` or `internal_error`.
 - **MCP `bulk_update`** (GitHub issue #20): updates the status, the pin state and the tags of every item matching a filter — status group (`saved`/`extracting`/`failed`, the same groups the library pills use), saved date range (`since`/`until`), `domain`, `pinned`, `type` (`note`/`url`) and the usual tag filters. It defaults to `dry_run=true` and reports `total_matched`, `affected` and `truncated` without writing anything; `dry_run=false` applies the change. At most 200 items are updated per call, an empty filter (which would match the whole library) and an empty change are rejected with an `invalid_arguments` error, and the tool is annotated destructive.
-- All new tools include MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`). The annotations are advisory hints for the client — the server does not enforce them, and a token is never rejected for missing scope information.
+- All new tools include MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`). They are advisory hints for the client, and the server now uses them to enforce the scopes of a token (see *Read-only MCP tokens* above). A token is never rejected for missing scope information: no scope information means full access.
 - `search_library` and `list_items` now return structured responses with `items`, `total`, `limit`, `offset` (and `cursor`/`fields` support).
 - Tenant isolation verified for all new MCP tools via isolation test suite.
 - **MCP resources and prompts** (GitHub issue #23): the MCP server now also speaks the resources and prompts parts of the spec, with the same auth and tenant scoping as the tools.

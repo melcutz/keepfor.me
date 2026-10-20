@@ -186,6 +186,8 @@ authenticates with the same Personal Access Tokens as the REST API.
 
 1. Go to **Settings & API** in your Keepfor.me UI.
 2. Click **Generate Token** to create a Personal Access Token (`kfm_live_...`).
+   Pick **Read-only** in the scope picker if the agent should only be able
+   to browse and search the library.
 3. Point your client at the endpoint with the token as a Bearer header:
 
 **opencode** (`opencode.json`):
@@ -264,7 +266,7 @@ The MCP server exposes 40 tools. The tools that change many items at once take a
 39. **`rename_collection`** — Rename a collection. Renaming onto a name that is already taken is refused, never merged.
 40. **`delete_collection`** — Delete a collection and its links. The items it held are never deleted; use `remove_from_collection` to empty it.
 
-All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) as advisory hints for the client — the server does not enforce them, and a token is never rejected for missing scope information. Each description says when to use a tool versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
+All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`). They are advisory hints for the client, and the server uses them to enforce the scopes of a token (see below). A token is never rejected for missing scope information: no scope information means full access. Each description says when to use a tool versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
 
 Tag filters (`tags_all`, `tags_any`, `tags_none`, `untagged`) work on `list_items`, `search_library`, `search_passages`, `find_item`, `reading_history` and `bulk_update`, and count child tags: filtering on `work` also matches `work/research`.
 
@@ -287,6 +289,34 @@ The server also speaks the resources and prompts parts of the MCP spec, with the
 |---|---|---|
 | `research_brief` | `topic` (required), `max_items` | Briefs the assistant on what you already saved about a topic, so a research session starts from your library. |
 | `weekly_review` | `days`, `tag` | Reviews what you saved over the last days and asks for a summary and what to read next. |
+
+### Token scopes (read-only tokens)
+
+A Personal Access Token can be limited to **read-only**. Create it on
+**Settings & API** with the **Scope** picker next to the token name
+(**Full access** is the default):
+
+- **`*` (all)** — the default. Every tool works, exactly as before.
+- **`read`** — over MCP the token only sees the read tools in `tools/list`,
+  and any write or destructive tool (`save_url`, `save_note`, `tag_item`,
+  `create_tag`, `update_tag`, `rename_tag`, `merge_tags`, `delete_tag`,
+  `tag_items`, `retag_by_query`, `bulk_update`, `set_item_tags`,
+  `delete_item`, `pin_item`, `create_highlight`, `delete_highlight`,
+  `create_collection`, `add_to_collection`, `remove_from_collection`,
+  `rename_collection`, `delete_collection`) is refused with a JSON-RPC error
+  (`error.data.type` = `insufficient_scope`) **before it runs** — nothing is
+  written.
+
+Tokens created before scopes existed keep their full access: their stored
+scope is NULL and means "all". Scopes are enforced everywhere a token works:
+over MCP each tool needs the scope its annotations declare, and over REST a
+read-only token gets `403` on every write route. The exception is the
+read-only POST routes `/api/search` and `/search`: a search is a read, so a
+read-only token may use them. `/api/mcp` enforces scopes per tool. PATs are
+refused on `/settings/*` entirely, so a token can never mint a broader one.
+
+Self-hosters: the scope column comes from migration `0012_pat_scopes.sql`, so
+apply the migrations (step 3 above) before deploying.
 
 ---
 

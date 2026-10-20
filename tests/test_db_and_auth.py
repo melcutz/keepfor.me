@@ -81,3 +81,25 @@ async def test_pat_lifecycle(db):
     await delete_pat(db, user["id"], pat_data["id"])
     deleted_user = await validate_pat(db, raw_token)
     assert deleted_user is None
+
+
+@pytest.mark.asyncio
+async def test_pat_scopes(db):
+    """Scopes round-trip; NULL means all, an unknown scope is rejected."""
+    user = await register_user(db, "patscope@example.com", "password123")
+
+    # No scopes requested: NULL, which means all scopes.
+    plain = await create_pat(db, user["id"], "Plain")
+    assert plain["scopes"] is None
+    assert (await validate_pat(db, plain["token"]))["scopes"] == ["*"]
+
+    # The wildcard is stored and read back as "all".
+    all_scopes = await create_pat(db, user["id"], "All", scopes=["*"])
+    assert (await validate_pat(db, all_scopes["token"]))["scopes"] == ["*"]
+
+    read_only = await create_pat(db, user["id"], "Read only", scopes=["read"])
+    assert (await validate_pat(db, read_only["token"]))["scopes"] == ["read"]
+
+    # A typo must not silently widen the token.
+    with pytest.raises(ValueError):
+        await create_pat(db, user["id"], "Typo", scopes=["reed"])

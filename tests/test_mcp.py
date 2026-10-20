@@ -10,7 +10,7 @@ import time
 import pytest
 
 from keepfor.auth.service import register_user
-from keepfor.mcp.server import process_mcp_request
+from keepfor.mcp.server import MCP_TOOLS, MCP_TOOLS_BY_NAME, process_mcp_request
 
 
 class FakeQueue:
@@ -1095,3 +1095,272 @@ async def test_find_cleanup_tool_is_read_only(mcp_client, pat_headers):
     tool = next(t for t in res.json()["result"]["tools"] if t["name"] == "find_cleanup")
     assert tool["annotations"]["readOnlyHint"] is True
     assert tool["annotations"]["destructiveHint"] is False
+
+
+# ==========================================
+# Token scopes (GitHub issue #29)
+# ==========================================
+
+# Every tool that can change something, straight from the annotations.
+WRITE_TOOL_NAMES = [
+    t["name"] for t in MCP_TOOLS if not t["annotations"]["readOnlyHint"]
+]
+
+# Arguments that really change something. The shared defaults above are
+# no-ops for these (the tag already exists, the tag name is too short).
+WRITE_ARGUMENTS = {
+    "create_tag": {"name": "probe-new-tag"},
+    "tag_item": {"item_id": "ITEM", "add_tags": ["probe-add"]},
+    "tag_items": {"item_ids": ["ITEM"], "add": ["probe-add"]},
+    "retag_by_query": {"query": "alpha", "add": ["probe-add"]},
+    "bulk_update": {"tags_all": ["work"], "add_tags": ["probe-add"]},
+    "set_item_tags": {"item_id": "ITEM", "tags": ["probe-add"]},
+    # Highlights and collections (GitHub issue #24): the collection and the
+    # highlight must exist for the call to change anything, so the shared
+    # defaults above (which name a collection that is not there yet, or one
+    # that already holds the item) are replaced here.
+    "create_collection": {"name": "probe-collection-new"},
+    "add_to_collection": {"collection": "probe-collection-empty", "item_ids": ["ITEM"]},
+    "remove_from_collection": {"collection": "probe-collection", "item_ids": ["ITEM"]},
+    "rename_collection": {
+        "collection": "probe-collection",
+        "new_name": "probe-collection-2",
+    },
+    "delete_collection": {"collection": "probe-collection"},
+    "delete_highlight": {"highlight_id": "probe-highlight"},
+}
+
+
+def _fill_item(value, item_id):
+    """Replaces the "ITEM" placeholder, inside lists and dicts too."""
+    if isinstance(value, str):
+        return item_id if value == "ITEM" else value
+    if isinstance(value, list):
+        return [_fill_item(v, item_id) for v in value]
+    if isinstance(value, dict):
+        return {k: _fill_item(v, item_id) for k, v in value.items()}
+    return value
+
+
+def _write_arguments(tool_name, item_id):
+    """Arguments that would really write if the tool were allowed to run."""
+    args = _fill_item(
+        WRITE_ARGUMENTS.get(tool_name, TOOL_ARGUMENTS[tool_name]), item_id
+    )
+    properties = MCP_TOOLS_BY_NAME[tool_name]["inputSchema"].get("properties", {})
+    if "dry_run" in properties:
+        # The bulk and destructive tools preview by default: apply them, so
+        # the refusal is proven against a call that would really write.
+        args = {**args, "dry_run": False}
+    return args
+
+
+async def _library_state(db, user_id):
+    """Everything a write tool could touch, as one comparable blob."""
+    parts = []
+    for sql, params in (
+        ("SELECT * FROM items WHERE user_id = ? ORDER BY id;", (user_id,)),
+        ("SELECT * FROM tags WHERE user_id = ? ORDER BY id;", (user_id,)),
+        (
+            "SELECT it.item_id, t.name FROM item_tags it"
+            " JOIN items i ON i.id = it.item_id"
+            " JOIN tags t ON t.id = it.tag_id WHERE i.user_id = ?"
+            " ORDER BY it.item_id, t.name;",
+            (user_id,),
+        ),
+        ("SELECT * FROM highlights WHERE user_id = ? ORDER BY id;", (user_id,)),
+        ("SELECT * FROM collections WHERE user_id = ? ORDER BY id;", (user_id,)),
+        (
+            "SELECT ci.collection_id, ci.item_id FROM collection_items ci"
+            " JOIN collections c ON c.id = ci.collection_id AND c.user_id = ?"
+            " ORDER BY ci.collection_id, ci.item_id;",
+            (user_id,),
+        ),
+    ):
+        parts.append(await db.query_all(sql, params))
+    return json.dumps(parts, sort_keys=True, default=str)
+
+
+@pytest.fixture
+async def scoped_user(db):
+    """A user with a library and the tags every write tool acts on."""
+    from keepfor.models.collections import (
+        add_items_to_collection,
+        create_collection,
+    )
+    from keepfor.models.items import create_tag
+
+    user = await register_user(db, "scoped@example.com", "password123")
+    env = MockEnv()
+    item_id = await _make_item(db, env, user["id"])
+    for name in ("probe-tag", "probe-tag2", "probe-tag3"):
+        await create_tag(db, user["id"], name)
+    # A highlight to delete and two collections: one holding the item (so
+    # removing it changes something) and one empty (so adding it does).
+    await db.execute(
+        "INSERT INTO highlights (id, user_id, item_id, text, start_offset,"
+        " end_offset) VALUES ('probe-highlight', ?, ?, 'quoted', 0, 6);",
+        (user["id"], item_id),
+    )
+    await create_collection(db, user["id"], "probe-collection")
+    await create_collection(db, user["id"], "probe-collection-empty")
+    await add_items_to_collection(db, user["id"], "probe-collection", [item_id])
+    return user, env, item_id
+
+
+async def test_read_only_token_lists_only_read_tools(db, scoped_user):
+    """A read-only token sees the read tools in tools/list, and only those."""
+    user, env, _ = scoped_user
+    res = await process_mcp_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        db,
+        env,
+        {**user, "scopes": ["read"]},
+    )
+    names = [t["name"] for t in res["result"]["tools"]]
+    assert names == [t["name"] for t in MCP_TOOLS if t["annotations"]["readOnlyHint"]]
+    assert "search_library" in names
+    assert "save_url" not in names
+    assert "delete_item" not in names
+
+
+@pytest.mark.parametrize("tool_name", WRITE_TOOL_NAMES)
+async def test_read_only_token_is_refused_on_write_tools(db, scoped_user, tool_name):
+    """Every write or destructive tool is refused, and nothing is written.
+
+    The same call with full scope does write, so the refusal is proven
+    against a real change instead of a call that was a no-op anyway.
+    """
+    user, env, item_id = scoped_user
+    args = _write_arguments(tool_name, item_id)
+
+    def call(scopes):
+        return process_mcp_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool_name, "arguments": args},
+            },
+            db,
+            env,
+            {**user, "scopes": scopes},
+        )
+
+    # Full scope: the call really writes.
+    before = await _library_state(db, user["id"])
+    res = await call(["*"])
+    assert "error" not in res, res
+    assert await _library_state(db, user["id"]) != before, (
+        f"{tool_name} wrote nothing: the refusal test would be vacuous"
+    )
+
+    # Read-only: refused before the tool runs, nothing written.
+    before = await _library_state(db, user["id"])
+    res = await call(["read"])
+    assert "error" in res, res
+    assert res["error"]["data"]["type"] == "insufficient_scope"
+    assert res["error"]["data"]["tool"] == tool_name
+    assert res["error"]["data"]["required_scope"] == "write"
+    assert await _library_state(db, user["id"]) == before
+
+
+async def test_full_scope_token_sees_every_tool(db, scoped_user):
+    """All scopes (the default) keep the full tool list."""
+    user, env, _ = scoped_user
+    for caller in (
+        {**user, "scopes": ["*"]},
+        {k: v for k, v in user.items() if k != "scopes"},
+    ):
+        res = await process_mcp_request(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}, db, env, caller
+        )
+        assert len(res["result"]["tools"]) == len(MCP_TOOLS)
+
+
+async def test_read_only_pat_over_http(mcp_client, db):
+    """A read-only PAT gets a filtered tool list and is refused on writes."""
+    from keepfor.auth.service import create_pat, register_user
+
+    user = await register_user(db, "ro-http@example.com", "password123")
+    pat = await create_pat(db, user["id"], "Read-only PAT", scopes=["read"])
+    headers = {"Authorization": f"Bearer {pat['token']}"}
+
+    res = mcp_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers=headers,
+    )
+    assert res.status_code == 200
+    names = [t["name"] for t in res.json()["result"]["tools"]]
+    assert "search_library" in names
+    assert "save_url" not in names
+
+    before = await _library_state(db, user["id"])
+    res = mcp_client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "save_url",
+                "arguments": {"url": "https://example.com/should-not-be-saved"},
+            },
+        },
+        headers=headers,
+    )
+    assert res.status_code == 200
+    assert res.json()["error"]["data"]["type"] == "insufficient_scope"
+    assert await _library_state(db, user["id"]) == before
+
+    # A read tool still works: the token is read-only, not useless.
+    res = mcp_client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "list_items", "arguments": {}},
+        },
+        headers=headers,
+    )
+    assert "result" in res.json(), res.json()
+
+
+async def test_tools_call_fails_closed_on_unknown_tool(mcp_user):
+    """A tool with no schema entry is refused before any handler runs.
+
+    Fail closed: a future handler without a schema entry must not skip the
+    scope check. This also retires the undocumented "search" alias of
+    search_library, which was never in MCP_TOOLS.
+    """
+    user, env, db = mcp_user
+    for name in ("search", "no_such_tool"):
+        res = await process_mcp_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": {"query": "x"}},
+            },
+            db,
+            env,
+            user,
+        )
+        assert "error" in res, res
+        assert res["error"]["data"]["type"] == "not_found"
+        assert res["error"]["data"]["tool"] == name
+
+
+def test_every_tool_declares_annotations():
+    """Every tool carries explicit annotations: they are the scope source of
+    truth, and a missing readOnlyHint keeps defaulting to write (fail closed).
+    """
+    from keepfor.mcp.server import _tool_scope
+    from keepfor.spi import SCOPE_WRITE
+
+    for tool in MCP_TOOLS:
+        assert "annotations" in tool, tool["name"]
+        assert "readOnlyHint" in tool["annotations"], tool["name"]
+    assert _tool_scope({"name": "hypothetical"}) == SCOPE_WRITE

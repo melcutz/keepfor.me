@@ -296,9 +296,10 @@ async def test_cross_tenant_pat_delete(harness: IsolationHarness):
 
     snap_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
 
+    # /settings/* refuses PATs outright, so this goes through the session.
     resp = harness.client.post(
         f"/settings/tokens/{a.pat_id}/delete",
-        headers=b.auth_headers,
+        cookies=b.cookies,
     )
     assert resp.status_code in (200, 303, 404)
 
@@ -539,11 +540,11 @@ async def test_settings_cleanup_failed_isolation(harness: IsolationHarness):
         ),
     )
 
-    # Tenant B runs cleanup-failed
+    # Tenant B runs cleanup-failed (over the session: /settings/* refuses PATs)
     resp = harness.client.post(
         "/settings/cleanup-failed",
         data={"group": "all"},
-        headers=b.auth_headers,
+        cookies=b.cookies,
     )
     assert resp.status_code == 200
 
