@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "partials/icons.html" import icon %}
 {% from "partials/import_summary.html" import import_summary_toast %}
+{% from "partials/import_status.html" import import_status_panel %}
 
 {% block title %}Settings & API — Keepfor.me{% endblock %}
 
@@ -191,6 +192,10 @@ opencode (opencode.json):
 
     <!-- Import result (a failed upload redirects back here) -->
     {{ import_summary_toast(import_summary) }}
+
+    <!-- Persisted import status: progress and the final result, still there
+         after a refresh. -->
+    {{ import_status_panel(import_status) }}
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       

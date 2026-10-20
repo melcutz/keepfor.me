@@ -23,6 +23,23 @@ away in both cases.
   page under 4 KB.
 
 ### Added
+- **Persisted notes-import status** (GitHub issue #18): every notes upload now
+  writes one `import_status` record per user. The record holds the running
+  counters (notes imported, duplicates skipped, links queued, attachments not
+  imported, parse errors, items skipped by the plan limit) plus a capped list
+  of error messages, and it is updated chunk by chunk while the queue consumer
+  works through the uploaded notes. The import panel on the library and
+  settings pages shows the live progress ("12 of 60 notes processed") and the
+  final result, and it is still there after a refresh — the one-shot toast
+  only ever said how many notes were queued. A rejected upload (zip bomb,
+  ENEX entity payload, unreadable file, plan limit) leaves a failed record
+  with the reason.
+  - Migration `0011_import_status.sql` (additive): the `import_status` table
+    and its `(user_id, created_at)` index. Apply it before deploying:
+    `npx wrangler d1 migrations apply keepfor-me-db --remote`. Without it the
+    import still works, only the status panel stays empty.
+  - The status record is a tenant table: every query is scoped by `user_id`
+    and the tenant-isolation suite covers it.
 - **Notes import** (GitHub issue #15): upload a **Google Keep Takeout zip**, an **Evernote `.enex`** file, or a **zip of Markdown/text files** (Obsidian vault, Apple Notes via Exporter, Simplenote) from Settings → Import. Notes become searchable Keepfor notes with tags and original creation dates; Keep checklists render as Markdown tasks, archived Keep notes land in the archive, and trashed Keep notes are skipped. Links inside notes (body URLs, Keep `WEBLINK` annotations, ENEX `source-url` web clips) become regular URL saves tagged `from-notes`.
   - Dedupe on `(user_id, source, source_id)` with a content-hash fallback: re-importing the same export inserts nothing new.
   - Parsed notes fan out through the queue in chunks (same as bookmark imports), so a 1,000-note export never times out the request.

@@ -20,7 +20,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from keepfor import deps
 from keepfor.auth.service import create_pat, delete_pat, list_pats
+from keepfor.models.imports import create_import, fail_import, set_import_counts
 from keepfor.models.items import delete_item
+from keepfor.routes._shared import user_import_status
 from keepfor.schemas import CreatePATRequest
 from keepfor.search.engine import get_status_counts
 from keepfor.templating import jinja_env
@@ -114,6 +116,43 @@ REQUEUE_LIMIT = 500
 REQUEUE_STUCK_MINUTES = 10
 
 
+async def _create_import(
+    db: Database, user_id: str, source: str, filename: str
+) -> str | None:
+    """Creates the persisted import record; None when the table is missing.
+
+    A missing migration must never break the import itself, so every write
+    to the status table fails soft.
+    """
+    try:
+        return await create_import(db, user_id, source=source, filename=filename)
+    except Exception as exc:
+        logger.warning(f"import status not created: {exc}")
+        return None
+
+
+async def _update_import(
+    db: Database, user_id: str, import_id: str | None, **counts: Any
+) -> None:
+    if not import_id:
+        return
+    try:
+        await set_import_counts(db, user_id, import_id, **counts)
+    except Exception as exc:
+        logger.warning(f"import status not updated: {exc}")
+
+
+async def _fail_import(
+    db: Database, user_id: str, import_id: str | None, error: str
+) -> None:
+    if not import_id:
+        return
+    try:
+        await fail_import(db, user_id, import_id, error)
+    except Exception as exc:
+        logger.warning(f"import status not failed: {exc}")
+
+
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, new_token: str | None = None):
     user = await deps.get_current_user(request)
@@ -147,6 +186,7 @@ async def settings_page(request: Request, new_token: str | None = None):
         deleted_count=None,
         active_nav="settings",
         import_summary=import_summary,
+        import_status=await user_import_status(db, user["id"], limit=5),
     )
     response = HTMLResponse(content=html)
     if import_summary_cookie:
@@ -181,6 +221,7 @@ async def create_token_route(request: Request, name: str = Form(...)):
         fail_counts=fail_counts,
         deleted_count=None,
         active_nav="settings",
+        import_status=await user_import_status(db, user["id"], limit=5),
     )
     return HTMLResponse(content=html)
 
@@ -253,6 +294,7 @@ async def cleanup_failed_route(request: Request, pattern: str = Form("all")):
         fail_counts=fail_counts,
         deleted_count=deleted,
         active_nav="settings",
+        import_status=await user_import_status(db, user["id"], limit=5),
     )
     return HTMLResponse(content=html)
 
@@ -345,6 +387,12 @@ async def import_route(
     filename = file.filename or ""
     file_type = detect_file_type(filename, raw)
 
+    # One persisted record per notes upload: the counters and the error
+    # survive a refresh (the toast cookie above is one-shot).
+    import_id: str | None = None
+    if file_type in ("zip", "enex"):
+        import_id = await _create_import(db, user["id"], file_type, filename)
+
     # Enforce size limits per type (documented in README + settings help)
     size_limits = {
         "zip": ZIP_MAX_BYTES,
@@ -358,12 +406,13 @@ async def import_route(
             f"File too large ({len(raw) // (1024 * 1024)} MB). The limit for "
             f"{file_type} files is {limit // (1024 * 1024)} MB."
         )
+        await _fail_import(db, user["id"], import_id, summary["error"])
         return _redirect_with_summary("/settings")
 
     scope = deps.get_scope(request)
     providers = deps.get_providers(request)
 
-    parse_stats: dict[str, int] = {}
+    parse_stats: dict[str, Any] = {}
     notes: list[dict] = []
     bookmarks: list[dict] = []
 
@@ -377,6 +426,7 @@ async def import_route(
             # the user is told why.
             logger.warning(f"Zip rejected: {exc}")
             summary["error"] = str(exc)
+            await _fail_import(db, user["id"], import_id, summary["error"])
             return _redirect_with_summary("/settings")
         except Exception as exc:
             zip_errors += 1
@@ -387,12 +437,14 @@ async def import_route(
             except ZipBombError as exc:
                 logger.warning(f"Zip rejected: {exc}")
                 summary["error"] = str(exc)
+                await _fail_import(db, user["id"], import_id, summary["error"])
                 return _redirect_with_summary("/settings")
             except Exception as exc:
                 zip_errors += 1
                 logger.warning(f"Markdown zip parse failed: {type(exc).__name__}")
         if not notes and zip_errors:
             summary["error"] = "The zip file could not be parsed; nothing was imported."
+            await _fail_import(db, user["id"], import_id, summary["error"])
 
     elif file_type == "enex":
         try:
@@ -407,6 +459,8 @@ async def import_route(
             summary["error"] = (
                 "The ENEX file could not be parsed; nothing was imported."
             )
+        if summary["error"]:
+            await _fail_import(db, user["id"], import_id, summary["error"])
 
     elif file_type == "csv":
         bookmarks = parse_csv_bookmarks(raw.decode("utf-8", errors="replace"))
@@ -432,6 +486,30 @@ async def import_route(
         total_urls = sum(len(n.get("urls", [])) for n in notes)
         capped_urls = min(total_urls, MAX_URLS_PER_IMPORT)
         total_items = len(notes) + capped_urls
+
+        # Attachments are listed in the note body, never stored (spec item 8).
+        summary["notes_queued"] = len(notes)
+        summary["urls_found"] = capped_urls
+        summary["attachments_not_imported"] = sum(
+            n.get("attachments_count", 0) for n in notes
+        )
+        source = notes[0].get("source", "markdown")
+
+        # The persisted record carries the parse-stage counts; the consumer
+        # adds the per-chunk counts while the import runs.
+        await _update_import(
+            db,
+            user["id"],
+            import_id,
+            source=source,
+            notes_total=len(notes),
+            trashed_skipped=summary["trashed_skipped"],
+            urls_found=capped_urls,
+            attachments_not_imported=summary["attachments_not_imported"],
+            parse_errors=summary["parse_errors"],
+            errors=parse_stats.get("errors") or [],
+        )
+
         decision = await providers.entitlements.check(
             scope.tenant_id, "import", qty=total_items
         )
@@ -444,16 +522,14 @@ async def import_route(
             if allowed <= 0:
                 from keepfor.spi import EntitlementDenied
 
+                await _fail_import(
+                    db,
+                    user["id"],
+                    import_id,
+                    "Your plan does not allow importing this file.",
+                )
                 raise EntitlementDenied(decision)
             summary["plan_skipped"] = total_items - allowed
-
-        # Attachments are listed in the note body, never stored (spec item 8).
-        summary["notes_queued"] = len(notes)
-        summary["urls_found"] = capped_urls
-        summary["attachments_not_imported"] = sum(
-            n.get("attachments_count", 0) for n in notes
-        )
-        source = notes[0].get("source", "markdown")
 
         # Never bulk-insert inside the request: 1,000 notes x per-note D1
         # writes outlast both the browser's patience and the Worker's request
@@ -467,12 +543,21 @@ async def import_route(
                     {
                         "user_id": user["id"],
                         "source": source,
+                        "import_id": import_id,
                         "import_notes_batch": notes[i : i + IMPORT_QUEUE_CHUNK],
                     }
                 )
         else:
             background_tasks.add_task(
-                import_notes, db, env, user["id"], notes, providers, scope, source
+                import_notes,
+                db,
+                env,
+                user["id"],
+                notes,
+                providers,
+                scope,
+                source,
+                import_id,
             )
 
     # Import bookmarks (CSV, HTML)
@@ -516,5 +601,6 @@ async def import_route(
         and not summary["error"]
     ):
         summary["error"] = "No notes found in the file."
+        await _fail_import(db, user["id"], import_id, summary["error"])
 
     return _redirect_with_summary("/settings" if summary["error"] else "/")

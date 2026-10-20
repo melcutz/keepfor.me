@@ -124,12 +124,16 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 
 `keepfor/models/db.py` is a 71-line dual-backend adapter: D1 in production, `sqlite3` in tests. It exposes only `query_all`, `query_first`, `execute`, `execute_batch`. **If you add a method, implement both branches** — the sqlite branch will otherwise be dead in prod and untested in CI.
 
-- **Migrations (`migrations/*.sql`)**: Five schema files exist:
+- **Migrations (`migrations/*.sql`)**: Eleven schema files exist:
   - `0001_initial_schema.sql` (core tables, FTS5 virtual table, triggers)
   - `0002_rate_limits.sql` (rate limiting table)
   - `0003_suggested_tags.sql` (suggested tags table)
   - `0004_tag_rules.sql` (auto-tagging rules table)
   - `0005_performance_indexes.sql` (composite indexes for library feeds and lookups)
+  - `0006_notes_pins_and_metadata.sql`, `0007_item_opens.sql` (note columns, read tracking)
+  - `0008_import_sources.sql` (`items.source`/`source_id` + the dedupe index)
+  - `0009_mcp_v2_metadata.sql` (provenance columns), `0010_tag_metadata.sql` (tag columns)
+  - `0011_import_status.sql` (`import_status`: one row per notes upload with the counters and a capped error list)
 - **`deploy.yml` does NOT apply migrations**: Schema migrations must be applied manually to production via `npx wrangler d1 migrations apply keepfor-me-db --remote`.
 - **Composite indexes are mandatory for sorted feeds**: SQLite's query planner requires composite indexes matching the `WHERE` + `ORDER BY` pattern (e.g. `items(user_id, created_at DESC)` and `items(user_id, status, created_at DESC)`). Without them, SQLite performs `USE TEMP B-TREE FOR ORDER BY`, incurring noticeable CPU and memory overhead on library page loads. Check `EXPLAIN QUERY PLAN` on any new list query.
 - **Batching mutations**: D1 executes queries over remote RPC. Multi-row or cascading updates (such as updating tag associations or deleting an item with related tag mappings and vector embeddings) must use `db.execute_batch()` rather than looping individual `db.execute()` calls to prevent sequential RPC latency.

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "partials/icons.html" import icon %}
 {% from "partials/import_summary.html" import import_summary_toast %}
+{% from "partials/import_status.html" import import_status_panel %}
 
 {% block title %}Library — Keepfor.me{% endblock %}
 
@@ -87,6 +88,9 @@
 
       <!-- Import Summary Toast -->
       {{ import_summary_toast(import_summary) }}
+
+      <!-- Persisted import status: progress and the final result. -->
+      {{ import_status_panel(import_status) }}
 
       <style>
         body { overflow-x: clip; }
