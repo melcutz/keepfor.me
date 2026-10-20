@@ -214,16 +214,16 @@ curl https://app.keepfor.me/api/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-### Available MCP Tools (v3)
+### Available MCP Tools (Server 0.2.0)
 
 The MCP server exposes 28 tools:
 
-1. **`save_url`** — Save any webpage to your library. v2 adds optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
-2. **`save_note`** — Save a personal note, code snippet, or prompt template. v2 adds the same optional provenance fields.
+1. **`save_url`** — Save any webpage to your library. Accepts optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
+2. **`save_note`** — Save a personal note, code snippet, or prompt template. Accepts the same optional provenance fields.
 3. **`search_library`** — Hybrid search across text and meaning (item-level results with snippets).
 4. **`search_passages`** — Passage-level hybrid search over semantic chunks with `max_chars` budget. Returns `chunk_id`, char offsets, and permanent `snapshot_url` (R2 archive) that survives link rot.
 5. **`read_item`** — Token-efficient paginated reading of full content. Returns `text`, `next_cursor`, `total_chunks`, `outline`.
-6. **`get_item`** — Retrieve metadata and excerpt, addressed by `item_id`, `url` or exact `title`. By default caps `content_text` to excerpt; use `include_content=true` for full text.
+6. **`get_item`** — Retrieve metadata and excerpt, addressed by `item_id`, `url` or exact `title`. By default caps `content_text` to excerpt and reports `truncated` and `content_length`; use `include_content=true` for full text.
 7. **`list_items`** — Compact paginated browse (`id`, `title`, `url`, `saved_at`, `tags` — no body). Sorts by `saved`, `opened` or `title`; filters by `since`/`until`, `domain`, `pinned`, `type` and tags.
 8. **`find_item`** — Find item ids by exact/prefix title or exact/normalized url. No search, no embeddings: the cheap path from a title you know to an `item_id` you can read.
 9. **`reading_history`** — Reading history with date filtering (`since`/`until`), event types (`saved`/`opened`), and optional query/tag filters.
@@ -233,11 +233,11 @@ The MCP server exposes 28 tools:
 13. **`describe_tag`** — A tag's metadata, parent, children and item count.
 14. **`update_tag`** — Edit a tag's description, color or parent.
 15. **`rename_tag`** — Rename a tag; every item carrying it is updated.
-16. **`merge_tags`** — Fold several tags into one target tag.
+16. **`merge_tags`** — Fold several tags into one target tag (at most 20 source tags per call).
 17. **`delete_tag`** — Remove a tag from items. Items are never deleted. `dry_run=true` by default: returns the affected count and a sample; `dry_run=false` applies.
 18. **`tag_item`** — Add or remove tags on a single item.
-19. **`tag_items`** — Add/remove tags across many items. `dry_run=true` by default.
-20. **`retag_by_query`** — Tag items matching a title/url query (plus tag filters). `dry_run=true` by default.
+19. **`tag_items`** — Add/remove tags across many items. `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
+20. **`retag_by_query`** — Tag items matching a title/url query (plus tag filters). `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
 21. **`set_item_tags`** — Replace the whole tag set of one item.
 22. **`suggest_tags`** — Suggest tags for an item or for free text, drawn from your existing vocabulary first.
 23. **`search_tags`** — Fuzzy search over tag names and descriptions (`machinelearning` finds `machine-learning`).
@@ -247,7 +247,7 @@ The MCP server exposes 28 tools:
 27. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
 28. **`pin_item`** — Pin or unpin an item to/from the top shelf.
 
-All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) for proper scope enforcement, and each description says when to use it versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
+All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) as advisory hints for the client — the server does not enforce them, and a token is never rejected for missing scope information. Each description says when to use a tool versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
 
 Tag filters (`tags_all`, `tags_any`, `tags_none`, `untagged`) work on `list_items`, `search_library`, `search_passages`, `find_item` and `reading_history`, and count child tags: filtering on `work` also matches `work/research`.
 

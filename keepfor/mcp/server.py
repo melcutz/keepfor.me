@@ -80,6 +80,9 @@ LIST_ITEM_FIELDS = (
 )
 DEFAULT_LIST_FIELDS = ("id", "title", "url", "saved_at", "tags")
 
+# Cap on the number of source tags one merge_tags call may fold together.
+MAX_MERGE_SOURCES = 20
+
 # Shared tag filter arguments. Child tags count: "work" matches "work/research".
 _TAG_FILTER_PROPS = {
     "tags_all": {
@@ -164,7 +167,7 @@ def _decode_cursor(cursor: str) -> int:
 
 def _project(item: dict[str, Any], fields: list[str] | None) -> dict[str, Any]:
     """Projects an item onto the requested fields (default: compact shape)."""
-    wanted = DEFAULT_LIST_FIELDS
+    wanted: tuple[str, ...] = DEFAULT_LIST_FIELDS
     if fields:
         wanted = tuple(f for f in fields if f in LIST_ITEM_FIELDS)
     return {f: item.get(f) for f in wanted}
@@ -446,7 +449,9 @@ MCP_TOOLS = [
         "name": "get_item",
         "description": "Retrieves metadata and excerpt of a saved article. "
         "Identify the item with item_id, url, or an exact title. "
-        "By default, content_text is capped to the excerpt for token efficiency. "
+        "By default, content_text is capped to the excerpt for token efficiency; "
+        "the result reports truncated (true when the returned text is shorter "
+        "than the stored content) and content_length (the full content length). "
         "Use include_content=true to get full text (not recommended for large items). "
         "For paginated full-text reading, use read_item instead.",
         "inputSchema": {
@@ -793,14 +798,14 @@ MCP_TOOLS = [
         "name": "merge_tags",
         "description": "Merges several source tags into one target tag: every item "
         "carrying a source tag ends up carrying the target tag, and the source "
-        "tags disappear.",
+        "tags disappear. At most 20 source tags per call.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "sources": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Tags to merge away.",
+                    "description": "Tags to merge away (at most 20).",
                 },
                 "target": {
                     "type": "string",
@@ -835,7 +840,9 @@ MCP_TOOLS = [
         "name": "tag_items",
         "description": "Adds and/or removes tags across many items at once. "
         "Defaults to dry_run=true, which returns the number of affected items "
-        "and a sample without changing anything; pass dry_run=false to apply.",
+        "and a sample without changing anything; pass dry_run=false to apply. "
+        "At most 100 items are processed per call; the result reports "
+        "total_matched and truncated.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -869,7 +876,8 @@ MCP_TOOLS = [
         "description": "Finds items by title/url substring (plus optional tag "
         "filters) and adds/removes tags on them. Defaults to dry_run=true, which "
         "returns the affected items without changing anything; pass dry_run=false "
-        "to apply.",
+        "to apply. At most 100 items are processed per call; the result reports "
+        "total_matched and truncated.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1191,6 +1199,8 @@ async def handle_tool_call(
             "content_text": (
                 found_item.get("content_text") or found_item.get("excerpt") or ""
             ),
+            "truncated": bool(found_item.get("truncated", False)),
+            "content_length": found_item.get("content_length", 0),
             "item_type": found_item.get("item_type", "url"),
             "is_pinned": bool(found_item.get("is_pinned", 0)),
             "user_notes": found_item.get("user_notes"),
@@ -1306,14 +1316,14 @@ async def handle_tool_call(
         return {"id": item_id, "tags": tags}
 
     elif tool_name == "list_tags":
-        tags = await list_tags(
+        tag_rows = await list_tags(
             db,
             user_id,
             sort=arguments.get("sort", "count"),
             prefix=arguments.get("prefix"),
             min_count=arguments.get("min_count"),
         )
-        return {"tags": tags, "count": len(tags)}
+        return {"tags": tag_rows, "count": len(tag_rows)}
 
     elif tool_name == "create_tag":
         name = arguments.get("name")
@@ -1380,22 +1390,28 @@ async def handle_tool_call(
         new = arguments.get("new")
         if not old or not new:
             raise _invalid("rename_tag requires old and new")
-        result = await rename_tag(db, user_id, old, new)
-        if result == "not_found":
+        outcome = await rename_tag(db, user_id, old, new)
+        if outcome == "not_found":
             raise _not_found("Tag not found.")
-        if result == "invalid":
+        if outcome == "invalid":
             raise _invalid("Invalid tag name.")
-        return {"result": result, "tag": await get_tag(db, user_id, new)}
+        return {"result": outcome, "tag": await get_tag(db, user_id, new)}
 
     elif tool_name == "merge_tags":
         sources = _as_list(arguments.get("sources"))
         target = arguments.get("target")
         if not sources or not target:
             raise _invalid("merge_tags requires sources and target")
-        result = await merge_tags(db, user_id, sources, target)
-        if result == "invalid":
+        if len(sources) > MAX_MERGE_SOURCES:
+            raise _invalid(
+                f"merge_tags accepts at most {MAX_MERGE_SOURCES} source tags.",
+                max_sources=MAX_MERGE_SOURCES,
+                received=len(sources),
+            )
+        outcome = await merge_tags(db, user_id, sources, target)
+        if outcome == "invalid":
             raise _invalid("Invalid tag name.")
-        return {"result": result, "tag": await get_tag(db, user_id, target)}
+        return {"result": outcome, "tag": await get_tag(db, user_id, target)}
 
     elif tool_name == "delete_tag":
         name = arguments.get("name")
@@ -1468,6 +1484,8 @@ async def handle_tool_call(
         if item_id:
             suggestions = await suggest_tags_for_item(db, user_id, item_id)
         else:
+            if not isinstance(text, str):
+                raise _invalid("suggest_tags text must be a string")
             suggestions = await suggest_tags_for_text(db, user_id, text)
         return {"suggestions": suggestions, "count": len(suggestions)}
 
@@ -1475,8 +1493,10 @@ async def handle_tool_call(
         query = arguments.get("query")
         if not query or not isinstance(query, str):
             raise _invalid("search_tags requires a query")
-        tags = await search_tags(db, user_id, query, limit=arguments.get("limit", 20))
-        return {"tags": tags, "count": len(tags)}
+        found_tags = await search_tags(
+            db, user_id, query, limit=arguments.get("limit", 20)
+        )
+        return {"tags": found_tags, "count": len(found_tags)}
 
     elif tool_name == "tag_stats":
         return await tag_stats(db, user_id)
@@ -1583,13 +1603,16 @@ async def process_mcp_request(
 
         providers = get_providers()
         if providers.scope:
+            # Scopes are advisory in core: a token without scope info is never
+            # rejected, it is treated as unrestricted ("*").
+            raw_scopes = user.get("scopes")
             principal = Principal(
                 user_id=user["id"],
                 tenant_id=user.get("tenant_id", user["id"]),
                 email=user.get("email", ""),
                 role=user.get("role", "user"),
                 plan=user.get("plan", "self_hosted"),
-                scopes=frozenset(user.get("scopes", ["*"])),
+                scopes=frozenset(raw_scopes) if raw_scopes else frozenset({"*"}),
             )
             scope = await providers.scope.scope_for_principal(principal, env)
         else:
@@ -1620,7 +1643,7 @@ async def process_mcp_request(
             "result": {
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "keepfor-me-mcp", "version": "0.3.0"},
+                "serverInfo": {"name": "keepfor-me-mcp", "version": "0.2.0"},
             },
         }
 

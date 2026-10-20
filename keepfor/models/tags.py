@@ -16,6 +16,7 @@ from typing import Any
 
 from keepfor.models.db import Database
 from keepfor.models.items import (
+    BULK_TAG_LIMIT,
     add_tags_to_item,
     bulk_update_tags,
     get_item_tags,
@@ -30,6 +31,11 @@ from keepfor.utils.tagger import normalize_tag
 SAMPLE_LIMIT = 20
 # Cap on tag filter lists, mirroring keepfor.search.engine.MAX_TAG_FILTERS.
 MAX_TAG_FILTERS = 10
+# D1 allows 100 bound parameters per query; user_id takes one of them.
+_ID_CHUNK = 99
+# Cap on the ids scanned per call when counting matches. It bounds the
+# number of D1 roundtrips a huge request can trigger.
+BULK_SCAN_LIMIT = 1000
 
 
 async def get_tag(db: Database, user_id: str, raw_name: str) -> dict[str, Any] | None:
@@ -413,28 +419,40 @@ async def tag_items(
     """Adds/removes tags across owned items; skips foreign and missing ids.
 
     dry_run=True (default) previews affected items without writing.
+
+    At most BULK_TAG_LIMIT owned items are processed per call. `total_matched`
+    counts every owned item among the supplied ids; `truncated` is True when
+    more matched than were processed (or more ids were supplied than were
+    scanned, see BULK_SCAN_LIMIT).
     """
     add = [t for t in (add or []) if t.strip()]
     remove = [t for t in (remove or []) if t.strip()]
-    ids = [i for i in (item_ids or []) if i][:100]
-    if not ids:
-        return {"match_count": 0, "sample": [], "applied": False}
-
-    placeholders = ",".join("?" for _ in ids)
-    rows = await db.query_all(
-        f"SELECT id FROM items WHERE user_id = ? AND id IN ({placeholders});",
-        (user_id, *ids),
-    )
-    owned = [r["id"] for r in rows]
+    ids = [i for i in (item_ids or []) if i]
+    truncated = len(ids) > BULK_SCAN_LIMIT
+    owned: list[str] = []
+    for start in range(0, min(len(ids), BULK_SCAN_LIMIT), _ID_CHUNK):
+        chunk = ids[start : start + _ID_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await db.query_all(
+            f"SELECT id FROM items WHERE user_id = ? AND id IN ({placeholders});",
+            (user_id, *chunk),
+        )
+        owned.extend(r["id"] for r in rows)
+    total_matched = len(owned)
+    if total_matched > BULK_TAG_LIMIT:
+        truncated = True
+    processed = owned[:BULK_TAG_LIMIT]
     result = {
-        "match_count": len(owned),
-        "sample": owned[:SAMPLE_LIMIT],
+        "match_count": len(processed),
+        "total_matched": total_matched,
+        "sample": processed[:SAMPLE_LIMIT],
         "applied": False,
+        "truncated": truncated,
     }
-    if dry_run or not owned:
+    if dry_run or not processed:
         return result
 
-    await bulk_update_tags(db, user_id, owned, add=add, remove=remove)
+    await bulk_update_tags(db, user_id, processed, add=add, remove=remove)
     result["applied"] = True
     return result
 
@@ -470,24 +488,46 @@ async def retag_by_query(
 ) -> dict[str, Any]:
     """Finds items matching a query (title/url substring) and previews/applies
     tag changes. dry_run=True (default) returns affected items without writing.
+
+    At most BULK_TAG_LIMIT items are processed per call. `total_matched` is
+    the number of items the query matched; `truncated` is True when more
+    matched than were processed.
     """
     add = [t for t in (add or []) if t.strip()]
     remove = [t for t in (remove or []) if t.strip()]
     q = (query or "").strip().lower()
     if not q and not tag_clause:
-        return {"match_count": 0, "sample": [], "applied": False}
+        return {
+            "match_count": 0,
+            "total_matched": 0,
+            "sample": [],
+            "applied": False,
+            "truncated": False,
+        }
+
+    params = (user_id, f"%{q}%", f"%{q}%", f"%{q}%", *tag_params)
+    count_row = await db.query_first(
+        "SELECT COUNT(*) as c FROM items i WHERE i.user_id = ? AND ("
+        " LOWER(i.title) LIKE ? OR LOWER(i.url) LIKE ? OR LOWER(i.canonical_url) LIKE ?"
+        f"{tag_clause});",
+        params,
+    )
+    total_matched = int(count_row["c"]) if count_row else 0
+    truncated = total_matched > BULK_TAG_LIMIT
 
     rows = await db.query_all(
         "SELECT i.id FROM items i WHERE i.user_id = ? AND ("
         " LOWER(i.title) LIKE ? OR LOWER(i.url) LIKE ? OR LOWER(i.canonical_url) LIKE ?"
-        f"{tag_clause}) ORDER BY i.created_at DESC LIMIT 100;",
-        (user_id, f"%{q}%", f"%{q}%", f"%{q}%", *tag_params),
+        f"{tag_clause}) ORDER BY i.created_at DESC LIMIT {BULK_TAG_LIMIT};",
+        params,
     )
     item_ids = [r["id"] for r in rows]
     result = await tag_items(
         db, user_id, item_ids, add=add, remove=remove, dry_run=dry_run
     )
     result["query"] = query
+    result["total_matched"] = total_matched
+    result["truncated"] = truncated
     return result
 
 
@@ -512,7 +552,9 @@ async def suggest_tags_for_item(
         item.get("content_text") or "",
         user_tags,
     )
-    out = [{"name": t, "reason": "existing"} for t in match.auto_apply]
+    out: list[dict[str, Any]] = [
+        {"name": t, "reason": "existing"} for t in match.auto_apply
+    ]
     out += [{"name": t, "reason": "existing"} for t in match.suggest_only]
     for s in suggest_new_tags(
         item.get("title") or "",
@@ -533,7 +575,9 @@ async def suggest_tags_for_text(
 
     user_tags = [r["name"] for r in await _list_user_tag_names(db, user_id)]
     match = match_existing_tags("", "", "", text, user_tags)
-    out = [{"name": t, "reason": "existing"} for t in match.auto_apply]
+    out: list[dict[str, Any]] = [
+        {"name": t, "reason": "existing"} for t in match.auto_apply
+    ]
     out += [{"name": t, "reason": "existing"} for t in match.suggest_only]
     for s in suggest_new_tags("", "", "", text, user_tags):
         out.append({"name": s.phrase, "reason": "new", "score": s.score})

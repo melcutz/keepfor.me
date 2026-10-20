@@ -276,6 +276,22 @@ async def test_get_item_caps_content_by_default(library):
 
 
 @pytest.mark.asyncio
+async def test_get_item_reports_truncation_and_content_length(library):
+    """A capped result says so and tells the client the full content size."""
+    user, env, db, ids = library
+
+    capped = await call(db, env, user, "get_item", item_id=ids["alpha"])
+    assert capped["truncated"] is True
+    assert capped["content_length"] == len("Alpha content about python. " * 200)
+
+    full = await call(
+        db, env, user, "get_item", item_id=ids["alpha"], include_content=True
+    )
+    assert full["truncated"] is False
+    assert full["content_length"] == len(full["content_text"])
+
+
+@pytest.mark.asyncio
 async def test_get_item_missing_returns_structured_error(library):
     user, env, db, ids = library
     res = await call(db, env, user, "get_item", title="Does Not Exist")
@@ -460,6 +476,118 @@ async def test_set_item_tags_replaces(library):
     listed = await call(db, env, user, "list_items")
     alpha = next(i for i in listed["items"] if i["id"] == ids["alpha"])
     assert alpha["tags"] == ["only"]
+
+
+# --- bulk caps ----------------------------------------------------------
+
+
+async def _seed_items(db, user_id, count, prefix="bulk"):
+    """Inserts `count` owned items and returns their ids."""
+    ids = [f"{prefix}-{i}" for i in range(count)]
+    for item_id in ids:
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, title, status)"
+            " VALUES (?, ?, ?, ?, ?, 'ok');",
+            (
+                item_id,
+                user_id,
+                f"https://example.com/{item_id}",
+                f"https://example.com/{item_id}",
+                f"Bulk item {item_id}",
+            ),
+        )
+    return ids
+
+
+@pytest.mark.asyncio
+async def test_tag_items_caps_at_100_and_reports_truncation(library):
+    """More than 100 ids: only 100 are processed, the rest is reported."""
+    user, env, db, ids = library
+    seeded = await _seed_items(db, user["id"], 150)
+
+    payload = await call(db, env, user, "tag_items", item_ids=seeded, add=["bulk"])
+    assert payload["truncated"] is True
+    assert payload["total_matched"] == 150
+    assert payload["match_count"] == 100
+    assert payload["applied"] is False
+
+
+@pytest.mark.asyncio
+async def test_tag_items_under_cap_is_not_truncated(library):
+    user, env, db, ids = library
+    seeded = await _seed_items(db, user["id"], 3)
+
+    payload = await call(db, env, user, "tag_items", item_ids=seeded, add=["bulk"])
+    assert payload["truncated"] is False
+    assert payload["total_matched"] == 3
+    assert payload["match_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_tag_items_truncates_a_huge_id_list(library):
+    """More ids than are scanned per call: reported, not scanned forever."""
+    user, env, db, ids = library
+
+    payload = await call(
+        db,
+        env,
+        user,
+        "tag_items",
+        item_ids=[f"nope-{i}" for i in range(1001)],
+        add=["bulk"],
+    )
+    assert payload["truncated"] is True
+    assert payload["total_matched"] == 0
+    assert payload["match_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_retag_by_query_caps_at_100_and_reports_total_matched(library):
+    user, env, db, ids = library
+    await _seed_items(db, user["id"], 150, prefix="bulk")
+
+    payload = await call(db, env, user, "retag_by_query", query="bulk", add=["topic"])
+    assert payload["truncated"] is True
+    assert payload["total_matched"] == 150
+    assert payload["match_count"] == 100
+
+
+@pytest.mark.asyncio
+async def test_retag_by_query_under_cap_is_not_truncated(library):
+    user, env, db, ids = library
+    await _seed_items(db, user["id"], 3, prefix="bulk")
+
+    payload = await call(db, env, user, "retag_by_query", query="bulk", add=["topic"])
+    assert payload["truncated"] is False
+    assert payload["total_matched"] == 3
+    assert payload["match_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_merge_tags_rejects_more_than_20_sources(library):
+    """Above the cap the call fails with a structured error, silently."""
+    user, env, db, ids = library
+    sources = [f"tag-{i}" for i in range(21)]
+
+    payload = await call(db, env, user, "merge_tags", sources=sources, target="job")
+    assert "error" in payload
+    assert payload["error"]["data"]["type"] == "invalid_arguments"
+    assert payload["error"]["data"]["max_sources"] == 20
+    assert payload["error"]["data"]["received"] == 21
+
+    listed = await call(db, env, user, "list_tags")
+    assert "job" not in {t["name"] for t in listed["tags"]}
+
+
+@pytest.mark.asyncio
+async def test_merge_tags_accepts_20_sources(library):
+    user, env, db, ids = library
+    sources = [f"tag-{i}" for i in range(20)]
+    for name in sources:
+        await call(db, env, user, "create_tag", name=name)
+
+    payload = await call(db, env, user, "merge_tags", sources=sources, target="job")
+    assert payload["result"] == "merged"
 
 
 @pytest.mark.asyncio

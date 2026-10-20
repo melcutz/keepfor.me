@@ -625,9 +625,15 @@ async def test_list_items_returns_new_format(user_with_items):
 
 
 @pytest.mark.asyncio
-async def test_server_info_version(db):
-    """Test serverInfo.version is 0.2.0."""
+async def test_server_info_version(mcp_user):
+    """serverInfo.version is 0.2.0 and every tool carries annotations."""
     from keepfor.mcp.server import MCP_TOOLS
+
+    user, env, db = mcp_user
+    res = await process_mcp_request(
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize"}, db, env, user
+    )
+    assert res["result"]["serverInfo"]["version"] == "0.2.0"
 
     # Just verify tools have annotations
     for tool in MCP_TOOLS:

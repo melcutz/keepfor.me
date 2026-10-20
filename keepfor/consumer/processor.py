@@ -343,8 +343,8 @@ async def extract_and_store(
         # Fetch the v2 fields to include in FTS
         item_row = await db.query_first(
             "SELECT agent_summary, why_saved, source_context, saved_by "
-            "FROM items WHERE id = ?;",
-            (item_id,),
+            "FROM items WHERE id = ? AND user_id = ?;",
+            (item_id, user_id),
         )
         v2_fields = " ".join(
             p

@@ -243,6 +243,10 @@ async def get_item(
         include_content: If False (default), returns only excerpt/snippet instead of
             full content_text. This is a breaking change from v1 where full content
             was always returned.
+
+    The result always carries `content_length` (the length of the stored
+    content) and `truncated` (True when the returned text is shorter than
+    the stored content), so a caller can tell that the content was capped.
     """
     row = await db.query_first(
         "SELECT * FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
@@ -251,9 +255,12 @@ async def get_item(
         return None
     item = dict(row)
     item["tags"] = await get_item_tags(db, user_id, item_id)
+    full_length = len(item.get("content_text") or "")
+    item["content_length"] = full_length
     if not include_content:
         # Cap content_text to excerpt for token efficiency
         item["content_text"] = item.get("excerpt") or ""
+    item["truncated"] = len(item.get("content_text") or "") < full_length
     return item
 
 

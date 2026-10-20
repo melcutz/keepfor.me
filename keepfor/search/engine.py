@@ -1104,9 +1104,8 @@ async def read_item_chunks(
         tokens_used += chunk_tokens
         chunks_read += 1
 
-    next_cursor = cursor + chunks_read
-    if next_cursor >= total_chunks:
-        next_cursor = None
+    end = cursor + chunks_read
+    next_cursor: int | None = None if end >= total_chunks else end
 
     # Update outline with previews
     for i, chunk_text in enumerate(text_chunks):
@@ -1209,7 +1208,7 @@ async def reading_history(
         # Item opens
         opens_since = ""
         opens_until = ""
-        opens_params = [user_id]
+        opens_params: list[Any] = [user_id]
         if since:
             opens_since = " AND datetime(io.opened_at) >= datetime(?)"
             opens_params.append(since)
