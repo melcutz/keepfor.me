@@ -645,6 +645,108 @@ async def test_delete_item_removes_highlights_and_collection_links(db, owner):
 
 
 # ==========================================
+# Purging the children of an item (Trash, #35)
+# ==========================================
+
+
+async def _annotated_item(db, env, user, url, text, collection=None):
+    """Saves an item with one highlight and (optionally) one collection link."""
+    item_id = await _make_item(db, env, user["id"], url=url, content=text)
+    await _call(db, env, user, "create_highlight", {"item_id": item_id, "text": text})
+    if collection:
+        await _call(
+            db,
+            env,
+            user,
+            "add_to_collection",
+            {"collection": collection, "item_ids": [item_id]},
+        )
+    return item_id
+
+
+@pytest.mark.asyncio
+async def test_purge_item_children_drops_highlights_and_links(db, owner):
+    """The children of every listed item are gone after the purge."""
+    from keepfor.models.items import purge_item_children
+
+    user, env = owner
+    await _call(db, env, user, "create_collection", {"name": "Reading"})
+    first = await _annotated_item(
+        db, env, user, "https://example.com/one", "Hello", "Reading"
+    )
+    second = await _annotated_item(
+        db, env, user, "https://example.com/two", "World", "Reading"
+    )
+
+    await purge_item_children(db, user["id"], [first, second])
+
+    assert await db.query_all("SELECT id FROM highlights;") == []
+    assert await db.query_all("SELECT item_id FROM collection_items;") == []
+
+
+@pytest.mark.asyncio
+async def test_purge_item_children_keeps_the_items(db, owner):
+    """Only the annotations go: the item rows survive.
+
+    This is what makes the Trash purge safe to split from the delete: a
+    trashed item keeps its highlights until the purge drops them.
+    """
+    from keepfor.models.items import purge_item_children
+
+    user, env = owner
+    item_id = await _annotated_item(db, env, user, "https://example.com/one", "Hello")
+
+    await purge_item_children(db, user["id"], [item_id])
+
+    row = await db.query_first(
+        "SELECT id FROM items WHERE id = ? AND user_id = ?;", (item_id, user["id"])
+    )
+    assert row is not None
+
+
+@pytest.mark.asyncio
+async def test_purge_item_children_never_touches_another_users_data(
+    db, owner, stranger
+):
+    """A foreign item's highlight and links survive the purge."""
+    from keepfor.models.items import purge_item_children
+
+    user, env = owner
+    other, other_env = stranger
+    await _call(db, other_env, other, "create_collection", {"name": "Theirs"})
+    foreign = await _annotated_item(
+        db, other_env, other, "https://example.com/foreign", "Secret", "Theirs"
+    )
+
+    await purge_item_children(db, user["id"], [foreign])
+
+    highlights = await db.query_all(
+        "SELECT id FROM highlights WHERE item_id = ?;", (foreign,)
+    )
+    assert highlights != []
+    links = await db.query_all(
+        "SELECT collection_id FROM collection_items WHERE item_id = ?;", (foreign,)
+    )
+    assert links != []
+
+
+@pytest.mark.asyncio
+async def test_purge_item_children_with_no_items_is_a_no_op(db, owner):
+    """An empty list touches nothing."""
+    from keepfor.models.items import purge_item_children
+
+    user, env = owner
+    item_id = await _annotated_item(db, env, user, "https://example.com/one", "Hello")
+
+    await purge_item_children(db, user["id"], [])
+
+    highlights = await db.query_all(
+        "SELECT id FROM highlights WHERE item_id = ?;", (item_id,)
+    )
+    assert highlights != []
+
+
+# ==========================================
 # Tool metadata
 # ==========================================
 
