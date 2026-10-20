@@ -64,7 +64,8 @@ argument away in the first two cases.
     first 50 rows.
   - Trashed items are excluded everywhere: library, pinned shelf, search (FTS
     and vector results), MCP `list_items`/`search_library`/`search_passages`/
-    `find_item`/`read_item`/`get_item`/`related_items`/`reading_history`, the
+    `find_item`/`read_item`/`get_item`/`related_items`/`reading_history`/
+    `library_digest`, the
     MCP resources and prompts, the status pills, the tag counts and
     co-occurrence, the tag cleanup report, the `find_cleanup` report,
     `bulk_update` matching, the pending tag suggestions, the stats page and

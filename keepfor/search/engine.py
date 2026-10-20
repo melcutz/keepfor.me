@@ -1652,29 +1652,29 @@ async def library_digest(
     opened_window, opened_params = _window("io.opened_at")
 
     saves_sql = (
-        "SELECT COUNT(*) AS n FROM items i WHERE i.user_id = ?"
+        "SELECT COUNT(*) AS n FROM items i WHERE i.user_id = ? AND i.deleted_at IS NULL"
         f"{saved_window}{tag_clause};"
     )
     unread_sql = (
         "SELECT COUNT(*) AS n FROM items i"
-        " WHERE i.user_id = ? AND i.read_state = 'unread'"
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL AND i.read_state = 'unread'"
         f"{saved_window}{tag_clause};"
     )
     opens_sql = (
         "SELECT COUNT(DISTINCT io.item_id) AS n FROM item_opens io"
         " JOIN items i ON i.id = io.item_id AND i.user_id = io.user_id"
-        f" WHERE io.user_id = ?{opened_window}{tag_clause};"
+        f" WHERE io.user_id = ? AND i.deleted_at IS NULL{opened_window}{tag_clause};"
     )
     top_tags_sql = (
         "SELECT t.name AS name, COUNT(it.item_id) AS count FROM tags t"
         " JOIN item_tags it ON it.tag_id = t.id"
         " JOIN items i ON i.id = it.item_id AND i.user_id = t.user_id"
-        f" WHERE t.user_id = ?{saved_window}{tag_clause}"
+        f" WHERE t.user_id = ? AND i.deleted_at IS NULL{saved_window}{tag_clause}"
         " GROUP BY t.id, t.name ORDER BY count DESC, t.name ASC LIMIT ?;"
     )
     highlights_sql = (
         "SELECT i.id, i.title, i.url, i.created_at AS saved_at FROM items i"
-        " WHERE i.user_id = ? AND i.read_state = 'unread'"
+        " WHERE i.user_id = ? AND i.deleted_at IS NULL AND i.read_state = 'unread'"
         f"{saved_window}{tag_clause}"
         " ORDER BY i.created_at DESC, i.id DESC LIMIT ?;"
     )
