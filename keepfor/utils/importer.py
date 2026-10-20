@@ -9,10 +9,13 @@ import json
 import re
 import time
 import zipfile
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from xml.etree import ElementTree
+
+from defusedxml.common import DefusedXmlException
+from defusedxml.ElementTree import iterparse
 
 from keepfor.models.db import Database
 from keepfor.models.items import save_item, save_note
@@ -115,6 +118,66 @@ def _extract_urls_from_text(text: str, title: str) -> list[dict[str, Any]]:
     return urls
 
 
+class ZipBombError(ValueError):
+    """Raised when an upload breaks the zip decompression caps.
+
+    The message is shown to the user in the import summary; when this is
+    raised nothing is imported.
+    """
+
+
+def _zip_guard(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+    """Validate a zip against the decompression caps and return its members.
+
+    Everything is checked from ZipInfo metadata alone, before a single
+    member is opened: capped member count and capped total declared
+    uncompressed size.
+    """
+    infos = zf.infolist()
+    if len(infos) > ZIP_MAX_MEMBERS:
+        raise ZipBombError(
+            f"Zip has too many files ({len(infos)} > {ZIP_MAX_MEMBERS}); "
+            "nothing was imported."
+        )
+    total_declared = sum(info.file_size for info in infos)
+    if total_declared > ZIP_MAX_TOTAL_BYTES:
+        raise ZipBombError(
+            f"Zip expands to {total_declared // (1024 * 1024)} MB uncompressed "
+            f"(limit {ZIP_MAX_TOTAL_BYTES // (1024 * 1024)} MB); "
+            "nothing was imported."
+        )
+    return infos
+
+
+def _zip_member_read(
+    zf: zipfile.ZipFile, info: zipfile.ZipInfo, stats: dict[str, int] | None
+) -> bytes | None:
+    """Bounded read of one zip member; None if it is over the per-member cap.
+
+    Reads at most ZIP_MAX_MEMBER_BYTES + 1 bytes: a member whose declared
+    file_size lies below the cap still cannot balloon memory.
+    """
+    if info.file_size > ZIP_MAX_MEMBER_BYTES:
+        if stats is not None:
+            stats["parse_errors"] = stats.get("parse_errors", 0) + 1
+        return None
+    try:
+        with zf.open(info) as f:
+            raw = f.read(ZIP_MAX_MEMBER_BYTES + 1)
+    except (zipfile.BadZipFile, EOFError, OSError):
+        # A member whose declared size lies: zipfile stops at the declared
+        # size and the CRC check fails. Skip it instead of failing the import.
+        if stats is not None:
+            stats["parse_errors"] = stats.get("parse_errors", 0) + 1
+        return None
+    if len(raw) > ZIP_MAX_MEMBER_BYTES:
+        # The declared size lied: the member is over the cap anyway.
+        if stats is not None:
+            stats["parse_errors"] = stats.get("parse_errors", 0) + 1
+        return None
+    return raw
+
+
 def parse_keep_takeout(
     zip_bytes: bytes, stats: dict[str, int] | None = None
 ) -> list[dict[str, Any]]:
@@ -132,15 +195,18 @@ def parse_keep_takeout(
     """
     notes = []
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        for name in zf.namelist():
+        for info in _zip_guard(zf):
+            name = info.filename
             # Only process JSON files under a Keep/ folder (Takeout nests
             # them at Takeout/Keep/, but re-zipped exports often do not).
             if not name.endswith(".json") or "Keep/" not in name:
                 continue
+            raw = _zip_member_read(zf, info, stats)
+            if raw is None:
+                continue
             try:
-                with zf.open(name) as f:
-                    data = json.load(f)
-            except (json.JSONDecodeError, zipfile.BadZipFile):
+                data = json.loads(raw)
+            except (UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile):
                 if stats is not None:
                     stats["parse_errors"] = stats.get("parse_errors", 0) + 1
                 continue
@@ -232,6 +298,23 @@ def parse_keep_takeout(
 
 # ===== Evernote ENEX Parser =====
 
+# Shown to the user when an ENEX file carries a DTD or entity definitions.
+ENEX_REJECTED_MESSAGE = (
+    "The ENEX file contains a DTD or entity definition and was rejected for safety."
+)
+
+
+def _safe_iterparse(enex_bytes: bytes) -> Iterator[tuple[str, Any]]:
+    """iterparse that turns a DTD/entity payload into a clear error.
+
+    defusedxml refuses to expand entity definitions (billion laughs); the
+    stdlib parser would happily expand them into gigabytes of text.
+    """
+    try:
+        yield from iterparse(io.BytesIO(enex_bytes), events=("start", "end"))
+    except DefusedXmlException as exc:
+        raise ValueError(ENEX_REJECTED_MESSAGE) from exc
+
 
 def _strip_enml(enml: str) -> str:
     """Convert ENML (Evernote Markup Language) to plain text/Markdown."""
@@ -270,15 +353,15 @@ def parse_enex(enex_bytes: bytes) -> list[dict[str, Any]]:
     - resource (base64 data, mime, file-name) - listed but not stored
     """
     notes = []
-    # Use iterparse for streaming
-    context = ElementTree.iterparse(io.BytesIO(enex_bytes), events=("start", "end"))
-    context = iter(context)
+    # Use iterparse for streaming; defusedxml forbids DTD entity expansion
+    # (billion laughs), a stdlib ElementTree would happily expand.
+    context = _safe_iterparse(enex_bytes)
     try:
         event, root = next(context)
     except StopIteration as exc:
         raise ValueError("Empty or malformed ENEX file") from exc
 
-    current_note = {}
+    current_note: dict[str, Any] = {}
     resource_count = 0
 
     for event, elem in context:
@@ -436,7 +519,8 @@ def parse_markdown_zip(
     """
     notes = []
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-        for name in zf.namelist():
+        for info in _zip_guard(zf):
+            name = info.filename
             # Skip unwanted files
             if any(
                 skip in name for skip in [".obsidian/", "__MACOSX/", "/.", ".DS_Store"]
@@ -449,13 +533,8 @@ def parse_markdown_zip(
             if not (name.endswith(".md") or name.endswith(".txt")):
                 continue
 
-            with zf.open(name) as f:
-                # Cap per-file size: a 50 MB zip can decompress to gigabytes,
-                # and no single note is legitimately megabytes of text.
-                raw = f.read(MARKDOWN_MAX_FILE_BYTES + 1)
-            if len(raw) > MARKDOWN_MAX_FILE_BYTES:
-                if stats is not None:
-                    stats["parse_errors"] = stats.get("parse_errors", 0) + 1
+            raw = _zip_member_read(zf, info, stats)
+            if raw is None:
                 continue
             content = raw.decode("utf-8", errors="replace")
 
@@ -504,7 +583,6 @@ def parse_markdown_zip(
 
             # Created time - try to get from file metadata in zip
             created_at = None
-            info = zf.getinfo(name)
             if info.date_time:
                 try:
                     created_at = datetime(*info.date_time).isoformat()
@@ -538,7 +616,9 @@ MAX_URLS_PER_IMPORT = 500
 ZIP_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 ENEX_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 HTML_CSV_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
-MARKDOWN_MAX_FILE_BYTES = 2 * 1024 * 1024  # per-file cap inside a notes zip
+ZIP_MAX_MEMBER_BYTES = 2 * 1024 * 1024  # per-member cap inside a notes zip
+ZIP_MAX_MEMBERS = 20_000  # hard member-count cap
+ZIP_MAX_TOTAL_BYTES = 200 * 1024 * 1024  # declared total uncompressed size cap
 
 
 def detect_file_type(filename: str, content: bytes) -> str:

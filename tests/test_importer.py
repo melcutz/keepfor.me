@@ -15,6 +15,7 @@ from keepfor.models.items import (
     update_user_notes,
 )
 from keepfor.utils.importer import (
+    ZipBombError,
     detect_file_type,
     export_library_html,
     export_library_json,
@@ -1382,3 +1383,224 @@ async def test_import_route_rejects_unknown_file_type(db, monkeypatch):
     decoded = raw.strip('"').replace("\\054", ",").replace('\\"', '"')
     assert '"error"' in decoded
     assert "Unrecognized file type" in decoded
+
+
+# ===== Zip bomb caps (Pete review #1) =====
+
+
+def _zip_with_declared_size(name: str, content: str, declared_size: int) -> bytes:
+    """Zip whose central directory lies about a member's uncompressed size."""
+    import struct
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(name, content)
+    data = bytearray(buf.getvalue())
+    # Central directory signature PK\\x01\\x02; uncompressed size at offset 24.
+    cd = data.rfind(b"PK\x01\x02")
+    assert cd != -1
+    struct.pack_into("<I", data, cd + 24, declared_size)
+    return bytes(data)
+
+
+def test_zip_caps_are_the_reviewed_values():
+    """The shipped caps match the reviewed values (2 MB / 200 MB / 20k)."""
+    from keepfor.utils import importer
+
+    assert importer.ZIP_MAX_MEMBER_BYTES == 2 * 1024 * 1024
+    assert importer.ZIP_MAX_TOTAL_BYTES == 200 * 1024 * 1024
+    assert importer.ZIP_MAX_MEMBERS == 20000
+
+
+def test_parse_keep_takeout_oversized_member_skipped():
+    """A Keep JSON member over the 2 MB per-file cap is skipped and counted."""
+    big = "x" * (2 * 1024 * 1024 + 10)
+    notes = [
+        {"title": "Big", "textContent": big},
+        {"title": "Small", "textContent": "ok"},
+    ]
+    stats = {}
+    parsed = parse_keep_takeout(_make_keep_takeout_zip(notes), stats=stats)
+    assert [n["title"] for n in parsed] == ["Small"]
+    assert stats["parse_errors"] == 1
+
+
+def test_parse_keep_takeout_lying_file_size_bounded_read():
+    """A member whose declared size lies below the cap is still bounded."""
+    big_json = json.dumps({"title": "Big", "textContent": "x" * (2 * 1024 * 1024 + 10)})
+    zip_bytes = _zip_with_declared_size("Takeout/Keep/lie.json", big_json, 100)
+    stats = {}
+    assert parse_keep_takeout(zip_bytes, stats=stats) == []
+    assert stats["parse_errors"] == 1
+
+
+def test_parse_keep_takeout_total_size_cap(monkeypatch):
+    """Declared uncompressed total over the cap is rejected before any read."""
+    from keepfor.utils import importer
+
+    monkeypatch.setattr(importer, "ZIP_MAX_TOTAL_BYTES", 1000)
+    zip_bytes = _make_keep_takeout_zip([{"title": "T", "textContent": "y" * 600}])
+    with pytest.raises(ZipBombError, match="uncompressed"):
+        parse_keep_takeout(zip_bytes)
+
+
+def test_parse_markdown_zip_total_size_cap(monkeypatch):
+    from keepfor.utils import importer
+
+    monkeypatch.setattr(importer, "ZIP_MAX_TOTAL_BYTES", 1000)
+    zip_bytes = _make_markdown_zip({"a.md": "y" * 600, "b.md": "z" * 600})
+    with pytest.raises(ZipBombError, match="uncompressed"):
+        parse_markdown_zip(zip_bytes)
+
+
+def test_parse_zip_member_count_cap(monkeypatch):
+    """Over the member-count cap both parsers refuse before opening anything."""
+    from keepfor.utils import importer
+
+    monkeypatch.setattr(importer, "ZIP_MAX_MEMBERS", 3)
+    zip_bytes = _make_markdown_zip({f"n{i}.md": "x" for i in range(4)})
+    with pytest.raises(ZipBombError, match="too many files"):
+        parse_markdown_zip(zip_bytes)
+    with pytest.raises(ZipBombError, match="too many files"):
+        parse_keep_takeout(zip_bytes)
+
+
+@pytest.mark.asyncio
+async def test_import_route_rejects_zip_bomb(db, monkeypatch):
+    """A zip over the caps gives a visible error and imports nothing."""
+    from fastapi.testclient import TestClient
+
+    from keepfor.app import app
+    from keepfor.auth.service import login_user
+    from keepfor.utils import importer
+
+    monkeypatch.setattr(importer, "ZIP_MAX_MEMBERS", 3)
+    env = MockEnv(queue=MockQueue())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    client = TestClient(app)
+
+    await register_user(db, "zipbomb@test.local", "password123")
+    _, session_id = await login_user(db, "zipbomb@test.local", "password123")
+    client.cookies.set("kfm_session", session_id)
+
+    zip_bytes = _make_markdown_zip({f"n{i}.md": "x" for i in range(4)})
+    resp = client.post(
+        "/import",
+        files={"file": ("bomb.zip", zip_bytes, "application/zip")},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/settings"
+    set_cookie = resp.headers.get("set-cookie", "")
+    raw = set_cookie.split("import_summary=", 1)[1].split(";", 1)[0]
+    decoded = raw.strip('"').replace("\\054", ",").replace('\\"', '"')
+    assert "too many files" in decoded
+    assert env.QUEUE.sent == []  # nothing queued
+    row = await db.query_first("SELECT COUNT(*) AS c FROM items;")
+    assert row["c"] == 0
+
+    # The error is visible where the user lands (the settings page).
+    page = client.get("/settings")
+    assert "Import failed" in page.text
+    assert "too many files" in page.text
+
+
+def _import_summary(resp) -> dict:
+    """Parse the import summary cookie of an /import redirect."""
+    set_cookie = resp.headers.get("set-cookie", "")
+    raw = set_cookie.split("import_summary=", 1)[1].split(";", 1)[0]
+    decoded = raw.strip('"').replace("\\054", ",").replace('\\"', '"')
+    return json.loads(decoded)
+
+
+# ===== ENEX entity expansion (Pete review #2) =====
+
+BILLION_LAUGHS_ENEX = b"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE en-export [
+ <!ENTITY lol "lol">
+ <!ENTITY lol1 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">
+ <!ENTITY lol2 "&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;">
+ <!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">
+]>
+<en-export><note><title>&lol3;</title><content><![CDATA[x]]></content>
+<created>20240115T103000Z</created></note></en-export>"""
+
+
+def test_parse_enex_rejects_entity_expansion():
+    """A billion-laughs payload is refused, not expanded."""
+    from keepfor.utils.importer import parse_enex
+
+    with pytest.raises(ValueError, match="DTD"):
+        parse_enex(BILLION_LAUGHS_ENEX)
+
+
+@pytest.mark.asyncio
+async def test_import_route_rejects_enex_entity_expansion(db, monkeypatch):
+    """The upload gives a visible error and imports nothing."""
+    from fastapi.testclient import TestClient
+
+    from keepfor.app import app
+    from keepfor.auth.service import login_user
+
+    env = MockEnv(queue=MockQueue())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    client = TestClient(app)
+
+    await register_user(db, "enexbomb@test.local", "password123")
+    _, session_id = await login_user(db, "enexbomb@test.local", "password123")
+    client.cookies.set("kfm_session", session_id)
+
+    resp = client.post(
+        "/import",
+        files={"file": ("bomb.enex", BILLION_LAUGHS_ENEX, "application/xml")},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/settings"
+    summary = _import_summary(resp)
+    assert "rejected for safety" in summary["error"]
+    assert env.QUEUE.sent == []  # nothing queued
+    row = await db.query_first("SELECT COUNT(*) AS c FROM items;")
+    assert row["c"] == 0
+
+    page = client.get("/settings")
+    assert "rejected for safety" in page.text
+
+
+# ===== Upload size cap (Pete review #4) =====
+
+
+@pytest.mark.asyncio
+async def test_import_route_rejects_oversize_upload(db, monkeypatch):
+    """An upload over the 50 MB cap is rejected server-side."""
+    from fastapi.testclient import TestClient
+
+    from keepfor.app import app
+    from keepfor.auth.service import login_user
+    from keepfor.utils.importer import ZIP_MAX_BYTES
+
+    assert ZIP_MAX_BYTES == 50 * 1024 * 1024
+
+    env = MockEnv(queue=MockQueue())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    client = TestClient(app)
+
+    await register_user(db, "toobig@test.local", "password123")
+    _, session_id = await login_user(db, "toobig@test.local", "password123")
+    client.cookies.set("kfm_session", session_id)
+
+    resp = client.post(
+        "/import",
+        files={"file": ("big.zip", b"x" * (ZIP_MAX_BYTES + 1), "application/zip")},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/settings"
+    summary = _import_summary(resp)
+    assert "too large" in summary["error"]
+    assert env.QUEUE.sent == []  # nothing queued
+    row = await db.query_first("SELECT COUNT(*) AS c FROM items;")
+    assert row["c"] == 0

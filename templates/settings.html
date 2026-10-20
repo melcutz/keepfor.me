@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "partials/icons.html" import icon %}
+{% from "partials/import_summary.html" import import_summary_toast %}
 
 {% block title %}Settings & API — Keepfor.me{% endblock %}
 
@@ -187,6 +188,9 @@ opencode (opencode.json):
     <p class="text-xs text-slate-600 mb-4 leading-relaxed">
       Migrate your existing reading lists from Pocket, Instapaper, Omnivore, or standard browser HTML exports.
     </p>
+
+    <!-- Import result (a failed upload redirects back here) -->
+    {{ import_summary_toast(import_summary) }}
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       

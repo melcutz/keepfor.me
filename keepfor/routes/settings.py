@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import datetime
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import (
     APIRouter,
@@ -29,6 +29,7 @@ from keepfor.utils.importer import (
     HTML_CSV_MAX_BYTES,
     MAX_URLS_PER_IMPORT,
     ZIP_MAX_BYTES,
+    ZipBombError,
     detect_file_type,
     import_bookmarks,
     import_notes,
@@ -124,6 +125,16 @@ async def settings_page(request: Request, new_token: str | None = None):
     failed_count = (await get_status_counts(db, user["id"])).get("failed", 0)
     fail_counts = await get_fail_group_counts(db, user["id"])
 
+    # One-shot import summary: a failed upload redirects here, so the error
+    # has to be shown on this page (the cookie is dropped after rendering).
+    import_summary = None
+    import_summary_cookie = request.cookies.get("import_summary")
+    if import_summary_cookie:
+        try:
+            import_summary = json.loads(import_summary_cookie)
+        except Exception:
+            pass
+
     template = jinja_env.get_template("settings.html")
     html = template.render(
         current_user=user,
@@ -134,8 +145,12 @@ async def settings_page(request: Request, new_token: str | None = None):
         fail_counts=fail_counts,
         deleted_count=None,
         active_nav="settings",
+        import_summary=import_summary,
     )
-    return HTMLResponse(content=html)
+    response = HTMLResponse(content=html)
+    if import_summary_cookie:
+        response.delete_cookie("import_summary", path="/")
+    return response
 
 
 @router.post("/settings/tokens", response_class=HTMLResponse)
@@ -297,7 +312,7 @@ async def import_route(
     # The settings form uploads the export file directly (multipart).
     # Parse-stage summary shown after the redirect: counts only, never note
     # content (privacy invariant).
-    summary = {
+    summary: dict[str, Any] = {
         "notes_queued": 0,
         "trashed_skipped": 0,
         "attachments_not_imported": 0,
@@ -355,12 +370,22 @@ async def import_route(
         zip_errors = 0
         try:
             notes = parse_keep_takeout(raw, stats=parse_stats)
+        except ZipBombError as exc:
+            # The zip breaks the decompression caps: nothing is imported and
+            # the user is told why.
+            logger.warning(f"Zip rejected: {exc}")
+            summary["error"] = str(exc)
+            return _redirect_with_summary("/settings")
         except Exception as exc:
             zip_errors += 1
             logger.warning(f"Keep parse failed: {type(exc).__name__}")
         if not notes:
             try:
                 notes = parse_markdown_zip(raw, stats=parse_stats)
+            except ZipBombError as exc:
+                logger.warning(f"Zip rejected: {exc}")
+                summary["error"] = str(exc)
+                return _redirect_with_summary("/settings")
             except Exception as exc:
                 zip_errors += 1
                 logger.warning(f"Markdown zip parse failed: {type(exc).__name__}")
@@ -370,6 +395,11 @@ async def import_route(
     elif file_type == "enex":
         try:
             notes = parse_enex(raw)
+        except ValueError as exc:
+            # Malformed or rejected (DTD/entity expansion): the message is
+            # fixed text, never note content.
+            logger.warning(f"ENEX parse failed: {exc}")
+            summary["error"] = str(exc)
         except Exception as exc:
             logger.warning(f"ENEX parse failed: {type(exc).__name__}")
             summary["error"] = (
