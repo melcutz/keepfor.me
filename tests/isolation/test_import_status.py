@@ -89,8 +89,9 @@ async def test_import_status_is_not_rendered_for_another_tenant(
 
     await _seed_import(a.db, a.user["id"], "tenant-a-keep.zip")
 
+    # /settings/* refuses PATs outright, so this goes through the session.
     harness.client.cookies.clear()
-    page = harness.client.get("/settings", headers=b.auth_headers)
+    page = harness.client.get("/settings", cookies=b.cookies)
     assert page.status_code == 200
     assert "tenant-a-keep.zip" not in page.text
 
@@ -101,6 +102,6 @@ async def test_import_status_is_not_rendered_for_another_tenant(
 
     # The owner does see it.
     harness.client.cookies.clear()
-    page = harness.client.get("/settings", headers=a.auth_headers)
+    page = harness.client.get("/settings", cookies=a.cookies)
     assert page.status_code == 200
     assert "tenant-a-keep.zip" in page.text

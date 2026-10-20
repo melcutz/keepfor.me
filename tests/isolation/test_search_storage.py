@@ -27,7 +27,7 @@ async def test_search_isolation(harness: IsolationHarness):
     Tests:
     1. GET /search?q=<A_keyword> as B returns 0 of A's items
     2. POST /api/search with <A_keyword> as B returns 0 items
-    3. MCP tool 'search' with <A_keyword> as B returns 0 items
+    3. MCP tool 'search_library' with <A_keyword> as B returns 0 items
     4. Python hybrid_search as B returns 0 items
     5. Vector search with query vector identical to A's vector returns no A items
        (both with namespace and with namespace=None).
@@ -63,7 +63,7 @@ async def test_search_isolation(harness: IsolationHarness):
     assert resp_fts.status_code == 200
     assert len(resp_fts.json()) == 0
 
-    # 3. MCP tool 'search' as B
+    # 3. MCP tool 'search_library' as B
     mcp_resp = harness.client.post(
         "/api/mcp",
         json={
@@ -71,7 +71,7 @@ async def test_search_isolation(harness: IsolationHarness):
             "id": 1,
             "method": "tools/call",
             "params": {
-                "name": "search",
+                "name": "search_library",
                 "arguments": {"query": a.unique_keyword},
             },
         },

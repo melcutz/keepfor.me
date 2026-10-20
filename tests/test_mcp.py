@@ -1291,3 +1291,41 @@ async def test_read_only_pat_over_http(mcp_client, db):
         headers=headers,
     )
     assert "result" in res.json(), res.json()
+
+
+async def test_tools_call_fails_closed_on_unknown_tool(mcp_user):
+    """A tool with no schema entry is refused before any handler runs.
+
+    Fail closed: a future handler without a schema entry must not skip the
+    scope check. This also retires the undocumented "search" alias of
+    search_library, which was never in MCP_TOOLS.
+    """
+    user, env, db = mcp_user
+    for name in ("search", "no_such_tool"):
+        res = await process_mcp_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": {"query": "x"}},
+            },
+            db,
+            env,
+            user,
+        )
+        assert "error" in res, res
+        assert res["error"]["data"]["type"] == "not_found"
+        assert res["error"]["data"]["tool"] == name
+
+
+def test_every_tool_declares_annotations():
+    """Every tool carries explicit annotations: they are the scope source of
+    truth, and a missing readOnlyHint keeps defaulting to write (fail closed).
+    """
+    from keepfor.mcp.server import _tool_scope
+    from keepfor.spi import SCOPE_WRITE
+
+    for tool in MCP_TOOLS:
+        assert "annotations" in tool, tool["name"]
+        assert "readOnlyHint" in tool["annotations"], tool["name"]
+    assert _tool_scope({"name": "hypothetical"}) == SCOPE_WRITE

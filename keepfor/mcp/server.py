@@ -2518,27 +2518,38 @@ async def process_mcp_request(
         tool_name = params.get("name")
         arguments = params.get("arguments", {})
         tool = MCP_TOOLS_BY_NAME.get(tool_name)
-        if tool is not None:
-            required = _tool_scope(tool)
-            if not scope_grants(scopes, required):
-                # Refused before the tool runs: nothing is written.
-                return {
-                    "jsonrpc": "2.0",
-                    "id": req_id,
-                    "error": {
-                        "code": -32001,
-                        "message": (
-                            f"Tool '{tool_name}' needs the '{required}' scope; "
-                            f"this token has {', '.join(sorted(scopes)) or 'none'}."
-                        ),
-                        "data": {
-                            "type": "insufficient_scope",
-                            "tool": tool_name,
-                            "required_scope": required,
-                            "scopes": sorted(scopes),
-                        },
+        if tool is None:
+            # Fail closed: a handler without a schema entry must not skip
+            # the scope check.
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32602,
+                    "message": f"Unknown tool: {tool_name}",
+                    "data": {"type": "not_found", "tool": tool_name},
+                },
+            }
+        required = _tool_scope(tool)
+        if not scope_grants(scopes, required):
+            # Refused before the tool runs: nothing is written.
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32001,
+                    "message": (
+                        f"Tool '{tool_name}' needs the '{required}' scope; "
+                        f"this token has {', '.join(sorted(scopes)) or 'none'}."
+                    ),
+                    "data": {
+                        "type": "insufficient_scope",
+                        "tool": tool_name,
+                        "required_scope": required,
+                        "scopes": sorted(scopes),
                     },
-                }
+                },
+            }
         try:
             res = await handle_tool_call(
                 tool_name, arguments, db, env, user, scope=scope

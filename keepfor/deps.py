@@ -9,9 +9,10 @@ from typing import TYPE_CHECKING, Any
 from fastapi import HTTPException, Request
 
 from keepfor.models.db import Database
+from keepfor.spi import SCOPE_WRITE, scope_grants
 
 if TYPE_CHECKING:
-    from keepfor.spi import Providers, TenantScope
+    from keepfor.spi import Principal, Providers, TenantScope
 
 
 def get_env_from_request(request: Request) -> Any:
@@ -38,6 +39,28 @@ def get_providers(request: Request) -> Providers:
     return get_runtime_providers()
 
 
+def _enforce_pat_scope(request: Request, principal: Principal) -> None:
+    """Refuse token-authenticated requests the token's scope doesn't cover.
+
+    A PAT is an API credential: it may read, but every non-GET/HEAD route
+    needs the `write` scope — except `/api/mcp`, which enforces scopes per
+    tool. PATs are refused on /settings/* altogether, so a token can never
+    mint a broader one.
+    """
+    if principal.auth_kind != "pat":
+        return
+    path = request.url.path
+    if path == "/settings" or path.startswith("/settings/"):
+        raise HTTPException(
+            status_code=403,
+            detail="Personal access tokens cannot manage account settings.",
+        )
+    if request.method in ("GET", "HEAD") or path == "/api/mcp":
+        return
+    if not scope_grants(principal.scopes, SCOPE_WRITE):
+        raise HTTPException(status_code=403, detail="This token is read-only.")
+
+
 async def get_current_user(request: Request) -> dict[str, Any] | None:
     """Authenticate request principal and attach scope to request state."""
     state = getattr(request, "state", None)
@@ -51,6 +74,8 @@ async def get_current_user(request: Request) -> dict[str, Any] | None:
     principal = await providers.auth.authenticate(request)
     if principal is None:
         return None
+
+    _enforce_pat_scope(request, principal)
 
     env = get_env_from_request(request)
     if providers.scope is not None:
