@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import sys
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse
@@ -211,6 +212,16 @@ async def library_page(
         return RedirectResponse(url="/auth/login", status_code=303)
 
     db = deps.get_db(request)
+
+    # One-shot import summary from the import redirect (cookie deleted after
+    # render so the toast does not repeat on refresh).
+    import_summary = None
+    import_summary_cookie = request.cookies.get("import_summary")
+    if import_summary_cookie:
+        try:
+            import_summary = json.loads(import_summary_cookie)
+        except Exception:
+            pass
     env = deps.get_env_from_request(request)
     scope = deps.get_scope(request)
     clean_status = status.strip() if status and status.strip() else None
@@ -296,9 +307,13 @@ async def library_page(
         pinned_items=pinned_items,
         active_category=clean_category or "all",
         active_quick=bool(quick),
+        import_summary=import_summary,
         **pager,
     )
-    return HTMLResponse(content=html)
+    response = HTMLResponse(content=html)
+    if import_summary_cookie:
+        response.delete_cookie("import_summary", path="/")
+    return response
 
 
 @router.post("/search", response_class=HTMLResponse)

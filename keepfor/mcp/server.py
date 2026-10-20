@@ -71,7 +71,9 @@ MCP_TOOLS = [
     {
         "name": "search_library",
         "description": "Searches the library by keyword and meaning using "
-        "hybrid search (FTS5 + Vectorize).",
+        "hybrid search (FTS5 + Vectorize). Matches saved articles, personal "
+        "notes, and notes imported from Google Keep, Evernote (ENEX) or "
+        "Markdown exports.",
         "inputSchema": {
             "type": "object",
             "properties": {

@@ -574,6 +574,16 @@ async def process_queue_batch(batch: Any, env: Any) -> None:
                 if hasattr(msg, "ack"):
                     msg.ack()
                 continue
+            if isinstance(body, dict) and body.get("import_notes_batch"):
+                await _process_import_notes_batch(
+                    env,
+                    body.get("user_id"),
+                    body.get("import_notes_batch") or [],
+                    body.get("source") or "markdown",
+                )
+                if hasattr(msg, "ack"):
+                    msg.ack()
+                continue
             item_id = body.get("item_id") if isinstance(body, dict) else None
             url = body.get("url") if isinstance(body, dict) else None
             user_id = body.get("user_id") if isinstance(body, dict) else None
@@ -613,3 +623,26 @@ async def _process_import_batch(
             await save_item(db, env, user_id, url, tags, scope=scope)
         except Exception:
             continue
+
+
+async def _process_import_notes_batch(
+    env: Any, user_id: str | None, notes: list[dict], source: str
+) -> None:
+    """Saves one chunk of an uploaded notes export (Keep/ENEX/Markdown)."""
+    if not user_id or not notes:
+        return
+    from keepfor.runtime import get_providers
+    from keepfor.utils.importer import import_notes
+
+    providers = get_providers()
+    scope = await providers.scope.scope_for_tenant(user_id, env)
+    summary = await import_notes(
+        scope.db, env, user_id, notes, providers, scope, source
+    )
+    # Counts only: never log note titles or bodies (privacy invariant).
+    logger.info(
+        f"import_notes_batch_done source={source} "
+        f"imported={summary['notes_imported']} dupes={summary['duplicates_skipped']} "
+        f"urls={summary['urls_queued']} errors={summary['parse_errors']} "
+        f"plan_skipped={summary['plan_skipped']}"
+    )

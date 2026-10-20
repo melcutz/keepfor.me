@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "partials/icons.html" import icon %}
+{% from "partials/import_summary.html" import import_summary_toast %}
 
 {% block title %}Settings & API — Keepfor.me{% endblock %}
 
@@ -188,14 +189,22 @@ opencode (opencode.json):
       Migrate your existing reading lists from Pocket, Instapaper, Omnivore, or standard browser HTML exports.
     </p>
 
+    <!-- Import result (a failed upload redirects back here) -->
+    {{ import_summary_toast(import_summary) }}
+
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
       
       <!-- Import Card -->
       <div class="p-4 border border-slate-200 rounded-lg">
         <h4 class="text-xs font-bold text-slate-800 mb-1">Import Library</h4>
-        <p class="text-[11px] text-slate-500 mb-3">Upload Netscape HTML Bookmarks (.html) or CSV (.csv)</p>
+        <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">
+          Bookmarks: Netscape HTML (.html) or CSV (.csv), up to 10&nbsp;MB — from Pocket, Instapaper, Omnivore, or any browser.<br>
+          Notes: Google Keep Takeout zip (.zip), Evernote export (.enex), or a zip of Markdown/text files (.zip), up to 50&nbsp;MB.<br>
+          How to export: Google Takeout → Keep; Evernote → File → Export → ENEX; Apple Notes via the free Exporter app (Markdown); Obsidian/Simplenote → zip the folder.<br>
+          Notes keep their tags and dates; links inside notes are saved as regular bookmarks. Attachments are listed but not stored. Importing the same file twice creates no duplicates.
+        </p>
         <form action="/import" method="POST" enctype="multipart/form-data" class="space-y-3">
-          <input type="file" name="file" accept=".html,.htm,.csv" required
+          <input type="file" name="file" accept=".html,.htm,.csv,.zip,.enex" required
                  class="block w-full text-xs text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200">
           <button type="submit" class="w-full py-1.5 bg-slate-900 text-white rounded text-xs font-medium hover:bg-slate-800">
             Upload & Ingest

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "partials/icons.html" import icon %}
+{% from "partials/import_summary.html" import import_summary_toast %}
 
 {% block title %}Library — Keepfor.me{% endblock %}
 
@@ -83,6 +84,9 @@
         <a href="/?category=archive" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'archive' %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("archive", class="w-3.5 h-3.5") }}<span>Archive</span></a>
         <a href="{% if _cat and _cat != 'all' %}/?category={{ _cat }}&quick=1{% else %}/?quick=1{% endif %}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if active_quick %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("zap", class="w-3.5 h-3.5") }}<span>Quick Reads (&lt; 5 min)</span></a>
       </div>
+
+      <!-- Import Summary Toast -->
+      {{ import_summary_toast(import_summary) }}
 
       <style>
         body { overflow-x: clip; }

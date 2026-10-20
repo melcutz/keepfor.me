@@ -1,0 +1,19 @@
+{# Import summary toast: counts only, never note content (privacy invariant). #}
+{% macro import_summary_toast(summary) %}
+{% if summary %}
+<div class="mb-4 p-3 rounded-lg text-xs flex flex-wrap gap-2 {% if summary.error %}bg-red-50 border border-red-200 text-red-800{% else %}bg-emerald-50 border border-emerald-200 text-emerald-800{% endif %}">
+  {% if summary.error %}
+  <span class="font-semibold">Import failed:</span>
+  <span>{{ summary.error }}</span>
+  {% else %}
+  <span class="font-semibold">Import queued:</span>
+  <span>{{ summary.notes_queued }} notes queued</span>
+  {% if summary.trashed_skipped %}<span>· {{ summary.trashed_skipped }} trashed skipped</span>{% endif %}
+  {% if summary.attachments_not_imported %}<span>· {{ summary.attachments_not_imported }} attachments not imported</span>{% endif %}
+  {% if summary.urls_found %}<span>· {{ summary.urls_found }} URLs queued</span>{% endif %}
+  {% if summary.parse_errors %}<span class="text-amber-800">· {{ summary.parse_errors }} files skipped</span>{% endif %}
+  {% if summary.plan_skipped %}<span class="text-amber-800">· {{ summary.plan_skipped }} skipped: plan limit</span>{% endif %}
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
