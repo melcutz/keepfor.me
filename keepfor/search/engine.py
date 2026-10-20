@@ -5,10 +5,13 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse, urlunparse
 
 from keepfor.models.db import Database
+from keepfor.models.tags import expand_tag_names, tag_filter_clause
 from keepfor.search.vectors import VectorIndex
 from keepfor.utils.logging import logger
+from keepfor.utils.url import canonicalize_url
 
 if TYPE_CHECKING:
     from keepfor.spi import TenantScope
@@ -318,6 +321,9 @@ async def hybrid_search(
     category: str | None = None,
     quick: bool = False,
     *,
+    tags_all: list[str] | None = None,
+    tags_any: list[str] | None = None,
+    tags_none: list[str] | None = None,
     scope: TenantScope | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Execute hybrid search with RRF fusion, filters, and pagination.
@@ -334,6 +340,12 @@ async def hybrid_search(
     tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))][
         :MAX_TAG_FILTERS
     ]
+    # Child tags count: a filter on "work" also matches "work/research".
+    all_sets = await expand_tag_names(db, user_id, tags_all or [])
+    any_sets = await expand_tag_names(db, user_id, tags_any or [])
+    none_sets = await expand_tag_names(db, user_id, tags_none or [])
+    any_names = {n for names in any_sets.values() for n in names}
+    none_names = {n for names in none_sets.values() for n in names}
     if not query:
         # Fetch recent items and total count concurrently
         items, total = await asyncio.gather(
@@ -454,11 +466,18 @@ async def hybrid_search(
         if item_id in item_map:
             item = dict(item_map[item_id])
             item_tags = item_tags_map.get(item_id, [])
-            if tag_list:
-                lower = {t.lower() for t in item_tags}
-                if any(t not in lower for t in tag_list):
-                    continue
-            elif untagged and item_tags:
+            lower = {t.lower() for t in item_tags}
+            if tag_list and any(t not in lower for t in tag_list):
+                continue
+            if all_sets and any(
+                not lower.intersection(names) for names in all_sets.values()
+            ):
+                continue
+            if any_names and not lower.intersection(any_names):
+                continue
+            if none_names and lower.intersection(none_names):
+                continue
+            if untagged and item_tags:
                 continue
             item["tags"] = item_tags
             item["rrf_score"] = round(rrf_scores[item_id], 4)
@@ -617,6 +636,246 @@ async def count_recent_items(
     return rows[0]["count"] if rows else 0
 
 
+# Host of a canonical url, lowercased: "https://a.example/x" -> "a.example".
+_URL_HOST_EXPR = (
+    "LOWER(SUBSTR(SUBSTR(i.canonical_url, INSTR(i.canonical_url, '://') + 3), 1,"
+    " INSTR(SUBSTR(i.canonical_url, INSTR(i.canonical_url, '://') + 3), '/') - 1))"
+)
+
+
+def _like_escape(value: str) -> str:
+    """Escapes LIKE wildcards so a title prefix is matched literally."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _url_key(url: str) -> str:
+    """Normalized URL key for equality matching (canonical form, no www.)."""
+    canon = canonicalize_url(url or "")
+    parsed = urlparse(canon)
+    netloc = parsed.netloc
+    if netloc.startswith("www."):
+        netloc = netloc[4:]
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, "")
+    )
+
+
+async def match_items_by_url(db: Database, user_id: str, url: str) -> list[str]:
+    """Ids of owned items matching a url exactly or after normalization."""
+    raw = (url or "").strip()
+    if not raw:
+        return []
+    canon = canonicalize_url(raw)
+    rows = await db.query_all(
+        "SELECT id FROM items WHERE user_id = ? AND (url = ? OR canonical_url = ?);",
+        (user_id, raw, canon),
+    )
+    if rows:
+        return [r["id"] for r in rows]
+    key = _url_key(raw)
+    scan = await db.query_all(
+        "SELECT id, url, canonical_url FROM items WHERE user_id = ?;", (user_id,)
+    )
+    return [
+        r["id"]
+        for r in scan
+        if key in (_url_key(r["url"]), _url_key(r["canonical_url"]))
+    ]
+
+
+async def resolve_item(
+    db: Database,
+    user_id: str,
+    *,
+    item_id: str | None = None,
+    url: str | None = None,
+    title: str | None = None,
+) -> dict[str, Any] | None:
+    """Resolves one owned item by id, url, or exact title.
+
+    The url match is exact on the raw url and on the canonical form, so
+    tracking parameters, trailing slashes and a "www." prefix do not
+    matter. The title match is case-insensitive and exact; the most recent
+    item wins.
+    """
+    if item_id:
+        row = await db.query_first(
+            "SELECT * FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
+        )
+        return dict(row) if row else None
+    if url:
+        ids = await match_items_by_url(db, user_id, url)
+        if not ids:
+            return None
+        row = await db.query_first(
+            "SELECT * FROM items WHERE id = ? AND user_id = ?;", (ids[0], user_id)
+        )
+        return dict(row) if row else None
+    if title:
+        row = await db.query_first(
+            "SELECT * FROM items WHERE user_id = ? AND LOWER(title) = LOWER(?)"
+            " ORDER BY created_at DESC LIMIT 1;",
+            (user_id, title.strip()),
+        )
+        return dict(row) if row else None
+    return None
+
+
+async def _attach_tags(
+    db: Database, user_id: str, items: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Adds the tag list to each item (one extra query for the whole page)."""
+    if not items:
+        return items
+    ids = [it["id"] for it in items]
+    placeholders = ",".join("?" for _ in ids)
+    rows = await db.query_all(
+        "SELECT it.item_id, t.name AS tag_name FROM item_tags it"
+        " JOIN items i ON i.id = it.item_id AND i.user_id = ?"
+        " JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id"
+        f" WHERE it.item_id IN ({placeholders});",
+        (user_id, *ids),
+    )
+    tags_map: dict[str, list[str]] = {}
+    for r in rows:
+        tags_map.setdefault(r["item_id"], []).append(r["tag_name"])
+    for it in items:
+        it["tags"] = sorted(tags_map.get(it["id"], []))
+    return items
+
+
+async def list_items_compact(
+    db: Database,
+    user_id: str,
+    *,
+    sort: str = "saved",
+    since: str | None = None,
+    until: str | None = None,
+    domain: str | None = None,
+    pinned: bool | None = None,
+    item_type: str | None = None,
+    tags_all: list[str] | None = None,
+    tags_any: list[str] | None = None,
+    tags_none: list[str] | None = None,
+    untagged: bool = False,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Compact item listing: id, title, url, saved_at and tags only.
+
+    sort: "saved" (newest first), "opened" (most recently opened first),
+    "title" (alphabetical). Filters: since/until (saved date range),
+    domain (host), pinned (true/false), item_type ("note" or "url").
+    """
+    extra: list[str] = []
+    params: list[Any] = []
+    if since:
+        extra.append(" AND datetime(i.created_at) >= datetime(?)")
+        params.append(since)
+    if until:
+        extra.append(" AND datetime(i.created_at) <= datetime(?)")
+        params.append(until)
+    if domain:
+        host = domain.strip().lower()
+        extra.append(f" AND ({_URL_HOST_EXPR} = ? OR {_URL_HOST_EXPR} LIKE ?)")
+        params.extend([host, "%." + host])
+    if pinned is not None:
+        extra.append(" AND i.is_pinned = ?")
+        params.append(1 if pinned else 0)
+    if item_type:
+        extra.append(" AND i.item_type = ?")
+        params.append(item_type)
+
+    tag_clause, tag_params = await tag_filter_clause(
+        db,
+        user_id,
+        tags_all=tags_all,
+        tags_any=tags_any,
+        tags_none=tags_none,
+        untagged=untagged,
+    )
+    if tag_clause:
+        extra.append(tag_clause)
+    params.extend(tag_params)
+
+    if sort == "opened":
+        order = "(last_opened_at IS NULL), last_opened_at DESC, i.created_at DESC"
+    elif sort == "title":
+        order = "i.title COLLATE NOCASE ASC, i.created_at DESC"
+    else:
+        order = "i.created_at DESC, i.id DESC"
+
+    sql = f"""
+        SELECT i.id, i.title, i.url, i.created_at AS saved_at, i.item_type,
+               i.is_pinned, i.status,
+               (SELECT MAX(io.opened_at) FROM item_opens io
+                WHERE io.item_id = i.id AND io.user_id = i.user_id) AS last_opened_at
+        FROM items i
+        WHERE i.user_id = ?{"".join(extra)}
+        ORDER BY {order}
+        LIMIT ? OFFSET ?;
+    """
+    rows = await db.query_all(sql, (user_id, *params, limit, offset))
+    return await _attach_tags(db, user_id, [dict(r) for r in rows])
+
+
+async def find_items(
+    db: Database,
+    user_id: str,
+    *,
+    title: str | None = None,
+    url: str | None = None,
+    tags_all: list[str] | None = None,
+    tags_any: list[str] | None = None,
+    tags_none: list[str] | None = None,
+    untagged: bool = False,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Finds items by exact/prefix title or by url. No search, no embeddings.
+
+    The title matches exactly (case-insensitive) or as a prefix. The url
+    matches exactly or after normalization (canonical form, no www.).
+    """
+    extra: list[str] = []
+    params: list[Any] = []
+    if title:
+        clean = title.strip()
+        extra.append(
+            " AND (LOWER(i.title) = LOWER(?) OR LOWER(i.title) LIKE ? ESCAPE '\\')"
+        )
+        params.extend([clean, _like_escape(clean.lower()) + "%"])
+    if url:
+        ids = await match_items_by_url(db, user_id, url)
+        if not ids:
+            return []
+        extra.append(" AND i.id IN (" + ",".join("?" for _ in ids) + ")")
+        params.extend(ids)
+    if not title and not url:
+        return []
+
+    tag_clause, tag_params = await tag_filter_clause(
+        db,
+        user_id,
+        tags_all=tags_all,
+        tags_any=tags_any,
+        tags_none=tags_none,
+        untagged=untagged,
+    )
+    if tag_clause:
+        extra.append(tag_clause)
+    params.extend(tag_params)
+
+    sql = f"""
+        SELECT i.id, i.title, i.url, i.created_at AS saved_at, i.item_type
+        FROM items i
+        WHERE i.user_id = ?{"".join(extra)}
+        ORDER BY i.created_at DESC
+        LIMIT ?;
+    """
+    rows = await db.query_all(sql, (user_id, *params, limit))
+    return await _attach_tags(db, user_id, [dict(r) for r in rows])
+
+
 async def search_chunks(
     db: Database,
     env: Any,
@@ -629,6 +888,9 @@ async def search_chunks(
     tags: list[str] | None = None,
     untagged: bool = False,
     *,
+    tags_all: list[str] | None = None,
+    tags_any: list[str] | None = None,
+    tags_none: list[str] | None = None,
     scope: TenantScope | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Searches chunks (passages) using hybrid search with a max_chars budget.
@@ -662,6 +924,9 @@ async def search_chunks(
         tags=tag_list,
         untagged=untagged,
         limit=limit * 3,  # Get more items to find good chunks
+        tags_all=tags_all,
+        tags_any=tags_any,
+        tags_none=tags_none,
         scope=scope,
     )
 
@@ -868,6 +1133,11 @@ async def reading_history(
     event: str | None = None,  # "saved" | "opened" | "highlighted"
     limit: int = 20,
     offset: int = 0,
+    *,
+    tags_all: list[str] | None = None,
+    tags_any: list[str] | None = None,
+    tags_none: list[str] | None = None,
+    untagged: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """Returns reading history with date filtering.
 
@@ -897,6 +1167,19 @@ async def reading_history(
             "it.item_id = i.id AND LOWER(t.name) = LOWER(?))"
         )
         params.append(tag_list[0])
+
+    # Tag filters (all/any/none, child tags included)
+    new_clause, new_params = await tag_filter_clause(
+        db,
+        user_id,
+        tags_all=tags_all,
+        tags_any=tags_any,
+        tags_none=tags_none,
+        untagged=untagged,
+    )
+    if new_clause:
+        tag_clause += new_clause
+        params.extend(new_params)
 
     # Search query filter
     query_clause = ""
@@ -933,6 +1216,8 @@ async def reading_history(
         if until:
             opens_until = " AND datetime(io.opened_at) <= datetime(?)"
             opens_params.append(until)
+        opens_params.extend(params[1 + int(bool(since)) + int(bool(until)) :])
+        opens_params.extend([limit, offset])
 
         sql = f"""
             SELECT i.id, i.title, i.url, io.opened_at as event_time,
@@ -943,33 +1228,12 @@ async def reading_history(
             ORDER BY io.opened_at DESC
             LIMIT ? OFFSET ?;
         """
-        opens_params.extend([limit, offset])
         rows = await db.query_all(sql, tuple(opens_params))
     elif event == "highlighted":
         # Not implemented yet - no highlights table
         rows = []
     else:
-        # Both saved and opened - union
-        opens_since = ""
-        opens_until = ""
-        if since:
-            opens_since = " AND datetime(io.opened_at) >= datetime(?)"
-        if until:
-            opens_until = " AND datetime(io.opened_at) <= datetime(?)"
-
-        saved_params = [user_id]
-        if since:
-            saved_params.append(since)
-        if until:
-            saved_params.append(until)
-        if tag_list:
-            saved_params.append(tag_list[0])
-        if query:
-            saved_params.extend([fts_terms, user_id])
-
-        # This is complex - let's do a simpler approach: just return recent items
-        # with a flag for whether they were opened
-        # For now, return items ordered by created_at
+        # Both saved and opened: one row per item, flagged when it was opened.
         sql = f"""
             SELECT i.id, i.title, i.url, i.created_at as event_time,
                    'saved' as event_type, i.item_type,

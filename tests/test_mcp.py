@@ -295,7 +295,7 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 12
+    assert len(names) == 28
     assert "save_url" in names
     assert "save_note" in names
     assert "pin_item" in names
@@ -304,6 +304,20 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     assert "read_item" in names
     assert "reading_history" in names
     assert "related_items" in names
+    # New v3 tools: direct lookup + tag management
+    assert "find_item" in names
+    assert "list_tags" in names
+    assert "create_tag" in names
+    assert "delete_tag" in names
+    assert "tag_cleanup" in names
+    # Every tool declares annotations
+    for tool in res.json()["result"]["tools"]:
+        assert set(tool["annotations"]) == {
+            "readOnlyHint",
+            "destructiveHint",
+            "idempotentHint",
+        }
+        assert tool["description"]
 
 
 async def test_mcp_tools_call_save_url_over_http(mcp_client, pat_headers):

@@ -3,25 +3,52 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
 from keepfor.models.items import (
     add_tags_to_item,
+    create_tag,
     delete_item,
     get_item,
+    merge_tags,
     remove_tags_from_item,
+    rename_tag,
     save_item,
     save_note,
     toggle_pin_item,
 )
+from keepfor.models.tags import (
+    delete_tag as delete_tag_dry,
+)
+from keepfor.models.tags import (
+    find_duplicate_tags,
+    find_untagged_items,
+    find_unused_tags,
+    get_tag,
+    list_tags,
+    related_tags,
+    retag_by_query,
+    search_tags,
+    set_item_tags,
+    suggest_tags_for_item,
+    suggest_tags_for_text,
+    tag_filter_clause,
+    tag_items,
+    tag_stats,
+    update_tag,
+)
 from keepfor.search.engine import (
-    get_recent_items,
+    find_items,
     hybrid_search,
+    list_items_compact,
     read_item_chunks,
     reading_history,
     related_items,
+    resolve_item,
     search_chunks,
 )
 
@@ -38,6 +65,72 @@ SUPPORTED_PROTOCOL_VERSIONS = (
 )
 LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0]
 
+# Fields a compact list response can project onto. The default shape is
+# deliberately tiny: id, title, url, saved_at and tags.
+LIST_ITEM_FIELDS = (
+    "id",
+    "title",
+    "url",
+    "saved_at",
+    "tags",
+    "item_type",
+    "is_pinned",
+    "status",
+    "last_opened_at",
+)
+DEFAULT_LIST_FIELDS = ("id", "title", "url", "saved_at", "tags")
+
+# Shared tag filter arguments. Child tags count: "work" matches "work/research".
+_TAG_FILTER_PROPS = {
+    "tags_all": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": (
+            "Only items carrying ALL of these tags. Child tags count: "
+            "'work' also matches 'work/research'."
+        ),
+    },
+    "tags_any": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": (
+            "Only items carrying ANY of these tags. Child tags count: "
+            "'work' also matches 'work/research'."
+        ),
+    },
+    "tags_none": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": ("Exclude items carrying any of these tags. Child tags count."),
+    },
+    "untagged": {
+        "type": "boolean",
+        "default": False,
+        "description": "Only items without any tag.",
+    },
+}
+
+_READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
+_WRITE = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}
+_DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True}
+
+
+class ToolError(Exception):
+    """A structured tool failure: `kind` is a stable machine-readable code."""
+
+    def __init__(self, kind: str, message: str, **details: Any):
+        super().__init__(message)
+        self.kind = kind
+        self.details = details
+
+
+def _invalid(message: str, **details: Any) -> ToolError:
+    return ToolError("invalid_arguments", message, **details)
+
+
+def _not_found(message: str, **details: Any) -> ToolError:
+    return ToolError("not_found", message, **details)
+
 
 def negotiate_protocol_version(params: dict[str, Any]) -> str | None:
     """Return the protocol version to answer with, or None if unsupported.
@@ -52,6 +145,53 @@ def negotiate_protocol_version(params: dict[str, Any]) -> str | None:
     if requested in SUPPORTED_PROTOCOL_VERSIONS:
         return requested
     return None
+
+
+def _encode_cursor(offset: int) -> str:
+    """Encodes a pagination offset as an opaque cursor."""
+    return base64.urlsafe_b64encode(f"o:{offset}".encode()).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str) -> int:
+    """Decodes an opaque cursor back into a pagination offset."""
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode()).decode()
+        return int(raw.split(":", 1)[1])
+    except (ValueError, IndexError, binascii.Error, UnicodeDecodeError) as exc:
+        raise _invalid(f"Invalid cursor: {cursor!r}") from exc
+
+
+def _project(item: dict[str, Any], fields: list[str] | None) -> dict[str, Any]:
+    """Projects an item onto the requested fields (default: compact shape)."""
+    wanted = DEFAULT_LIST_FIELDS
+    if fields:
+        wanted = tuple(f for f in fields if f in LIST_ITEM_FIELDS)
+    return {f: item.get(f) for f in wanted}
+
+
+def _as_list(value: Any) -> list[str]:
+    """Normalizes a scalar or list argument into a list of strings."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v) for v in value]
+    return [str(value)]
+
+
+def _tag_filters(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Reads the tag filter arguments, folding the legacy tag/tags into tags_all."""
+    tags_all = _as_list(arguments.get("tags_all"))
+    if not tags_all:
+        tags_all = _as_list(arguments.get("tags"))
+    if not tags_all and arguments.get("tag"):
+        tags_all = [str(arguments["tag"])]
+    return {
+        "tags_all": tags_all,
+        "tags_any": _as_list(arguments.get("tags_any")),
+        "tags_none": _as_list(arguments.get("tags_none")),
+        "untagged": bool(arguments.get("untagged", False)),
+    }
 
 
 MCP_TOOLS = [
@@ -97,11 +237,7 @@ MCP_TOOLS = [
             },
             "required": ["url"],
         },
-        "annotations": {
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _WRITE,
     },
     {
         "name": "save_note",
@@ -154,11 +290,7 @@ MCP_TOOLS = [
             },
             "required": ["title", "content"],
         },
-        "annotations": {
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _WRITE,
     },
     {
         "name": "search_library",
@@ -167,7 +299,8 @@ MCP_TOOLS = [
         "notes, and notes imported from Google Keep, Evernote (ENEX) or "
         "Markdown exports. Returns item-level results with snippets. For "
         "passage-level citations with snapshot URLs, use search_passages "
-        "instead.",
+        "instead. For an exact title or url lookup, use find_item instead "
+        "(no search, no embeddings).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -189,11 +322,7 @@ MCP_TOOLS = [
                     "items": {"type": "string"},
                     "description": "Filter by multiple tags (AND).",
                 },
-                "untagged": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": "Show only items without tags.",
-                },
+                **_TAG_FILTER_PROPS,
                 "limit": {
                     "type": "integer",
                     "default": 10,
@@ -216,11 +345,7 @@ MCP_TOOLS = [
             },
             "required": ["query"],
         },
-        "annotations": {
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _READ_ONLY,
     },
     {
         "name": "search_passages",
@@ -244,18 +369,14 @@ MCP_TOOLS = [
                 },
                 "tag": {
                     "type": "string",
-                    "description": "Filter results by a specific tag.",
+                    "description": "Filter by a specific tag.",
                 },
                 "tags": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Filter by multiple tags (AND).",
                 },
-                "untagged": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": "Show only items without tags.",
-                },
+                **_TAG_FILTER_PROPS,
                 "limit": {
                     "type": "integer",
                     "default": 10,
@@ -281,11 +402,7 @@ MCP_TOOLS = [
             },
             "required": ["query"],
         },
-        "annotations": {
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _READ_ONLY,
     },
     {
         "name": "read_item",
@@ -323,15 +440,12 @@ MCP_TOOLS = [
             },
             "required": ["item_id"],
         },
-        "annotations": {
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _READ_ONLY,
     },
     {
         "name": "get_item",
-        "description": "Retrieves metadata and excerpt of a saved article by item ID. "
+        "description": "Retrieves metadata and excerpt of a saved article. "
+        "Identify the item with item_id, url, or an exact title. "
         "By default, content_text is capped to the excerpt for token efficiency. "
         "Use include_content=true to get full text (not recommended for large items). "
         "For paginated full-text reading, use read_item instead.",
@@ -342,6 +456,14 @@ MCP_TOOLS = [
                     "type": "string",
                     "description": "The unique ID of the library item.",
                 },
+                "url": {
+                    "type": "string",
+                    "description": "The item's url (exact or normalized match).",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "The item's exact title (case-insensitive).",
+                },
                 "include_content": {
                     "type": "boolean",
                     "default": False,
@@ -351,34 +473,82 @@ MCP_TOOLS = [
                     ),
                 },
             },
-            "required": ["item_id"],
         },
-        "annotations": {
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _READ_ONLY,
     },
     {
-        "name": "list_items",
-        "description": "Lists recent items from the library with pagination "
-        "and tag filtering. Supports cursor-based pagination. For search, "
-        "use search_library. For reading history with open events, use "
-        "reading_history instead.",
+        "name": "find_item",
+        "description": "Finds items by exact or prefix title, or by exact or "
+        "normalized url, and returns their ids. No search, no embeddings: this is "
+        "the cheap way to go from a title you know to an item_id. Use "
+        "get_item or read_item with the returned id. Use search_library when you "
+        "only remember a topic, not a title.",
         "inputSchema": {
             "type": "object",
             "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Exact title or title prefix to look for.",
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Exact or normalized url to look for.",
+                },
+                **_TAG_FILTER_PROPS,
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Max ids to return.",
+                },
+            },
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "list_items",
+        "description": "Lists library items in a compact shape (id, title, url, "
+        "saved_at, tags - no body text) with sorting, filters and pagination. "
+        "Use sort=saved for newest first, sort=opened for most recently opened, "
+        "sort=title for alphabetical. Filters: since/until (saved date range), "
+        "domain (host), pinned, type (note|url). For full-text search use "
+        "search_library; for reading history use reading_history.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sort": {
+                    "type": "string",
+                    "enum": ["saved", "opened", "title"],
+                    "default": "saved",
+                    "description": "Sort order.",
+                },
+                "since": {
+                    "type": "string",
+                    "description": "ISO datetime: only items saved at/after it.",
+                },
+                "until": {
+                    "type": "string",
+                    "description": "ISO datetime: only items saved at/before it.",
+                },
+                "domain": {
+                    "type": "string",
+                    "description": "Only items from this host (e.g. example.com).",
+                },
+                "pinned": {
+                    "type": "boolean",
+                    "description": "Only pinned (true) or only unpinned (false).",
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["note", "url"],
+                    "description": "Only notes or only saved urls.",
+                },
                 "tag": {"type": "string", "description": "Filter by tag."},
                 "tags": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Filter by multiple tags (AND).",
                 },
-                "untagged": {
-                    "type": "boolean",
-                    "default": False,
-                    "description": "Show only items without tags.",
-                },
+                **_TAG_FILTER_PROPS,
                 "limit": {
                     "type": "integer",
                     "default": 20,
@@ -396,15 +566,14 @@ MCP_TOOLS = [
                 "fields": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Projection: fields to include in response.",
+                    "description": (
+                        "Projection: fields to include. Default: "
+                        "id, title, url, saved_at, tags."
+                    ),
                 },
             },
         },
-        "annotations": {
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _READ_ONLY,
     },
     {
         "name": "reading_history",
@@ -434,6 +603,7 @@ MCP_TOOLS = [
                     "type": "string",
                     "description": "Filter by tag.",
                 },
+                **_TAG_FILTER_PROPS,
                 "event": {
                     "type": "string",
                     "enum": ["saved", "opened", "all"],
@@ -461,11 +631,7 @@ MCP_TOOLS = [
                 },
             },
         },
-        "annotations": {
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _READ_ONLY,
     },
     {
         "name": "related_items",
@@ -493,15 +659,13 @@ MCP_TOOLS = [
                 },
             },
         },
-        "annotations": {
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _READ_ONLY,
     },
     {
         "name": "tag_item",
-        "description": "Adds or removes tags on a saved library item.",
+        "description": "Adds or removes tags on a single saved library item. "
+        "For tagging many items at once use tag_items; to replace the whole tag "
+        "set of one item use set_item_tags.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -519,11 +683,326 @@ MCP_TOOLS = [
             },
             "required": ["item_id"],
         },
-        "annotations": {
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": True,
+        "annotations": _WRITE,
+    },
+    {
+        "name": "list_tags",
+        "description": "Lists the user's tags with item count and last-used date. "
+        "Use sort=count for the most used, sort=name alphabetically, sort=recent "
+        "for the most recently used. prefix filters by name, min_count hides tags "
+        "used fewer than N times. Use search_tags for fuzzy name lookup.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sort": {
+                    "type": "string",
+                    "enum": ["count", "name", "recent"],
+                    "default": "count",
+                    "description": "Sort order.",
+                },
+                "prefix": {
+                    "type": "string",
+                    "description": "Only tags whose name starts with this prefix.",
+                },
+                "min_count": {
+                    "type": "integer",
+                    "description": "Only tags used at least this many times.",
+                },
+            },
         },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "create_tag",
+        "description": "Creates a tag, optionally with a description, a color and "
+        "a parent tag for hierarchy (e.g. parent=work creates work/research). "
+        "Idempotent: an existing tag is not modified, use update_tag for that.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Tag name."},
+                "description": {
+                    "type": "string",
+                    "description": "Optional human description of the tag.",
+                },
+                "color": {
+                    "type": "string",
+                    "description": "Optional color, e.g. #ff8800.",
+                },
+                "parent": {
+                    "type": "string",
+                    "description": "Optional parent tag name (created if missing).",
+                },
+            },
+            "required": ["name"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "describe_tag",
+        "description": "Returns a tag's metadata: description, color, parent, "
+        "child tags, item count and last use. Use update_tag to change them.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Tag name."},
+            },
+            "required": ["name"],
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "update_tag",
+        "description": "Edits a tag's description, color and/or parent. Only the "
+        'arguments you pass are changed; description="" clears the description '
+        'and parent="" detaches the tag from its parent.',
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Tag name."},
+                "description": {
+                    "type": "string",
+                    "description": "New description (empty string clears it).",
+                },
+                "color": {"type": "string", "description": "New color."},
+                "parent": {
+                    "type": "string",
+                    "description": "New parent tag name (empty string detaches).",
+                },
+            },
+            "required": ["name"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "rename_tag",
+        "description": "Renames a tag; every item carrying it is updated. "
+        "Renaming onto an existing tag merges the two. Use merge_tags to fold "
+        "several tags into one at once.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "old": {"type": "string", "description": "Current tag name."},
+                "new": {"type": "string", "description": "New tag name."},
+            },
+            "required": ["old", "new"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "merge_tags",
+        "description": "Merges several source tags into one target tag: every item "
+        "carrying a source tag ends up carrying the target tag, and the source "
+        "tags disappear.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to merge away.",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Tag that survives the merge.",
+                },
+            },
+            "required": ["sources", "target"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "delete_tag",
+        "description": "Removes a tag from every item that carries it. Items are "
+        "never deleted, only untagged. Defaults to dry_run=true, which returns "
+        "the number of affected items and a sample without changing anything; "
+        "pass dry_run=false to apply.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Tag name."},
+                "dry_run": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Preview only (true) or apply (false).",
+                },
+            },
+            "required": ["name"],
+        },
+        "annotations": _DESTRUCTIVE,
+    },
+    {
+        "name": "tag_items",
+        "description": "Adds and/or removes tags across many items at once. "
+        "Defaults to dry_run=true, which returns the number of affected items "
+        "and a sample without changing anything; pass dry_run=false to apply.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Library item ids to tag.",
+                },
+                "add": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to add.",
+                },
+                "remove": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to remove.",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Preview only (true) or apply (false).",
+                },
+            },
+            "required": ["item_ids"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "retag_by_query",
+        "description": "Finds items by title/url substring (plus optional tag "
+        "filters) and adds/removes tags on them. Defaults to dry_run=true, which "
+        "returns the affected items without changing anything; pass dry_run=false "
+        "to apply.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Substring matched against title and url.",
+                },
+                **_TAG_FILTER_PROPS,
+                "add": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to add.",
+                },
+                "remove": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags to remove.",
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Preview only (true) or apply (false).",
+                },
+            },
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "set_item_tags",
+        "description": "Replaces the whole tag set of one item with the given "
+        "tags. Tags not in the list are removed. Use tag_item to add or remove "
+        "a few tags without touching the rest.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {"type": "string", "description": "The library item ID."},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "The complete set of tags the item should have.",
+                },
+            },
+            "required": ["item_id", "tags"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "suggest_tags",
+        "description": "Suggests tags for an item (item_id) or for free text "
+        "(text). Suggestions are drawn from the user's existing tag vocabulary "
+        "first, then from keyphrases. No network calls. Use tag_items or "
+        "set_item_tags to apply them.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "Library item to suggest tags for.",
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Alternative: free text to suggest tags for.",
+                },
+            },
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "search_tags",
+        "description": "Fuzzy search over tag names and descriptions: matches "
+        "substrings and separator variants, so 'machinelearning' finds "
+        "'machine-learning'. Use list_tags to enumerate, search_tags to look one up.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Text to look for."},
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Max tags to return.",
+                },
+            },
+            "required": ["query"],
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "tag_stats",
+        "description": "Returns tag usage statistics: total tags, total items, "
+        "tagged and untagged item counts, and the most used tags.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "related_tags",
+        "description": "Returns tags that co-occur with a tag on the same items, "
+        "most frequent first. Use it to find a tag's neighbourhood in the "
+        "vocabulary.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tag": {"type": "string", "description": "Tag name."},
+                "limit": {
+                    "type": "integer",
+                    "default": 10,
+                    "description": "Max related tags to return.",
+                },
+            },
+            "required": ["tag"],
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "tag_cleanup",
+        "description": "Finds cleanup candidates in the tag vocabulary: "
+        "near-duplicate tags (case/plural/separator/acronym variants such as "
+        "'ml' and 'machine-learning'), unused tags with no items, and untagged "
+        "items. Read-only: it reports what could be cleaned up, it never "
+        "changes anything.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Max untagged items to sample.",
+                },
+            },
+        },
+        "annotations": _READ_ONLY,
     },
     {
         "name": "delete_item",
@@ -539,11 +1018,7 @@ MCP_TOOLS = [
             },
             "required": ["item_id"],
         },
-        "annotations": {
-            "readOnlyHint": False,
-            "destructiveHint": True,
-            "idempotentHint": True,
-        },
+        "annotations": _DESTRUCTIVE,
     },
     {
         "name": "pin_item",
@@ -556,11 +1031,7 @@ MCP_TOOLS = [
             },
             "required": ["item_id"],
         },
-        "annotations": {
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": True,
-        },
+        "annotations": _WRITE,
     },
 ]
 
@@ -579,10 +1050,8 @@ async def handle_tool_call(
     if tool_name == "save_url":
         url = arguments.get("url")
         if not url or not isinstance(url, str):
-            raise ValueError("save_url requires a valid url")
-        tags = arguments.get("tags") or []
-        if not isinstance(tags, list):
-            tags = [str(tags)]
+            raise _invalid("save_url requires a valid url")
+        tags = _as_list(arguments.get("tags"))
         # v2 fields
         agent_summary = arguments.get("agent_summary")
         why_saved = arguments.get("why_saved")
@@ -613,11 +1082,8 @@ async def handle_tool_call(
     elif tool_name == "search_passages":
         query = arguments.get("query", "")
         if not query:
-            raise ValueError("search_passages requires a query")
+            raise _invalid("search_passages requires a query")
         mode = arguments.get("mode", "hybrid")
-        tag = arguments.get("tag")
-        tags = arguments.get("tags")
-        untagged = arguments.get("untagged", False)
         limit = arguments.get("limit", 10)
         max_chars = arguments.get("max_chars", 4000)
         passages, total = await search_chunks(
@@ -626,12 +1092,10 @@ async def handle_tool_call(
             user_id,
             query,
             mode=mode,
-            tag=tag,
-            tags=tags,
-            untagged=untagged,
             limit=limit,
             max_chars=max_chars,
             scope=scope,
+            **_tag_filters(arguments),
         )
         return {
             "passages": passages,
@@ -643,7 +1107,7 @@ async def handle_tool_call(
     elif tool_name == "read_item":
         item_id = arguments.get("item_id")
         if not item_id or not isinstance(item_id, str):
-            raise ValueError("item_id is required")
+            raise _invalid("item_id is required")
         cursor = arguments.get("cursor", 0)
         max_tokens = arguments.get("max_tokens", 2000)
         format = arguments.get("format", "markdown")
@@ -660,24 +1124,24 @@ async def handle_tool_call(
 
     elif tool_name in ("search_library", "search"):
         query = arguments.get("query", "")
+        if not query:
+            raise _invalid("search_library requires a query")
         mode = arguments.get("mode", "hybrid")
-        tag = arguments.get("tag")
-        tags = arguments.get("tags")
-        untagged = arguments.get("untagged", False)
         limit = arguments.get("limit", 10)
         offset = arguments.get("offset", 0)
+        cursor = arguments.get("cursor")
+        if cursor:
+            offset = _decode_cursor(cursor)
         items, total = await hybrid_search(
             db,
             env,
             user_id,
             query,
             mode=mode,
-            tag=tag,
-            tags=tags,
-            untagged=untagged,
             limit=limit,
             offset=offset,
             scope=scope,
+            **_tag_filters(arguments),
         )
         return {
             "items": [
@@ -702,14 +1166,19 @@ async def handle_tool_call(
 
     elif tool_name == "get_item":
         item_id = arguments.get("item_id")
-        if not item_id or not isinstance(item_id, str):
-            raise ValueError("item_id is required")
+        url = arguments.get("url")
+        title = arguments.get("title")
+        if not item_id and not url and not title:
+            raise _invalid("get_item requires item_id, url or title")
         include_content = arguments.get("include_content", False)
+        row = await resolve_item(db, user_id, item_id=item_id, url=url, title=title)
+        if not row:
+            raise _not_found("No item found for the given item_id, url or title.")
         found_item = await get_item(
-            db, user_id, item_id, include_content=include_content
+            db, user_id, row["id"], include_content=include_content
         )
         if not found_item:
-            raise ValueError(f"Item not found with id: {item_id}")
+            raise _not_found("Item not found.")
         return {
             "id": found_item["id"],
             "title": found_item.get("title"),
@@ -728,63 +1197,78 @@ async def handle_tool_call(
             "summary": found_item.get("summary"),
             "image_url": found_item.get("image_url"),
             "read_state": found_item.get("read_state", "unread"),
+            "saved_at": found_item.get("created_at"),
             "agent_summary": found_item.get("agent_summary"),
             "why_saved": found_item.get("why_saved"),
             "source_context": found_item.get("source_context"),
             "saved_by": found_item.get("saved_by"),
         }
 
-    elif tool_name == "list_items":
-        tag = arguments.get("tag")
-        tags = arguments.get("tags")
-        untagged = arguments.get("untagged", False)
+    elif tool_name == "find_item":
+        title = arguments.get("title")
+        url = arguments.get("url")
+        if not title and not url:
+            raise _invalid("find_item requires title or url")
         limit = arguments.get("limit", 20)
-        offset = arguments.get("offset", 0)
-        items = await get_recent_items(
+        items = await find_items(
             db,
             user_id,
-            tag=tag,
-            tags=tags,
-            untagged=untagged,
+            title=title,
+            url=url,
             limit=limit,
-            offset=offset,
+            **_tag_filters(arguments),
         )
         return {
-            "items": [
-                {
-                    "id": it["id"],
-                    "title": it.get("title") or it["url"],
-                    "url": it["url"],
-                    "excerpt": it.get("excerpt"),
-                    "tags": it.get("tags", []),
-                    "status": it.get("status"),
-                    "item_type": it.get("item_type", "url"),
-                    "is_pinned": bool(it.get("is_pinned", 0)),
-                }
-                for it in items
-            ],
+            "ids": [it["id"] for it in items],
+            "count": len(items),
+            "items": [_project(it, None) for it in items],
+        }
+
+    elif tool_name == "list_items":
+        limit = arguments.get("limit", 20)
+        offset = arguments.get("offset", 0)
+        cursor = arguments.get("cursor")
+        if cursor:
+            offset = _decode_cursor(cursor)
+        fields = arguments.get("fields")
+        items = await list_items_compact(
+            db,
+            user_id,
+            sort=arguments.get("sort", "saved"),
+            since=arguments.get("since"),
+            until=arguments.get("until"),
+            domain=arguments.get("domain"),
+            pinned=arguments.get("pinned"),
+            item_type=arguments.get("type"),
+            limit=limit + 1,
+            offset=offset,
+            **_tag_filters(arguments),
+        )
+        has_more = len(items) > limit
+        items = items[:limit]
+        return {
+            "items": [_project(it, fields) for it in items],
             "limit": limit,
             "offset": offset,
+            "next_cursor": _encode_cursor(offset + limit) if has_more else None,
         }
 
     elif tool_name == "reading_history":
-        since = arguments.get("since")
-        until = arguments.get("until")
-        query = arguments.get("query")
-        tag = arguments.get("tag")
-        event = arguments.get("event", "all")
         limit = arguments.get("limit", 20)
         offset = arguments.get("offset", 0)
+        cursor = arguments.get("cursor")
+        if cursor:
+            offset = _decode_cursor(cursor)
         items, total = await reading_history(
             db,
             user_id,
-            since=since,
-            until=until,
-            query=query,
-            tag=tag,
-            event=event,
+            since=arguments.get("since"),
+            until=arguments.get("until"),
+            query=arguments.get("query"),
+            event=arguments.get("event", "all"),
             limit=limit,
             offset=offset,
+            **_tag_filters(arguments),
         )
         return {
             "items": items,
@@ -797,7 +1281,7 @@ async def handle_tool_call(
         item_id = arguments.get("item_id")
         text = arguments.get("text")
         if not item_id and not text:
-            raise ValueError("related_items requires either item_id or text")
+            raise _invalid("related_items requires either item_id or text")
         limit = arguments.get("limit", 10)
         items = await related_items(
             db, env, user_id, item_id=item_id, text=text, limit=limit, scope=scope
@@ -810,13 +1294,9 @@ async def handle_tool_call(
     elif tool_name == "tag_item":
         item_id = arguments.get("item_id")
         if not item_id or not isinstance(item_id, str):
-            raise ValueError("item_id is required")
-        add_tags = arguments.get("add_tags") or []
-        if not isinstance(add_tags, list):
-            add_tags = [str(add_tags)]
-        remove_tags = arguments.get("remove_tags") or []
-        if not isinstance(remove_tags, list):
-            remove_tags = [str(remove_tags)]
+            raise _invalid("item_id is required")
+        add_tags = _as_list(arguments.get("add_tags"))
+        remove_tags = _as_list(arguments.get("remove_tags"))
         if add_tags:
             await add_tags_to_item(db, user_id, item_id, add_tags)
         if remove_tags:
@@ -825,17 +1305,208 @@ async def handle_tool_call(
         tags = tag_item_res.get("tags", []) if tag_item_res else []
         return {"id": item_id, "tags": tags}
 
+    elif tool_name == "list_tags":
+        tags = await list_tags(
+            db,
+            user_id,
+            sort=arguments.get("sort", "count"),
+            prefix=arguments.get("prefix"),
+            min_count=arguments.get("min_count"),
+        )
+        return {"tags": tags, "count": len(tags)}
+
+    elif tool_name == "create_tag":
+        name = arguments.get("name")
+        if not name or not isinstance(name, str):
+            raise _invalid("create_tag requires a name")
+        existing = await get_tag(db, user_id, name)
+        clean = await create_tag(
+            db,
+            user_id,
+            name,
+            description=arguments.get("description"),
+            color=arguments.get("color"),
+            parent=arguments.get("parent"),
+        )
+        if not clean:
+            raise _invalid("Invalid tag name.")
+        return {
+            "name": clean,
+            "created": existing is None,
+            "tag": await get_tag(db, user_id, clean),
+        }
+
+    elif tool_name == "describe_tag":
+        name = arguments.get("name")
+        if not name or not isinstance(name, str):
+            raise _invalid("describe_tag requires a name")
+        tag = await get_tag(db, user_id, name)
+        if not tag:
+            raise _not_found("Tag not found.")
+        children = await db.query_all(
+            "SELECT name FROM tags WHERE user_id = ? AND parent_id = ?"
+            " ORDER BY name ASC;",
+            (user_id, tag["id"]),
+        )
+        count = await db.query_first(
+            "SELECT COUNT(*) as c FROM item_tags it JOIN items i"
+            " ON i.id = it.item_id AND i.user_id = ? WHERE it.tag_id = ?;",
+            (user_id, tag["id"]),
+        )
+        return {
+            **tag,
+            "children": [r["name"] for r in children],
+            "count": count["c"] if count else 0,
+        }
+
+    elif tool_name == "update_tag":
+        name = arguments.get("name")
+        if not name or not isinstance(name, str):
+            raise _invalid("update_tag requires a name")
+        updated = await update_tag(
+            db,
+            user_id,
+            name,
+            description=arguments.get("description"),
+            color=arguments.get("color"),
+            parent=arguments.get("parent"),
+        )
+        if not updated:
+            raise _not_found("Tag not found.")
+        return {"updated": True, "tag": await get_tag(db, user_id, name)}
+
+    elif tool_name == "rename_tag":
+        old = arguments.get("old")
+        new = arguments.get("new")
+        if not old or not new:
+            raise _invalid("rename_tag requires old and new")
+        result = await rename_tag(db, user_id, old, new)
+        if result == "not_found":
+            raise _not_found("Tag not found.")
+        if result == "invalid":
+            raise _invalid("Invalid tag name.")
+        return {"result": result, "tag": await get_tag(db, user_id, new)}
+
+    elif tool_name == "merge_tags":
+        sources = _as_list(arguments.get("sources"))
+        target = arguments.get("target")
+        if not sources or not target:
+            raise _invalid("merge_tags requires sources and target")
+        result = await merge_tags(db, user_id, sources, target)
+        if result == "invalid":
+            raise _invalid("Invalid tag name.")
+        return {"result": result, "tag": await get_tag(db, user_id, target)}
+
+    elif tool_name == "delete_tag":
+        name = arguments.get("name")
+        if not name or not isinstance(name, str):
+            raise _invalid("delete_tag requires a name")
+        dry_run = arguments.get("dry_run", True)
+        result = await delete_tag_dry(db, user_id, name, dry_run=bool(dry_run))
+        if not result["found"]:
+            raise _not_found("Tag not found.")
+        return {**result, "dry_run": bool(dry_run)}
+
+    elif tool_name == "tag_items":
+        item_ids = _as_list(arguments.get("item_ids"))
+        if not item_ids:
+            raise _invalid("tag_items requires item_ids")
+        dry_run = arguments.get("dry_run", True)
+        result = await tag_items(
+            db,
+            user_id,
+            item_ids,
+            add=_as_list(arguments.get("add")),
+            remove=_as_list(arguments.get("remove")),
+            dry_run=bool(dry_run),
+        )
+        return {**result, "dry_run": bool(dry_run)}
+
+    elif tool_name == "retag_by_query":
+        add = _as_list(arguments.get("add"))
+        remove = _as_list(arguments.get("remove"))
+        if not add and not remove:
+            raise _invalid("retag_by_query requires add and/or remove")
+        dry_run = arguments.get("dry_run", True)
+        filters = _tag_filters(arguments)
+        tag_clause, tag_params = await tag_filter_clause(
+            db,
+            user_id,
+            tags_all=filters["tags_all"],
+            tags_any=filters["tags_any"],
+            tags_none=filters["tags_none"],
+            untagged=filters["untagged"],
+        )
+        result = await retag_by_query(
+            db,
+            user_id,
+            query=arguments.get("query"),
+            add=add,
+            remove=remove,
+            dry_run=bool(dry_run),
+            tag_clause=tag_clause,
+            tag_params=tag_params,
+        )
+        return {**result, "dry_run": bool(dry_run)}
+
+    elif tool_name == "set_item_tags":
+        item_id = arguments.get("item_id")
+        if not item_id or not isinstance(item_id, str):
+            raise _invalid("set_item_tags requires an item_id")
+        result = await set_item_tags(
+            db, user_id, item_id, _as_list(arguments.get("tags"))
+        )
+        if not result["found"]:
+            raise _not_found("Item not found.")
+        return result
+
+    elif tool_name == "suggest_tags":
+        item_id = arguments.get("item_id")
+        text = arguments.get("text")
+        if not item_id and not text:
+            raise _invalid("suggest_tags requires item_id or text")
+        if item_id:
+            suggestions = await suggest_tags_for_item(db, user_id, item_id)
+        else:
+            suggestions = await suggest_tags_for_text(db, user_id, text)
+        return {"suggestions": suggestions, "count": len(suggestions)}
+
+    elif tool_name == "search_tags":
+        query = arguments.get("query")
+        if not query or not isinstance(query, str):
+            raise _invalid("search_tags requires a query")
+        tags = await search_tags(db, user_id, query, limit=arguments.get("limit", 20))
+        return {"tags": tags, "count": len(tags)}
+
+    elif tool_name == "tag_stats":
+        return await tag_stats(db, user_id)
+
+    elif tool_name == "related_tags":
+        tag = arguments.get("tag")
+        if not tag or not isinstance(tag, str):
+            raise _invalid("related_tags requires a tag")
+        related = await related_tags(db, user_id, tag, limit=arguments.get("limit", 10))
+        return {"tags": related, "count": len(related)}
+
+    elif tool_name == "tag_cleanup":
+        limit = arguments.get("limit", 20)
+        return {
+            "near_duplicates": await find_duplicate_tags(db, user_id),
+            "unused_tags": await find_unused_tags(db, user_id),
+            "untagged_items": await find_untagged_items(db, user_id, limit=limit),
+        }
+
     elif tool_name == "delete_item":
         item_id = arguments.get("item_id")
         if not item_id or not isinstance(item_id, str):
-            raise ValueError("item_id is required")
+            raise _invalid("item_id is required")
         success = await delete_item(db, env, user_id, item_id, scope=scope)
         return {"id": item_id, "deleted": success}
 
     elif tool_name == "save_note":
         title = arguments.get("title", "")
         content = arguments.get("content", "")
-        tags = arguments.get("tags", [])
+        tags = _as_list(arguments.get("tags"))
         is_pinned = bool(arguments.get("is_pinned", False))
         # v2 fields
         agent_summary = arguments.get("agent_summary")
@@ -843,7 +1514,7 @@ async def handle_tool_call(
         source_context = arguments.get("source_context")
         saved_by = arguments.get("saved_by")
         if not (title or "").strip() and not (content or "").strip():
-            raise ValueError("save_note requires a title or content")
+            raise _invalid("save_note requires a title or content")
         note = await save_note(
             db,
             env,
@@ -869,23 +1540,23 @@ async def handle_tool_call(
     elif tool_name == "pin_item":
         item_id = arguments.get("item_id")
         if not item_id or not isinstance(item_id, str):
-            raise ValueError("item_id is required")
+            raise _invalid("item_id is required")
         pinned = arguments.get("pinned")
         if pinned is None:
             new_state = await toggle_pin_item(db, user_id, item_id)
             if new_state is None:
-                raise ValueError(f"Item not found with id: {item_id}")
+                raise _not_found("Item not found.")
             return {"id": item_id, "is_pinned": new_state}
         target_item = await get_item(db, user_id, item_id)
         if not target_item:
-            raise ValueError(f"Item not found with id: {item_id}")
+            raise _not_found("Item not found.")
         want = bool(pinned)
         if bool(target_item.get("is_pinned", 0)) != want:
             await toggle_pin_item(db, user_id, item_id)
         return {"id": item_id, "is_pinned": want}
 
     else:
-        raise ValueError(f"Unknown tool: {tool_name}")
+        raise _not_found(f"Unknown tool: {tool_name}")
 
 
 async def process_mcp_request(
@@ -949,7 +1620,7 @@ async def process_mcp_request(
             "result": {
                 "protocolVersion": version,
                 "capabilities": {"tools": {"listChanged": False}},
-                "serverInfo": {"name": "keepfor-me-mcp", "version": "0.2.0"},
+                "serverInfo": {"name": "keepfor-me-mcp", "version": "0.3.0"},
             },
         }
 
@@ -971,21 +1642,41 @@ async def process_mcp_request(
                     "content": [
                         {
                             "type": "text",
-                            "text": json.dumps(res, indent=2, ensure_ascii=False),
+                            # Compact JSON: the payload is read by agents, so
+                            # indentation is wasted tokens (and breaks the
+                            # 4 KB budget for a default list_items page).
+                            "text": json.dumps(res, ensure_ascii=False),
                         }
                     ]
+                },
+            }
+        except ToolError as exc:
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {
+                    "code": -32602,
+                    "message": str(exc),
+                    "data": {"type": exc.kind, "tool": tool_name, **exc.details},
                 },
             }
         except Exception as exc:
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "error": {"code": -32603, "message": str(exc)},
+                "error": {
+                    "code": -32603,
+                    "message": str(exc),
+                    "data": {"type": "internal_error", "tool": tool_name},
+                },
             }
 
     else:
         return {
             "jsonrpc": "2.0",
             "id": req_id,
-            "error": {"code": -32601, "message": f"Method '{method}' not found"},
+            "error": {
+                "code": -32601,
+                "message": f"Method '{method}' not found",
+            },
         }

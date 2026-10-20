@@ -546,3 +546,115 @@ async def test_mcp_save_note_v2_isolation(harness: IsolationHarness):
     assert resp.status_code == 200
     snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
     assert snap_a_after == snap_a_before
+
+
+# Every tool added for MCP v3 (direct lookup + tag management). "ITEM" is
+# replaced with Tenant A's item id, which Tenant B must never touch.
+NEW_MCP_TOOLS = [
+    ("find_item", {"title": "Title"}),
+    ("list_tags", {}),
+    ("create_tag", {"name": "iso-tag"}),
+    ("describe_tag", {"name": "tag1"}),
+    ("update_tag", {"name": "tag1", "description": "hijack"}),
+    ("rename_tag", {"old": "tag1", "new": "iso-renamed"}),
+    ("merge_tags", {"sources": ["tag1"], "target": "iso-merged"}),
+    ("delete_tag", {"name": "tag1", "dry_run": False}),
+    ("tag_items", {"item_ids": "ITEM", "add": ["hijack"], "dry_run": False}),
+    ("retag_by_query", {"query": "html", "add": ["hijack"], "dry_run": False}),
+    ("set_item_tags", {"item_id": "ITEM", "tags": ["hijack"]}),
+    ("suggest_tags", {"item_id": "ITEM"}),
+    ("search_tags", {"query": "tag"}),
+    ("tag_stats", {}),
+    ("related_tags", {"tag": "tag1"}),
+    ("tag_cleanup", {}),
+]
+
+
+@pytest.mark.parametrize("tool_name,arguments", NEW_MCP_TOOLS)
+@pytest.mark.asyncio
+async def test_mcp_new_tools_isolation(
+    harness: IsolationHarness, tool_name: str, arguments: dict[str, Any]
+):
+    """Each new MCP tool, called as Tenant B, never touches Tenant A."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    args = {
+        key: (a.html_item_id if value == "ITEM" else value)
+        for key, value in arguments.items()
+    }
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 400,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": args},
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    text = resp.text
+    assert a.unique_keyword not in text, f"{tool_name} leaked A's keyword"
+    assert a.html_item_id not in text, f"{tool_name} leaked A's item id"
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, f"{tool_name} modified Tenant A"
+
+
+@pytest.mark.asyncio
+async def test_mcp_find_item_isolation(harness: IsolationHarness):
+    """MCP find_item as Tenant B never returns Tenant A's items."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 401,
+            "method": "tools/call",
+            "params": {
+                "name": "find_item",
+                "arguments": {"title": f"Title {a.unique_keyword}"},
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "result" in data
+    content = data["result"].get("content", [])
+    for block in content:
+        text = block.get("text", "")
+        assert a.unique_keyword not in text
+        assert a.html_item_id not in text
+
+
+@pytest.mark.asyncio
+async def test_mcp_tag_filters_isolation(harness: IsolationHarness):
+    """Tag filters as Tenant B never surface Tenant A's items."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    for tool, args in (
+        ("list_items", {"tags_all": ["tag1"], "limit": 50}),
+        ("search_library", {"query": a.unique_keyword, "tags_any": ["tag1"]}),
+        ("reading_history", {"tags_all": ["tag1"], "limit": 50}),
+    ):
+        resp = harness.client.post(
+            "/api/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 402,
+                "method": "tools/call",
+                "params": {"name": tool, "arguments": args},
+            },
+            headers=b.auth_headers,
+        )
+        assert resp.status_code == 200
+        text = resp.text
+        assert a.unique_keyword not in text, f"{tool} leaked A's keyword"
+        assert a.html_item_id not in text, f"{tool} leaked A's item id"

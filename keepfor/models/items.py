@@ -380,8 +380,21 @@ async def delete_item(
     return True
 
 
-async def create_tag(db: Database, user_id: str, raw_name: str) -> str | None:
-    """Creates an empty tag (zero items allowed); idempotent. Returns name or None."""
+async def create_tag(
+    db: Database,
+    user_id: str,
+    raw_name: str,
+    *,
+    description: str | None = None,
+    color: str | None = None,
+    parent: str | None = None,
+) -> str | None:
+    """Creates an empty tag (zero items allowed); idempotent. Returns name or None.
+
+    Optional metadata (description, color) and a parent tag name for hierarchy
+    ("research" under "work"). A missing parent is created on the fly. An
+    existing tag is left untouched: use update_tag to edit its metadata.
+    """
     from keepfor.utils.tagger import validate_tag_name
 
     clean = validate_tag_name(raw_name or "")
@@ -392,11 +405,35 @@ async def create_tag(db: Database, user_id: str, raw_name: str) -> str | None:
     )
     if existing:
         return clean
+    parent_id = None
+    if parent:
+        parent_clean = validate_tag_name(parent)
+        if parent_clean and parent_clean != clean:
+            parent_id = await _ensure_tag_id(db, user_id, parent_clean)
     await db.execute(
-        "INSERT OR IGNORE INTO tags (id, user_id, name) VALUES (?, ?, ?);",
-        (str(uuid.uuid4()), user_id, clean),
+        "INSERT OR IGNORE INTO tags (id, user_id, name, description, color, parent_id)"
+        " VALUES (?, ?, ?, ?, ?, ?);",
+        (str(uuid.uuid4()), user_id, clean, description, color, parent_id),
     )
     return clean
+
+
+async def _ensure_tag_id(db: Database, user_id: str, name: str) -> str | None:
+    """Returns the id of a tag, creating it when missing."""
+    row = await db.query_first(
+        "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, name)
+    )
+    if row:
+        return row["id"]
+    new_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT OR IGNORE INTO tags (id, user_id, name) VALUES (?, ?, ?);",
+        (new_id, user_id, name),
+    )
+    row = await db.query_first(
+        "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, name)
+    )
+    return row["id"] if row else new_id
 
 
 async def rename_tag(db: Database, user_id: str, old_name: str, new_name: str) -> str:

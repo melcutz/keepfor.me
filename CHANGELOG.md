@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 - **MCP Server 0.2.0**: `get_item` tool now caps `content_text` to excerpt by default for token efficiency. Use `include_content=true` to retrieve full content. This is a breaking change from v1 where full content was always returned.
+- **MCP Server 0.3.0**: `get_item` no longer returns unbounded `content_text` by default (it stays capped to the excerpt unless `include_content=true`), and `list_items` now returns the **compact** shape (`id`, `title`, `url`, `saved_at`, `tags` — no `excerpt`, no `status`, no `item_type`). Pass `fields=[...]` to `list_items` to opt into the extra fields. Tool results are serialized as compact JSON instead of indented JSON, which keeps the default `list_items` page under 4 KB.
 
 ### Added
 - **Notes import** (GitHub issue #15): upload a **Google Keep Takeout zip**, an **Evernote `.enex`** file, or a **zip of Markdown/text files** (Obsidian vault, Apple Notes via Exporter, Simplenote) from Settings → Import. Notes become searchable Keepfor notes with tags and original creation dates; Keep checklists render as Markdown tasks, archived Keep notes land in the archive, and trashed Keep notes are skipped. Links inside notes (body URLs, Keep `WEBLINK` annotations, ENEX `source-url` web clips) become regular URL saves tagged `from-notes`.
@@ -19,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Import results (and any error) show as a one-shot toast on the library page; a failed upload also shows its error on the settings page it lands on. Logs contain counts only, never note content.
   - Migration `0008_import_sources.sql` (additive): `items.source`, `items.source_id` and a unique index backing the dedupe.
   - MCP `search_library` now surfaces imported notes alongside articles.
+- **MCP v3 Tools (Server 0.3.0)** — direct lookup and full tag management:
+  - `find_item`: Finds item ids by exact/prefix title or exact/normalized url. No search and no embeddings, so an agent goes from a title to the full text in two calls.
+  - `get_item` now accepts `item_id`, `url` or an exact `title`.
+  - `list_items`: Compact by default, with `sort` (`saved`/`opened`/`title`), filters (`since`, `until`, `domain`, `pinned`, `type`=`note`|`url`), `cursor`/`offset` pagination and a `fields` projection.
+  - `list_tags`, `create_tag`, `describe_tag`, `update_tag`, `rename_tag`, `merge_tags`, `delete_tag`: full tag management, including hierarchy (`parent`, e.g. `work/research`) via the new `tags.description`, `tags.color` and `tags.parent_id` columns.
+  - `tag_item` (existing) is joined by `tag_items`, `retag_by_query` and `set_item_tags` for bulk and whole-set tagging.
+  - `suggest_tags` (existing vocabulary first), `search_tags` (fuzzy over names and descriptions), `tag_stats`, `related_tags` (co-occurrence) and `tag_cleanup` (near-duplicate tags, unused tags, untagged items).
+  - Tag filters `tags_all`, `tags_any`, `tags_none` and `untagged` on `list_items`, `search_library`, `search_passages`, `find_item` and `reading_history`. Child tags count: filtering on `work` also matches `work/research`.
+  - Every bulk or destructive tag operation (`delete_tag`, `tag_items`, `retag_by_query`) defaults to `dry_run=true` and returns the affected count plus a sample; applying requires `dry_run=false`.
+  - Tool errors are structured: `error.data.type` is one of `invalid_arguments`, `not_found` or `internal_error`.
 - **MCP v2 Tools (Server 0.2.0)**:
   - `search_passages`: Passage-level hybrid search over semantic chunks with `max_chars` budget, returning `item_id`, `chunk_id`, char offsets, `snapshot_url` (permanent R2 archive), `saved_at`, and score. Supports `mode` (hybrid/keyword/semantic), tag filtering, and cursor pagination.
   - `read_item`: Paginated full-text reading with token budget (`max_tokens`), returning `text`, `next_cursor`, `total_chunks`, and `outline` for navigation. Each chunk ≤ `max_tokens`.
@@ -33,10 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Zip bombs in notes import**: both zip parsers (Google Keep Takeout and Markdown/text) now check the archive metadata before opening a single member — at most 20,000 members and 200 MB of declared uncompressed size — and read every member with a bounded read (2 MB per file, bigger ones are skipped and counted). Breaking a cap gives a visible error and imports nothing.
 - **XML entity expansion in `.enex`**: ENEX files are parsed with `defusedxml`, so a DTD/entity payload (billion laughs) is rejected with a visible error instead of being expanded.
 - **Plan limits on notes import**: imported notes and the URLs inside them count against the plan's item limit like bookmarks. The import stops at the remaining quota and reports "N skipped: plan limit" instead of aborting the whole upload (or refusing a file that only partly fits).
+- `reading_history` with `event="opened"` plus a tag or query filter raised a SQLite parameter mismatch instead of returning results.
 
 ### Changed
 - FTS5 index now includes v2 provenance fields (`agent_summary`, `why_saved`, `source_context`, `saved_by`) in `content_text` for searchability.
 - Migration 0009 adds `agent_summary`, `why_saved`, `source_context`, `saved_by` columns to `items` table.
+- Migration 0010 adds `description`, `color` and `parent_id` columns to the `tags` table for tag metadata and hierarchy.
+- The library export orders tags deterministically (`ORDER BY item_id, tag name`).
 
 ## [1.1.2] - 2026-10-10
 

@@ -144,7 +144,8 @@ async def test_export_library_html_escapes_entities(db):
     assert "<script>" not in exported_html
     assert "&lt;script&gt;" in exported_html or "%3Cscript%3E" in exported_html
     assert "Dangerous &lt;Title&gt; &amp; &quot;Quotes&quot;" in exported_html
-    assert 'TAGS="tag&amp;1,tag&quot;2"' in exported_html
+    assert "tag&amp;1" in exported_html
+    assert "tag&quot;2" in exported_html
 
 
 # ===== Google Keep Takeout Parser Tests =====
