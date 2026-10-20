@@ -22,9 +22,19 @@ async def save_item(
     tags: list[str] | None = None,
     *,
     scope: TenantScope | None = None,
+    agent_summary: str | None = None,
+    why_saved: str | None = None,
+    source_context: str | None = None,
+    saved_by: str | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Saves a URL to the user library with canonicalization and deduplication.
     Returns (item_dict, is_new).
+
+    v2 fields:
+    - agent_summary: AI-generated summary of the content
+    - why_saved: User's reason for saving
+    - source_context: Context from the conversation/task that led to saving
+    - saved_by: Name of the agent/client that saved the item
     """
     if scope is None:
         from keepfor.defaults import default_scope
@@ -65,10 +75,20 @@ async def save_item(
     item_id = str(uuid.uuid4())
     await db.execute(
         """
-        INSERT INTO items (id, user_id, url, canonical_url, status)
-        VALUES (?, ?, ?, ?, 'queued');
+        INSERT INTO items (id, user_id, url, canonical_url, status,
+            agent_summary, why_saved, source_context, saved_by)
+        VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?);
         """,
-        (item_id, user_id, url.strip(), clean_url),
+        (
+            item_id,
+            user_id,
+            url.strip(),
+            clean_url,
+            agent_summary,
+            why_saved,
+            source_context,
+            saved_by,
+        ),
     )
 
     try:
@@ -211,7 +231,24 @@ async def get_item_tags(db: Database, user_id: str, item_id: str) -> list[str]:
     return [r["name"] for r in rows]
 
 
-async def get_item(db: Database, user_id: str, item_id: str) -> dict[str, Any] | None:
+async def get_item(
+    db: Database,
+    user_id: str,
+    item_id: str,
+    include_content: bool = True,
+) -> dict[str, Any] | None:
+    """Retrieves an item by ID.
+
+    Args:
+        include_content: If False, returns only excerpt/snippet instead of
+            full content_text. The MCP `get_item` tool passes False to cap
+            content for token efficiency; every other caller (UI, API) wants
+            the full body, so the default is True.
+
+    The result always carries `content_length` (the length of the stored
+    content) and `truncated` (True when the returned text is shorter than
+    the stored content), so a caller can tell that the content was capped.
+    """
     row = await db.query_first(
         "SELECT * FROM items WHERE id = ? AND user_id = ?;", (item_id, user_id)
     )
@@ -219,6 +256,13 @@ async def get_item(db: Database, user_id: str, item_id: str) -> dict[str, Any] |
         return None
     item = dict(row)
     item["tags"] = await get_item_tags(db, user_id, item_id)
+    full_length = len(item.get("content_text") or "")
+    item["content_length"] = full_length
+    if not include_content:
+        # Cap content_text to excerpt for token efficiency. Items without an
+        # excerpt (notes) keep their body: there is nothing to cap it to.
+        item["content_text"] = item.get("excerpt") or item.get("content_text") or ""
+    item["truncated"] = len(item.get("content_text") or "") < full_length
     return item
 
 
@@ -345,8 +389,21 @@ async def delete_item(
     return True
 
 
-async def create_tag(db: Database, user_id: str, raw_name: str) -> str | None:
-    """Creates an empty tag (zero items allowed); idempotent. Returns name or None."""
+async def create_tag(
+    db: Database,
+    user_id: str,
+    raw_name: str,
+    *,
+    description: str | None = None,
+    color: str | None = None,
+    parent: str | None = None,
+) -> str | None:
+    """Creates an empty tag (zero items allowed); idempotent. Returns name or None.
+
+    Optional metadata (description, color) and a parent tag name for hierarchy
+    ("research" under "work"). A missing parent is created on the fly. An
+    existing tag is left untouched: use update_tag to edit its metadata.
+    """
     from keepfor.utils.tagger import validate_tag_name
 
     clean = validate_tag_name(raw_name or "")
@@ -357,11 +414,35 @@ async def create_tag(db: Database, user_id: str, raw_name: str) -> str | None:
     )
     if existing:
         return clean
+    parent_id = None
+    if parent:
+        parent_clean = validate_tag_name(parent)
+        if parent_clean and parent_clean != clean:
+            parent_id = await _ensure_tag_id(db, user_id, parent_clean)
     await db.execute(
-        "INSERT OR IGNORE INTO tags (id, user_id, name) VALUES (?, ?, ?);",
-        (str(uuid.uuid4()), user_id, clean),
+        "INSERT OR IGNORE INTO tags (id, user_id, name, description, color, parent_id)"
+        " VALUES (?, ?, ?, ?, ?, ?);",
+        (str(uuid.uuid4()), user_id, clean, description, color, parent_id),
     )
     return clean
+
+
+async def _ensure_tag_id(db: Database, user_id: str, name: str) -> str | None:
+    """Returns the id of a tag, creating it when missing."""
+    row = await db.query_first(
+        "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, name)
+    )
+    if row:
+        return row["id"]
+    new_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT OR IGNORE INTO tags (id, user_id, name) VALUES (?, ?, ?);",
+        (new_id, user_id, name),
+    )
+    row = await db.query_first(
+        "SELECT id FROM tags WHERE user_id = ? AND name = ?;", (user_id, name)
+    )
+    return row["id"] if row else new_id
 
 
 async def rename_tag(db: Database, user_id: str, old_name: str, new_name: str) -> str:
@@ -819,16 +900,28 @@ async def list_user_tags(db: Database, user_id: str) -> list[dict[str, Any]]:
 
 
 async def _refresh_fts_for_item(db: Database, user_id: str, item_id: str) -> None:
-    """Rebuild the FTS5 row for an item, folding user_notes into the index."""
+    """Rebuild the FTS5 row for an item, folding user_notes and v2
+    fields into the index."""
     row = await db.query_first(
-        "SELECT title, content_text, user_notes FROM items"
+        "SELECT title, content_text, user_notes, agent_summary, "
+        "why_saved, source_context, saved_by FROM items"
         " WHERE id = ? AND user_id = ?;",
         (item_id, user_id),
     )
     if not row:
         return
+    v2_fields = " ".join(
+        p
+        for p in [
+            row.get("agent_summary"),
+            row.get("why_saved"),
+            row.get("source_context"),
+            row.get("saved_by"),
+        ]
+        if p
+    )
     combined = " ".join(
-        p for p in [row["content_text"] or "", row["user_notes"] or ""] if p
+        p for p in [row["content_text"] or "", row["user_notes"] or "", v2_fields] if p
     )
     await db.execute(
         "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
@@ -926,8 +1019,19 @@ async def save_note(
     created_at: str | None = None,
     source: str | None = None,
     source_id: str | None = None,
+    agent_summary: str | None = None,
+    why_saved: str | None = None,
+    source_context: str | None = None,
+    saved_by: str | None = None,
 ) -> dict[str, Any]:
-    """Save a Markdown quick note sharing the unified FTS + vector pipeline."""
+    """Save a Markdown quick note sharing the unified FTS + vector pipeline.
+
+    v2 fields:
+    - agent_summary: AI-generated summary of the content
+    - why_saved: User's reason for saving
+    - source_context: Context from the conversation/task that led to saving
+    - saved_by: Name of the agent/client that saved the item
+    """
     if scope is None:
         from keepfor.defaults import default_scope
 
@@ -946,9 +1050,9 @@ async def save_note(
         """
         INSERT INTO items (id, user_id, url, canonical_url, title, content_text,
             word_count, status, item_type, is_pinned, read_state, created_at,
-            source, source_id)
+            source, source_id, agent_summary, why_saved, source_context, saved_by)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'saved', 'note', ?, ?,
-            COALESCE(?, CURRENT_TIMESTAMP), ?, ?);
+            COALESCE(?, CURRENT_TIMESTAMP), ?, ?, ?, ?, ?, ?);
         """,
         (
             item_id,
@@ -963,6 +1067,10 @@ async def save_note(
             created_at,
             source,
             source_id,
+            agent_summary,
+            why_saved,
+            source_context,
+            saved_by,
         ),
     )
     clean_tags = [t.strip().lower() for t in (tags or []) if t.strip()]
@@ -971,7 +1079,16 @@ async def save_note(
     await db.execute(
         "INSERT INTO items_fts (item_id, user_id, title, content_text)"
         " VALUES (?, ?, ?, ?);",
-        (item_id, user_id, clean_title, body),
+        (
+            item_id,
+            user_id,
+            clean_title,
+            " ".join(
+                p
+                for p in [body, agent_summary, why_saved, source_context, saved_by]
+                if p
+            ),
+        ),
     )
     # Best-effort single-chunk Vectorize embedding (fail-open; no AI in tests).
     try:

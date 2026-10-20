@@ -158,13 +158,21 @@ working.
 ## Connecting AI Agents (Remote MCP)
 
 Keepfor.me hosts a remote Streamable HTTP MCP server at `https://app.keepfor.me/api/mcp`,
-exposing 6 tools:
+exposing 28 tools for capturing, finding, reading and tagging your library:
 1. `save_url`: Save any webpage to your library.
-2. `search_library`: Hybrid search across text and meaning.
-3. `get_item`: Read full clean text/markdown and metadata.
-4. `list_items`: Paginated browse of recent items.
-5. `tag_item`: Add or remove tags.
-6. `delete_item`: Remove items and clean up vectors.
+2. `save_note`: Save a note, snippet or prompt template.
+3. `search_library`: Hybrid search across text and meaning.
+4. `search_passages`: Passage-level search with permanent snapshot URLs.
+5. `find_item`: Look up an item id by title or url (no search, no embeddings).
+6. `get_item`: Read metadata and excerpt by id, url or exact title.
+7. `read_item`: Paginated full-text reading.
+8. `list_items`: Compact paginated browse with sorting and filters.
+9. `reading_history`: What you saved and opened, with date filters.
+10. `related_items`: Items similar to a given item or text.
+11. `list_tags` / `create_tag` / `describe_tag` / `update_tag` / `rename_tag` / `merge_tags` / `delete_tag`: Full tag management.
+12. `tag_item` / `tag_items` / `set_item_tags` / `retag_by_query`: Tagging, in bulk and safely (dry-run by default).
+13. `suggest_tags` / `search_tags` / `tag_stats` / `related_tags` / `tag_cleanup`: Tag vocabulary tools.
+14. `delete_item` / `pin_item`: Remove or pin an item.
 
 The server is stateless (no sessions, plain JSON responses, no SSE stream) and
 authenticates with the same Personal Access Tokens as the REST API.
@@ -205,6 +213,43 @@ curl https://app.keepfor.me/api/mcp \
   -H "Authorization: Bearer kfm_live_YOUR_TOKEN_HERE" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
+
+### Available MCP Tools (Server 0.2.0)
+
+The MCP server exposes 28 tools:
+
+1. **`save_url`** — Save any webpage to your library. Accepts optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
+2. **`save_note`** — Save a personal note, code snippet, or prompt template. Accepts the same optional provenance fields.
+3. **`search_library`** — Hybrid search across text and meaning (item-level results with snippets).
+4. **`search_passages`** — Passage-level hybrid search over semantic chunks with `max_chars` budget. Returns `chunk_id`, char offsets, and permanent `snapshot_url` (R2 archive) that survives link rot.
+5. **`read_item`** — Token-efficient paginated reading of full content. Returns `text`, `next_cursor`, `total_chunks`, `outline`.
+6. **`get_item`** — Retrieve metadata and excerpt, addressed by `item_id`, `url` or exact `title`. By default caps `content_text` to excerpt and reports `truncated` and `content_length`; use `include_content=true` for full text.
+7. **`list_items`** — Compact paginated browse (`id`, `title`, `url`, `saved_at`, `tags` — no body). Sorts by `saved`, `opened` or `title`; filters by `since`/`until`, `domain`, `pinned`, `type` and tags.
+8. **`find_item`** — Find item ids by exact/prefix title or exact/normalized url. No search, no embeddings: the cheap path from a title you know to an `item_id` you can read.
+9. **`reading_history`** — Reading history with date filtering (`since`/`until`), event types (`saved`/`opened`), and optional query/tag filters.
+10. **`related_items`** — Nearest neighbors by vector similarity from an `item_id` or raw `text`, with one-line reasons.
+11. **`list_tags`** — Every tag with its item count and last-used date. Sorts by `count`, `name` or `recent`; filters by `prefix` and `min_count`.
+12. **`create_tag`** — Create a tag with optional `description`, `color` and `parent` (hierarchy, e.g. `work/research`).
+13. **`describe_tag`** — A tag's metadata, parent, children and item count.
+14. **`update_tag`** — Edit a tag's description, color or parent.
+15. **`rename_tag`** — Rename a tag; every item carrying it is updated.
+16. **`merge_tags`** — Fold several tags into one target tag (at most 20 source tags per call).
+17. **`delete_tag`** — Remove a tag from items. Items are never deleted. `dry_run=true` by default: returns the affected count and a sample; `dry_run=false` applies.
+18. **`tag_item`** — Add or remove tags on a single item.
+19. **`tag_items`** — Add/remove tags across many items. `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
+20. **`retag_by_query`** — Tag items matching a title/url query (plus tag filters). `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
+21. **`set_item_tags`** — Replace the whole tag set of one item.
+22. **`suggest_tags`** — Suggest tags for an item or for free text, drawn from your existing vocabulary first.
+23. **`search_tags`** — Fuzzy search over tag names and descriptions (`machinelearning` finds `machine-learning`).
+24. **`tag_stats`** — Tag usage statistics for the library.
+25. **`related_tags`** — Tags that co-occur with a tag on the same items.
+26. **`tag_cleanup`** — Near-duplicate tags, unused tags and untagged items worth a look.
+27. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
+28. **`pin_item`** — Pin or unpin an item to/from the top shelf.
+
+All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) as advisory hints for the client — the server does not enforce them, and a token is never rejected for missing scope information. Each description says when to use a tool versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
+
+Tag filters (`tags_all`, `tags_any`, `tags_none`, `untagged`) work on `list_items`, `search_library`, `search_passages`, `find_item` and `reading_history`, and count child tags: filtering on `work` also matches `work/research`.
 
 ---
 

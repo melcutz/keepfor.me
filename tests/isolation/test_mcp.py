@@ -352,10 +352,309 @@ async def test_mcp_list_items_isolation(harness: IsolationHarness):
     assert "result" in call_data
     content = call_data["result"].get("content", [])
     assert len(content) > 0
-    items = json.loads(content[0]["text"])
+    result = json.loads(content[0]["text"])
+    items = result.get("items", [])
     item_ids = [it["id"] for it in items]
 
     for a_id in a.item_ids:
         assert a_id not in item_ids
     for b_id in b.item_ids:
         assert b_id in item_ids
+
+
+@pytest.mark.asyncio
+async def test_mcp_search_passages_isolation(harness: IsolationHarness):
+    """MCP search_passages as Tenant B never returns Tenant A's passages."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    # Ensure A has an item with searchable content
+    # (harness already creates items for A)
+
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 301,
+            "method": "tools/call",
+            "params": {
+                "name": "search_passages",
+                "arguments": {"query": a.unique_keyword, "limit": 10},
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    call_data = resp.json()
+    assert "result" in call_data
+    content = call_data["result"].get("content", [])
+    for block in content:
+        text = block.get("text", "")
+        assert a.unique_keyword not in text
+        assert a.html_item_id not in text
+
+
+@pytest.mark.asyncio
+async def test_mcp_read_item_isolation(harness: IsolationHarness):
+    """MCP read_item as Tenant B targeting Tenant A's item fails."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 302,
+            "method": "tools/call",
+            "params": {
+                "name": "read_item",
+                "arguments": {
+                    "item_id": a.html_item_id,
+                    "cursor": 0,
+                    "max_tokens": 1000,
+                },
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "error" in data or a.unique_keyword not in str(data)
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before
+
+
+@pytest.mark.asyncio
+async def test_mcp_reading_history_isolation(harness: IsolationHarness):
+    """MCP reading_history as Tenant B never returns Tenant A's history."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    # Ensure A has some history (harness creates items, which are 'saved' events)
+
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 303,
+            "method": "tools/call",
+            "params": {
+                "name": "reading_history",
+                "arguments": {"limit": 10, "event": "all"},
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    call_data = resp.json()
+    assert "result" in call_data
+    content = call_data["result"].get("content", [])
+    for block in content:
+        text = block.get("text", "")
+        assert a.unique_keyword not in text
+        assert a.html_item_id not in text
+
+
+@pytest.mark.asyncio
+async def test_mcp_related_items_isolation(harness: IsolationHarness):
+    """MCP related_items as Tenant B targeting Tenant A's item fails."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 304,
+            "method": "tools/call",
+            "params": {
+                "name": "related_items",
+                "arguments": {"item_id": a.html_item_id, "limit": 5},
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "error" in data or a.unique_keyword not in str(data)
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before
+
+
+@pytest.mark.asyncio
+async def test_mcp_save_url_v2_isolation(harness: IsolationHarness):
+    """MCP save_url v2 as Tenant B saves to B and does not touch Tenant A."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 305,
+            "method": "tools/call",
+            "params": {
+                "name": "save_url",
+                "arguments": {
+                    "url": "https://example.com/saved-by-b",
+                    "tags": ["test"],
+                    "agent_summary": "Summary",
+                    "why_saved": "Reason",
+                    "source_context": "Context",
+                    "saved_by": "test-agent",
+                },
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before
+
+
+@pytest.mark.asyncio
+async def test_mcp_save_note_v2_isolation(harness: IsolationHarness):
+    """MCP save_note v2 as Tenant B saves to B and does not touch Tenant A."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 306,
+            "method": "tools/call",
+            "params": {
+                "name": "save_note",
+                "arguments": {
+                    "title": "B Note",
+                    "content": "Note content",
+                    "tags": ["test"],
+                    "agent_summary": "Summary",
+                    "why_saved": "Reason",
+                    "source_context": "Context",
+                    "saved_by": "test-agent",
+                },
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before
+
+
+# Every tool added for MCP v3 (direct lookup + tag management). "ITEM" is
+# replaced with Tenant A's item id, which Tenant B must never touch.
+NEW_MCP_TOOLS = [
+    ("find_item", {"title": "Title"}),
+    ("list_tags", {}),
+    ("create_tag", {"name": "iso-tag"}),
+    ("describe_tag", {"name": "tag1"}),
+    ("update_tag", {"name": "tag1", "description": "hijack"}),
+    ("rename_tag", {"old": "tag1", "new": "iso-renamed"}),
+    ("merge_tags", {"sources": ["tag1"], "target": "iso-merged"}),
+    ("delete_tag", {"name": "tag1", "dry_run": False}),
+    ("tag_items", {"item_ids": "ITEM", "add": ["hijack"], "dry_run": False}),
+    ("retag_by_query", {"query": "html", "add": ["hijack"], "dry_run": False}),
+    ("set_item_tags", {"item_id": "ITEM", "tags": ["hijack"]}),
+    ("suggest_tags", {"item_id": "ITEM"}),
+    ("search_tags", {"query": "tag"}),
+    ("tag_stats", {}),
+    ("related_tags", {"tag": "tag1"}),
+    ("tag_cleanup", {}),
+]
+
+
+@pytest.mark.parametrize("tool_name,arguments", NEW_MCP_TOOLS)
+@pytest.mark.asyncio
+async def test_mcp_new_tools_isolation(
+    harness: IsolationHarness, tool_name: str, arguments: dict[str, Any]
+):
+    """Each new MCP tool, called as Tenant B, never touches Tenant A."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    args = {
+        key: (a.html_item_id if value == "ITEM" else value)
+        for key, value in arguments.items()
+    }
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 400,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": args},
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    text = resp.text
+    assert a.unique_keyword not in text, f"{tool_name} leaked A's keyword"
+    assert a.html_item_id not in text, f"{tool_name} leaked A's item id"
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, f"{tool_name} modified Tenant A"
+
+
+@pytest.mark.asyncio
+async def test_mcp_find_item_isolation(harness: IsolationHarness):
+    """MCP find_item as Tenant B never returns Tenant A's items."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 401,
+            "method": "tools/call",
+            "params": {
+                "name": "find_item",
+                "arguments": {"title": f"Title {a.unique_keyword}"},
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "result" in data
+    content = data["result"].get("content", [])
+    for block in content:
+        text = block.get("text", "")
+        assert a.unique_keyword not in text
+        assert a.html_item_id not in text
+
+
+@pytest.mark.asyncio
+async def test_mcp_tag_filters_isolation(harness: IsolationHarness):
+    """Tag filters as Tenant B never surface Tenant A's items."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    for tool, args in (
+        ("list_items", {"tags_all": ["tag1"], "limit": 50}),
+        ("search_library", {"query": a.unique_keyword, "tags_any": ["tag1"]}),
+        ("reading_history", {"tags_all": ["tag1"], "limit": 50}),
+    ):
+        resp = harness.client.post(
+            "/api/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 402,
+                "method": "tools/call",
+                "params": {"name": tool, "arguments": args},
+            },
+            headers=b.auth_headers,
+        )
+        assert resp.status_code == 200
+        text = resp.text
+        assert a.unique_keyword not in text, f"{tool} leaked A's keyword"
+        assert a.html_item_id not in text, f"{tool} leaked A's item id"

@@ -248,6 +248,47 @@ async def test_processor_still_raises_on_origin_error(db, monkeypatch):
     assert row["status"] == "failed"
 
 
+@pytest.mark.asyncio
+async def test_processor_scopes_provenance_read_to_the_item_owner(db, monkeypatch):
+    """The FTS re-index reads the item's provenance fields scoped to its owner.
+
+    The read used to select them by item id alone; every read of a tenant
+    table must carry the owning user_id.
+    """
+    from keepfor.consumer import processor
+
+    user = await register_user(db, "u4@test.local", "password123")
+    item_id = "44444444-4444-4444-4444-444444444444"
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status, created_at) "
+        "VALUES (?,?,?,?, 'queued', '2026-01-01 00:00:00');",
+        (item_id, user["id"], "https://example.com/prov", "https://example.com/prov"),
+    )
+
+    queries: list[tuple[str, tuple]] = []
+    original = db.query_first
+
+    async def spy(sql, params=()):
+        queries.append((sql, params))
+        return await original(sql, params)
+
+    monkeypatch.setattr(db, "query_first", spy)
+
+    async def fake_fetch(url, headers=None):
+        return _article_html("Provenance Article")
+
+    monkeypatch.setattr(processor, "fetch_page_html", fake_fetch)
+    await processor.extract_and_store(
+        db, MockEnv(), item_id, "https://example.com/prov"
+    )
+
+    provenance = [q for q in queries if "agent_summary" in q[0]]
+    assert provenance, f"provenance query not recorded: {queries}"
+    for sql, params in provenance:
+        assert "user_id = ?" in sql, sql
+        assert user["id"] in params, params
+
+
 def test_extract_flags_javascript_app_shell():
     """Empty SPA mount points produced 1-word 'saved' items in prod."""
     html = (

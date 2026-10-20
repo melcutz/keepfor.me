@@ -295,10 +295,29 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 8
+    assert len(names) == 28
     assert "save_url" in names
     assert "save_note" in names
     assert "pin_item" in names
+    # New v2 tools
+    assert "search_passages" in names
+    assert "read_item" in names
+    assert "reading_history" in names
+    assert "related_items" in names
+    # New v3 tools: direct lookup + tag management
+    assert "find_item" in names
+    assert "list_tags" in names
+    assert "create_tag" in names
+    assert "delete_tag" in names
+    assert "tag_cleanup" in names
+    # Every tool declares annotations
+    for tool in res.json()["result"]["tools"]:
+        assert set(tool["annotations"]) == {
+            "readOnlyHint",
+            "destructiveHint",
+            "idempotentHint",
+        }
+        assert tool["description"]
 
 
 async def test_mcp_tools_call_save_url_over_http(mcp_client, pat_headers):
@@ -372,3 +391,128 @@ def test_heavy_extraction_libs_are_not_imported_at_module_load():
     assert out.stdout.strip() == "", (
         f"heavy modules loaded at import: {out.stdout.strip()}"
     )
+
+
+# ==========================================
+# Scope independence (keepfor-cloud#61)
+# ==========================================
+
+# Minimal valid arguments per tool. "ITEM" is replaced by a real item id.
+TOOL_ARGUMENTS = {
+    "save_url": {"url": "https://example.com/probe-item"},
+    "save_note": {"title": "note", "content": "body"},
+    "search_library": {"query": "alpha"},
+    "search_passages": {"query": "alpha"},
+    "read_item": {"item_id": "ITEM"},
+    "get_item": {"item_id": "ITEM"},
+    "find_item": {"title": "Alpha"},
+    "list_items": {},
+    "reading_history": {},
+    "related_items": {"item_id": "ITEM"},
+    "list_tags": {},
+    "create_tag": {"name": "probe-tag"},
+    "describe_tag": {"name": "work"},
+    "update_tag": {"name": "probe-tag", "description": "d"},
+    "rename_tag": {"old": "probe-tag", "new": "probe-tag2"},
+    "merge_tags": {"sources": ["probe-tag2"], "target": "probe-tag3"},
+    "delete_tag": {"name": "probe-tag3"},
+    "tag_item": {"item_id": "ITEM", "add_tags": ["t"]},
+    "tag_items": {"item_ids": ["ITEM"], "add": ["t"]},
+    "retag_by_query": {"query": "alpha", "add": ["t"]},
+    "set_item_tags": {"item_id": "ITEM", "tags": ["t"]},
+    "suggest_tags": {"item_id": "ITEM"},
+    "search_tags": {"query": "a"},
+    "tag_stats": {},
+    "related_tags": {"tag": "work"},
+    "tag_cleanup": {},
+    "delete_item": {"item_id": "ITEM"},
+    "pin_item": {"item_id": "ITEM"},
+}
+
+
+async def _library_for_scopes(db, email):
+    """A user for the scope-agnostic tool sweep."""
+    user = await register_user(db, email, "password123")
+    return user, MockEnv()
+
+
+async def _make_item(db, env, user_id):
+    """Creates one owned item and returns its id."""
+    from keepfor.models.items import save_item
+
+    item, _ = await save_item(
+        db, env, user_id, "https://example.com/alpha", tags=["work"]
+    )
+    await db.execute(
+        "UPDATE items SET title = ?, content_text = ?, excerpt = ?, status = 'ok'"
+        " WHERE id = ?;",
+        ("Alpha Guide", "Alpha content " * 100, "Alpha excerpt", item["id"]),
+    )
+    return item["id"]
+
+
+async def _call_tool(db, env, user, name, item_id):
+    """Calls one tool and returns (outcome, text)."""
+    args = {
+        key: (item_id if value == "ITEM" else value)
+        for key, value in TOOL_ARGUMENTS[name].items()
+    }
+    res = await process_mcp_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": args},
+        },
+        db,
+        env,
+        user,
+    )
+    if "error" in res:
+        kind = res["error"].get("data", {}).get("type", "")
+        return kind, json.dumps(res["error"])
+    return "ok", res["result"]["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_every_tool_works_without_scope_information(db):
+    """No tool fails closed on missing scope information.
+
+    Core does not enforce scopes: the MCP annotations are advisory and a
+    token is never rejected for missing scope info. Every tool must behave
+    the same for scopes={"*"} and for a user dict with no scopes attribute.
+    """
+    from keepfor.mcp.server import MCP_TOOLS
+
+    user, env = await _library_for_scopes(db, "scopes@example.com")
+    outcomes: dict[str, dict[str, tuple[str, str]]] = {}
+    callers = {
+        "wildcard": {**user, "scopes": {"*"}},
+        "missing": {k: v for k, v in user.items() if k != "scopes"},
+        "null": {**user, "scopes": None},
+    }
+    for label, caller in callers.items():
+        # A fresh item per variant: some tools delete what they are given.
+        item_id = await _make_item(db, env, user["id"])
+
+        for tool in MCP_TOOLS:
+            name = tool["name"]
+            assert name in TOOL_ARGUMENTS, f"no arguments defined for {name}"
+            outcome, text = await _call_tool(db, env, caller, name, item_id)
+            outcomes.setdefault(name, {})[label] = (outcome, text)
+
+    for name, variants in outcomes.items():
+        for label, variant in variants.items():
+            assert variant[0] == variants["wildcard"][0], (
+                f"{name} behaves differently with {label} scope info: "
+                f"{variants['wildcard'][0]} vs {variant[0]}"
+            )
+        for label, (_, text) in variants.items():
+            lowered = text.lower()
+            assert "scope" not in lowered, f"{name} ({label}) mentions scope: {text}"
+            assert "forbidden" not in lowered, f"{name} ({label}) is forbidden"
+
+    # The sweep must actually exercise the tools, not just fail everywhere.
+    # (pin_item legitimately fails: delete_item already removed the item.)
+    succeeded = sum(1 for v in outcomes.values() if v["wildcard"][0] == "ok")
+    assert succeeded >= 25, f"only {succeeded} tools succeeded: {outcomes}"

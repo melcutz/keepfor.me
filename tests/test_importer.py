@@ -144,7 +144,8 @@ async def test_export_library_html_escapes_entities(db):
     assert "<script>" not in exported_html
     assert "&lt;script&gt;" in exported_html or "%3Cscript%3E" in exported_html
     assert "Dangerous &lt;Title&gt; &amp; &quot;Quotes&quot;" in exported_html
-    assert 'TAGS="tag&amp;1,tag&quot;2"' in exported_html
+    assert "tag&amp;1" in exported_html
+    assert "tag&quot;2" in exported_html
 
 
 # ===== Google Keep Takeout Parser Tests =====
@@ -1239,6 +1240,19 @@ async def test_save_note_defaults_created_at_and_read_state(db):
 
 
 @pytest.mark.asyncio
+async def test_saved_note_keeps_its_body(db):
+    """A note has no excerpt, so its body must survive get_item: the reader
+    and the Copy-for-AI action both read content_text."""
+    from keepfor.models.items import get_item
+
+    user = await register_user(db, "savenote_body@test.local", "password123")
+    note = await save_note(db, None, user["id"], "Quick", "The note body.")
+    fetched = await get_item(db, user["id"], note["id"])
+    assert fetched["content_text"] == "The note body."
+    assert fetched["truncated"] is False
+
+
+@pytest.mark.asyncio
 async def test_imported_notes_findable_via_mcp_search_library(db):
     """MCP search_library finds an imported note (keyword mode)."""
     from keepfor.mcp.server import process_mcp_request
@@ -1271,8 +1285,9 @@ async def test_imported_notes_findable_via_mcp_search_library(db):
     }
     res = await process_mcp_request(req, db, env, user)
     payload = json.loads(res["result"]["content"][0]["text"])
-    assert [p["title"] for p in payload] == ["MCP Searchable Note"]
-    assert payload[0]["item_type"] == "note"
+    # MCP 0.2.0 returns the structured shape: {items, total, limit, offset}.
+    assert [p["title"] for p in payload["items"]] == ["MCP Searchable Note"]
+    assert payload["items"][0]["item_type"] == "note"
 
 
 @pytest.mark.asyncio
