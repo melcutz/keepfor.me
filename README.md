@@ -158,7 +158,7 @@ working.
 ## Connecting AI Agents (Remote MCP)
 
 Keepfor.me hosts a remote Streamable HTTP MCP server at `https://app.keepfor.me/api/mcp`,
-exposing 28 tools for capturing, finding, reading and tagging your library:
+exposing 29 tools for capturing, finding, reading and tagging your library:
 1. `save_url`: Save any webpage to your library.
 2. `save_note`: Save a note, snippet or prompt template.
 3. `search_library`: Hybrid search across text and meaning.
@@ -171,8 +171,9 @@ exposing 28 tools for capturing, finding, reading and tagging your library:
 10. `related_items`: Items similar to a given item or text.
 11. `list_tags` / `create_tag` / `describe_tag` / `update_tag` / `rename_tag` / `merge_tags` / `delete_tag`: Full tag management.
 12. `tag_item` / `tag_items` / `set_item_tags` / `retag_by_query`: Tagging, in bulk and safely (dry-run by default).
-13. `suggest_tags` / `search_tags` / `tag_stats` / `related_tags` / `tag_cleanup`: Tag vocabulary tools.
-14. `delete_item` / `pin_item`: Remove or pin an item.
+13. `bulk_update`: Update status, pin and tags on every item matching a filter (dry-run by default).
+14. `suggest_tags` / `search_tags` / `tag_stats` / `related_tags` / `tag_cleanup`: Tag vocabulary tools.
+15. `delete_item` / `pin_item`: Remove or pin an item.
 
 The server is stateless (no sessions, plain JSON responses, no SSE stream) and
 authenticates with the same Personal Access Tokens as the REST API.
@@ -216,7 +217,7 @@ curl https://app.keepfor.me/api/mcp \
 
 ### Available MCP Tools (Server 0.2.0)
 
-The MCP server exposes 28 tools:
+The MCP server exposes 29 tools:
 
 1. **`save_url`** — Save any webpage to your library. Accepts optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
 2. **`save_note`** — Save a personal note, code snippet, or prompt template. Accepts the same optional provenance fields.
@@ -238,18 +239,19 @@ The MCP server exposes 28 tools:
 18. **`tag_item`** — Add or remove tags on a single item.
 19. **`tag_items`** — Add/remove tags across many items. `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
 20. **`retag_by_query`** — Tag items matching a title/url query (plus tag filters). `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
-21. **`set_item_tags`** — Replace the whole tag set of one item.
-22. **`suggest_tags`** — Suggest tags for an item or for free text, drawn from your existing vocabulary first.
-23. **`search_tags`** — Fuzzy search over tag names and descriptions (`machinelearning` finds `machine-learning`).
-24. **`tag_stats`** — Tag usage statistics for the library.
-25. **`related_tags`** — Tags that co-occur with a tag on the same items.
-26. **`tag_cleanup`** — Near-duplicate tags, unused tags and untagged items worth a look.
-27. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
-28. **`pin_item`** — Pin or unpin an item to/from the top shelf.
+21. **`bulk_update`** — Update the status, the pin state and the tags of every item matching a filter (status group, saved date range, domain, pinned, type, tags). `dry_run=true` by default: it reports `total_matched`, `affected` and `truncated` without writing anything. At most 200 items are updated per call, and an empty filter or an empty change is rejected.
+22. **`set_item_tags`** — Replace the whole tag set of one item.
+23. **`suggest_tags`** — Suggest tags for an item or for free text, drawn from your existing vocabulary first.
+24. **`search_tags`** — Fuzzy search over tag names and descriptions (`machinelearning` finds `machine-learning`).
+25. **`tag_stats`** — Tag usage statistics for the library.
+26. **`related_tags`** — Tags that co-occur with a tag on the same items.
+27. **`tag_cleanup`** — Near-duplicate tags, unused tags and untagged items worth a look.
+28. **`delete_item`** — Permanently delete an item, its snapshots, and vector embeddings.
+29. **`pin_item`** — Pin or unpin an item to/from the top shelf.
 
 All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) as advisory hints for the client — the server does not enforce them, and a token is never rejected for missing scope information. Each description says when to use a tool versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
 
-Tag filters (`tags_all`, `tags_any`, `tags_none`, `untagged`) work on `list_items`, `search_library`, `search_passages`, `find_item` and `reading_history`, and count child tags: filtering on `work` also matches `work/research`.
+Tag filters (`tags_all`, `tags_any`, `tags_none`, `untagged`) work on `list_items`, `search_library`, `search_passages`, `find_item`, `reading_history` and `bulk_update`, and count child tags: filtering on `work` also matches `work/research`.
 
 ---
 

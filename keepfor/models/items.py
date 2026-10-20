@@ -637,6 +637,121 @@ async def bulk_update_tags(
     return done
 
 
+# Cap on the items a single bulk update may touch.
+BULK_UPDATE_LIMIT = 200
+# D1 allows 100 bound parameters per query; user_id takes one of them.
+_UPDATE_CHUNK = 99
+
+
+async def bulk_update_items(
+    db: Database,
+    user_id: str,
+    item_ids: list[str],
+    *,
+    set_status: str | None = None,
+    pin: bool | None = None,
+    add_tags: list[str] | None = None,
+    remove_tags: list[str] | None = None,
+) -> int:
+    """Applies status, pin and tag changes to owned items.
+
+    Every statement is scoped by user_id, so a foreign id is never
+    touched. Returns the number of items the update was applied to.
+    """
+    ids = [i for i in (item_ids or []) if i][:BULK_UPDATE_LIMIT]
+    if not ids:
+        return 0
+    add = list(dict.fromkeys(t.strip().lower() for t in (add_tags or []) if t.strip()))
+    remove = list(
+        dict.fromkeys(t.strip().lower() for t in (remove_tags or []) if t.strip())
+    )
+
+    if set_status is not None or pin is not None:
+        pin_value = None if pin is None else (1 if pin else 0)
+        # status, pin and user_id take three of the hundred parameters.
+        chunk_size = _UPDATE_CHUNK - 2
+        for start in range(0, len(ids), chunk_size):
+            chunk = ids[start : start + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            await db.execute(
+                "UPDATE items SET status = COALESCE(?, status),"
+                " is_pinned = COALESCE(?, is_pinned),"
+                " updated_at = CURRENT_TIMESTAMP"
+                f" WHERE user_id = ? AND id IN ({placeholders});",
+                (set_status, pin_value, user_id, *chunk),
+            )
+
+    if add:
+        tag_ids = await _ensure_tag_ids(db, user_id, add)
+        chunk_size = max(1, _UPDATE_CHUNK - len(tag_ids))
+        for start in range(0, len(ids), chunk_size):
+            chunk = ids[start : start + chunk_size]
+            id_placeholders = ",".join("?" for _ in chunk)
+            tag_placeholders = ",".join("?" for _ in tag_ids)
+            await db.execute(
+                "INSERT OR IGNORE INTO item_tags (item_id, tag_id)"
+                " SELECT i.id, t.id FROM items i"
+                " JOIN tags t ON t.user_id = i.user_id"
+                f" WHERE i.user_id = ? AND i.id IN ({id_placeholders})"
+                f" AND t.id IN ({tag_placeholders});",
+                (user_id, *chunk, *tag_ids),
+            )
+
+    if remove:
+        placeholders = ",".join("?" for _ in remove)
+        rows = await db.query_all(
+            f"SELECT id FROM tags WHERE user_id = ? AND name IN ({placeholders});",
+            (user_id, *remove),
+        )
+        tag_ids = [r["id"] for r in rows]
+        if tag_ids:
+            chunk_size = max(1, _UPDATE_CHUNK - len(tag_ids))
+            for start in range(0, len(ids), chunk_size):
+                chunk = ids[start : start + chunk_size]
+                id_placeholders = ",".join("?" for _ in chunk)
+                tag_placeholders = ",".join("?" for _ in tag_ids)
+                await db.execute(
+                    "DELETE FROM item_tags WHERE item_id IN"
+                    " (SELECT id FROM items WHERE user_id = ?"
+                    f" AND id IN ({id_placeholders}))"
+                    f" AND tag_id IN ({tag_placeholders});",
+                    (user_id, *chunk, *tag_ids),
+                )
+
+    return len(ids)
+
+
+async def _ensure_tag_ids(db: Database, user_id: str, names: list[str]) -> list[str]:
+    """Returns the tag ids for the names, creating the missing ones."""
+    placeholders = ",".join("?" for _ in names)
+    rows = await db.query_all(
+        f"SELECT id, name FROM tags WHERE user_id = ? AND name IN ({placeholders});",
+        (user_id, *names),
+    )
+    known = {r["name"]: r["id"] for r in rows}
+    missing = [n for n in names if n not in known]
+    if missing:
+        await db.execute_batch(
+            [
+                (
+                    "INSERT OR IGNORE INTO tags (id, user_id, name) VALUES (?, ?, ?);",
+                    (str(uuid.uuid4()), user_id, n),
+                )
+                for n in missing
+            ]
+        )
+        # A concurrent insert may have won the IGNORE: re-read the ids.
+        placeholders = ",".join("?" for _ in missing)
+        rows = await db.query_all(
+            "SELECT id, name FROM tags WHERE user_id = ?"
+            f" AND name IN ({placeholders});",
+            (user_id, *missing),
+        )
+        for r in rows:
+            known[r["name"]] = r["id"]
+    return [known[n] for n in names if n in known]
+
+
 RULE_FIELDS = ("domain", "title", "url")
 RULES_PER_USER_MAX = 50
 

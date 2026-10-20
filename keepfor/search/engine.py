@@ -744,11 +744,11 @@ async def _attach_tags(
     return items
 
 
-async def list_items_compact(
+async def _item_filter_clause(
     db: Database,
     user_id: str,
     *,
-    sort: str = "saved",
+    status: str | None = None,
     since: str | None = None,
     until: str | None = None,
     domain: str | None = None,
@@ -758,17 +758,18 @@ async def list_items_compact(
     tags_any: list[str] | None = None,
     tags_none: list[str] | None = None,
     untagged: bool = False,
-    limit: int = 20,
-    offset: int = 0,
-) -> list[dict[str, Any]]:
-    """Compact item listing: id, title, url, saved_at and tags only.
+) -> tuple[str, list[Any]]:
+    """Builds the WHERE fragment shared by the item filters.
 
-    sort: "saved" (newest first), "opened" (most recently opened first),
-    "title" (alphabetical). Filters: since/until (saved date range),
-    domain (host), pinned (true/false), item_type ("note" or "url").
+    The items table must be aliased as `i`. `status` uses the UI status
+    groups ('saved', 'extracting', 'failed'); see STATUS_GROUPS.
     """
     extra: list[str] = []
     params: list[Any] = []
+    status_values = _status_values(status)
+    if status_values:
+        extra.append(f" AND i.status IN ({','.join('?' for _ in status_values)})")
+        params.extend(status_values)
     if since:
         extra.append(" AND datetime(i.created_at) >= datetime(?)")
         params.append(since)
@@ -797,6 +798,93 @@ async def list_items_compact(
     if tag_clause:
         extra.append(tag_clause)
     params.extend(tag_params)
+    return "".join(extra), params
+
+
+async def match_items(
+    db: Database,
+    user_id: str,
+    *,
+    status: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    domain: str | None = None,
+    pinned: bool | None = None,
+    item_type: str | None = None,
+    tags_all: list[str] | None = None,
+    tags_any: list[str] | None = None,
+    tags_none: list[str] | None = None,
+    untagged: bool = False,
+    limit: int = 200,
+) -> tuple[int, list[str]]:
+    """Counts the items matching the filters and returns up to `limit` ids.
+
+    Returns (total_matched, ids), newest first. The count covers every
+    match, so a caller can tell a truncated page from a complete one.
+    """
+    extra, params = await _item_filter_clause(
+        db,
+        user_id,
+        status=status,
+        since=since,
+        until=until,
+        domain=domain,
+        pinned=pinned,
+        item_type=item_type,
+        tags_all=tags_all,
+        tags_any=tags_any,
+        tags_none=tags_none,
+        untagged=untagged,
+    )
+    count_row = await db.query_first(
+        f"SELECT COUNT(*) as c FROM items i WHERE i.user_id = ?{extra};",
+        (user_id, *params),
+    )
+    total_matched = int(count_row["c"]) if count_row else 0
+    rows = await db.query_all(
+        f"SELECT i.id FROM items i WHERE i.user_id = ?{extra}"
+        " ORDER BY i.created_at DESC, i.id DESC LIMIT ?;",
+        (user_id, *params, limit),
+    )
+    return total_matched, [r["id"] for r in rows]
+
+
+async def list_items_compact(
+    db: Database,
+    user_id: str,
+    *,
+    sort: str = "saved",
+    since: str | None = None,
+    until: str | None = None,
+    domain: str | None = None,
+    pinned: bool | None = None,
+    item_type: str | None = None,
+    tags_all: list[str] | None = None,
+    tags_any: list[str] | None = None,
+    tags_none: list[str] | None = None,
+    untagged: bool = False,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Compact item listing: id, title, url, saved_at and tags only.
+
+    sort: "saved" (newest first), "opened" (most recently opened first),
+    "title" (alphabetical). Filters: since/until (saved date range),
+    domain (host), pinned (true/false), item_type ("note" or "url").
+    """
+    extra, params = await _item_filter_clause(
+        db,
+        user_id,
+        since=since,
+        until=until,
+        domain=domain,
+        pinned=pinned,
+        item_type=item_type,
+        tags_all=tags_all,
+        tags_any=tags_any,
+        tags_none=tags_none,
+        untagged=untagged,
+    )
 
     if sort == "opened":
         order = "(last_opened_at IS NULL), last_opened_at DESC, i.created_at DESC"
@@ -811,7 +899,7 @@ async def list_items_compact(
                (SELECT MAX(io.opened_at) FROM item_opens io
                 WHERE io.item_id = i.id AND io.user_id = i.user_id) AS last_opened_at
         FROM items i
-        WHERE i.user_id = ?{"".join(extra)}
+        WHERE i.user_id = ?{extra}
         ORDER BY {order}
         LIMIT ? OFFSET ?;
     """
