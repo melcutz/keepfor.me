@@ -362,6 +362,26 @@ async def delete_item(
         logger.warning("Failed to delete R2 snapshots for item %s: %s", item_id, exc)
 
     # 3. Delete from D1 (triggers cascade deletions on chunks, item_tags)
+    # Highlights and collection links point at the item: drop them explicitly,
+    # the foreign key cascade is not guaranteed to be on. A missing table
+    # (migration not applied yet) must never block the delete.
+    try:
+        await db.execute_batch(
+            [
+                (
+                    "DELETE FROM highlights WHERE item_id = ? AND user_id = ?;",
+                    (item_id, user_id),
+                ),
+                (
+                    "DELETE FROM collection_items WHERE item_id IN"
+                    " (SELECT id FROM items WHERE id = ? AND user_id = ?);",
+                    (item_id, user_id),
+                ),
+            ]
+        )
+    except Exception as exc:
+        logger.warning("Failed to clear highlights for item %s: %s", item_id, exc)
+
     await db.execute_batch(
         [
             (

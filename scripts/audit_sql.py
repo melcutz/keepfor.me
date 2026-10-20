@@ -33,6 +33,9 @@ except ImportError:
         "sessions",
         "personal_access_tokens",
         "import_status",
+        "highlights",
+        "collections",
+        "collection_items",
     )
 
 SQL_KEYWORDS = re.compile(

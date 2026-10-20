@@ -37,15 +37,25 @@ async def delete_all_tenant_rows(db: Database, user_id: str) -> None:
         """,
         (user_id,),
     )
-    # 8. items_fts (virtual table, no foreign keys)
+    # 8. highlights (children of items)
+    await db.execute("DELETE FROM highlights WHERE user_id = ?;", (user_id,))
+    # 9. collection_items (children of collections and items)
+    await db.execute(
+        "DELETE FROM collection_items WHERE collection_id IN"
+        " (SELECT id FROM collections WHERE user_id = ?);",
+        (user_id,),
+    )
+    # 10. collections
+    await db.execute("DELETE FROM collections WHERE user_id = ?;", (user_id,))
+    # 11. items_fts (virtual table, no foreign keys)
     await db.execute("DELETE FROM items_fts WHERE user_id = ?;", (user_id,))
-    # 9. items
+    # 12. items
     await db.execute("DELETE FROM items WHERE user_id = ?;", (user_id,))
-    # 10. tags
+    # 13. tags
     await db.execute("DELETE FROM tags WHERE user_id = ?;", (user_id,))
-    # 11. personal_access_tokens
+    # 14. personal_access_tokens
     await db.execute(
         "DELETE FROM personal_access_tokens WHERE user_id = ?;", (user_id,)
     )
-    # 12. sessions
+    # 15. sessions
     await db.execute("DELETE FROM sessions WHERE user_id = ?;", (user_id,))

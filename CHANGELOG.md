@@ -56,6 +56,13 @@ away in both cases.
   - Import results (and any error) show as a one-shot toast on the library page; a failed upload also shows its error on the settings page it lands on. Logs contain counts only, never note content.
   - Migration `0008_import_sources.sql` (additive): `items.source`, `items.source_id` and a unique index backing the dedupe.
   - MCP `search_library` now surfaces imported notes alongside articles.
+- **MCP highlights and collections** (GitHub issue #24): nine new tools for the two curation features the library was missing.
+  - `create_highlight`, `list_highlights`, `delete_highlight`: a highlight quotes a passage of an item and anchors it with the character offsets it covers inside `content_text`. `start_offset` defaults to `0`, `end_offset` to `start_offset + len(text)`; an end offset past the end of the item's content is refused.
+  - `create_collection`, `list_collections`, `add_to_collection`, `remove_from_collection`, `rename_collection`, `delete_collection`: a collection is a named bucket of library items, addressed by name or id. Creating one with an existing name returns it unchanged; renaming onto a taken name is refused, never merged. Deleting a collection drops the links only — the items it held are never deleted.
+  - `add_to_collection` and `remove_from_collection` take at most 100 item ids per call and report `truncated`; ids that are not yours, that do not exist, or that are already in the collection are skipped and counted.
+  - Every query is scoped to the caller's `user_id`: another user's item, highlight or collection is not found — never read and never changed.
+  - Input caps: 2,000 characters of quoted text, 500 per note, 32 per color, 64 per collection name, 200 per description, 100 highlights and 50 collections per list call, 20 item ids listed per collection.
+  - Migration `0013_highlights_and_collections.sql` (additive): the `highlights`, `collections` and `collection_items` tables. **Apply it before deploying** (`npx wrangler d1 migrations apply keepfor-me-db --remote`): until it is applied the new tools report an error, the rest of the app is unaffected.
 - **MCP Server 0.2.0** — direct lookup, full-text reading and full tag management:
   - `find_item`: Finds item ids by exact/prefix title or exact/normalized url. No search and no embeddings, so an agent goes from a title to the full text in two calls.
   - `get_item` now accepts `item_id`, `url` or an exact `title`.
@@ -99,6 +106,7 @@ away in both cases.
 - FTS5 index now includes the provenance fields (`agent_summary`, `why_saved`, `source_context`, `saved_by`) in `content_text` for searchability.
 - Migration 0009 adds `agent_summary`, `why_saved`, `source_context`, `saved_by` columns to `items` table.
 - Migration 0010 adds `description`, `color` and `parent_id` columns to the `tags` table for tag metadata and hierarchy.
+- Migration 0013 adds the `highlights`, `collections` and `collection_items` tables for the MCP highlights and collections tools.
 - The library export orders tags deterministically (`ORDER BY item_id, tag name`).
 
 ## [1.1.2] - 2026-10-10
