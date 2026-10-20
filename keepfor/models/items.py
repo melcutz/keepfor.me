@@ -922,6 +922,10 @@ async def save_note(
     is_pinned: bool = False,
     *,
     scope: TenantScope | None = None,
+    read_state: str = "unread",
+    created_at: str | None = None,
+    source: str | None = None,
+    source_id: str | None = None,
 ) -> dict[str, Any]:
     """Save a Markdown quick note sharing the unified FTS + vector pipeline."""
     if scope is None:
@@ -932,14 +936,19 @@ async def save_note(
     first_line = (content_text or "").strip().split("\n")[0][:120]
     clean_title = (title or "").strip() or first_line or "Untitled note"
     body = (content_text or "").strip()
+    clean_read_state = (
+        read_state if read_state in ("unread", "read", "archived") else "unread"
+    )
     item_id = str(uuid.uuid4())
     urn = f"urn:note:{item_id}"
     word_count = len(body.split()) if body else 0
     await db.execute(
         """
         INSERT INTO items (id, user_id, url, canonical_url, title, content_text,
-            word_count, status, item_type, is_pinned, read_state)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'saved', 'note', ?, 'unread');
+            word_count, status, item_type, is_pinned, read_state, created_at,
+            source, source_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'saved', 'note', ?, ?,
+            COALESCE(?, CURRENT_TIMESTAMP), ?, ?);
         """,
         (
             item_id,
@@ -950,6 +959,10 @@ async def save_note(
             body,
             word_count,
             1 if is_pinned else 0,
+            clean_read_state,
+            created_at,
+            source,
+            source_id,
         ),
     )
     clean_tags = [t.strip().lower() for t in (tags or []) if t.strip()]
@@ -1004,6 +1017,9 @@ async def save_note(
         "item_type": "note",
         "is_pinned": bool(is_pinned),
         "tags": clean_tags,
+        "created_at": created_at,
+        "source": source,
+        "source_id": source_id,
     }
 
 
