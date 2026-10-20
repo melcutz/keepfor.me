@@ -44,12 +44,15 @@ async def _resolve_collection(
 
 
 async def _collection_item_count(db: Database, user_id: str, collection_id: str) -> int:
-    """Number of the user's own items in one owned collection."""
+    """Number of the user's own live items in one owned collection.
+
+    A trashed item is not in the library: it is not counted.
+    """
     row = await db.query_first(
         "SELECT COUNT(*) AS c FROM collection_items ci"
         " JOIN collections c ON c.id = ci.collection_id AND c.user_id = ?"
         " JOIN items i ON i.id = ci.item_id AND i.user_id = ?"
-        " WHERE ci.collection_id = ?;",
+        " WHERE ci.collection_id = ? AND i.deleted_at IS NULL;",
         (user_id, user_id, collection_id),
     )
     return int(row["c"] or 0) if row else 0
@@ -97,7 +100,10 @@ async def create_collection(
 async def list_collections(
     db: Database, user_id: str, *, limit: int = 20, offset: int = 0
 ) -> list[dict[str, Any]]:
-    """Lists the user's collections with their item count and item ids."""
+    """Lists the user's collections with their item count and item ids.
+
+    A trashed item is not in the library: it is neither counted nor listed.
+    """
     # Cap the limit here too: every listed collection binds its own id, and
     # D1 rejects a statement with more than 100 parameters.
     limit = min(limit, MAX_COLLECTIONS_LIMIT)
@@ -105,6 +111,7 @@ async def list_collections(
         "SELECT c.id, c.name, c.description, c.created_at, c.updated_at,"
         " (SELECT COUNT(*) FROM collection_items ci JOIN items i"
         "  ON i.id = ci.item_id AND i.user_id = c.user_id"
+        "  AND i.deleted_at IS NULL"
         "  WHERE ci.collection_id = c.id)"
         " AS item_count FROM collections c WHERE c.user_id = ?"
         " ORDER BY c.created_at ASC, c.name ASC LIMIT ? OFFSET ?;",
@@ -124,6 +131,7 @@ async def list_collections(
         " AS rn FROM collection_items ci"
         " JOIN collections c ON c.id = ci.collection_id AND c.user_id = ?"
         " JOIN items i ON i.id = ci.item_id AND i.user_id = ?"
+        " AND i.deleted_at IS NULL"
         f" WHERE ci.collection_id IN ({placeholders})) WHERE rn <= ?;",
         (user_id, user_id, *ids, MAX_LISTED_ITEMS),
     )
@@ -142,9 +150,9 @@ async def add_items_to_collection(
 ) -> dict[str, Any]:
     """Adds owned items to a collection.
 
-    Ids that are not the user's, that do not exist, or that are already in
-    the collection are skipped: `added` counts the new links only. At most
-    MAX_COLLECTION_ITEMS ids are processed per call.
+    Ids that are not the user's, that do not exist, that are in the Trash,
+    or that are already in the collection are skipped: `added` counts the
+    new links only. At most MAX_COLLECTION_ITEMS ids are processed per call.
     """
     coll = await _resolve_collection(db, user_id, collection)
     if not coll:
@@ -166,7 +174,8 @@ async def add_items_to_collection(
         await db.execute(
             "INSERT OR IGNORE INTO collection_items (collection_id, item_id)"
             " SELECT ?, i.id FROM items i"
-            f" WHERE i.user_id = ? AND i.id IN ({placeholders});",
+            " WHERE i.user_id = ? AND i.deleted_at IS NULL"
+            f" AND i.id IN ({placeholders});",
             (coll["id"], user_id, *chunk),
         )
     after = await _collection_item_count(db, user_id, coll["id"])

@@ -69,7 +69,13 @@ argument away in the first two cases.
     MCP resources and prompts, the status pills, the tag counts and
     co-occurrence, the tag cleanup report, the `find_cleanup` report,
     `bulk_update` matching, the pending tag suggestions, the stats page and
-    the library export (JSON and HTML).
+    the library export (JSON and HTML). The highlights and the collections
+    too: a trashed item takes no new highlight, its highlights are not
+    listed, and it is neither counted nor listed in a collection.
+  - The trash keeps the annotations of an item: trashing and restoring never
+    touch its highlights or its collection links, so a restore gives them
+    back. Only the permanent delete (Trash → Delete forever, the 30-day
+    purge, the cleanup of the failed extractions) drops them.
   - A trashed item is also immutable: it cannot be pinned, annotated,
     archived or re-tagged while it waits in the Trash.
   - `purge_trash(db, env, user_id=None, older_than_days=30)` hard-deletes

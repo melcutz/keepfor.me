@@ -18,6 +18,8 @@ from keepfor.app import app
 from keepfor.auth.service import login_user, register_user
 from keepfor.mcp.server import MCP_TOOLS, process_mcp_request
 from keepfor.models.cleanup import find_cleanup
+from keepfor.models.collections import add_items_to_collection, list_collections
+from keepfor.models.highlights import create_highlight, list_highlights
 from keepfor.models.items import (
     add_tags_to_item,
     delete_item,
@@ -673,6 +675,69 @@ async def test_delete_forever_cleans_the_extra_item_tables(
             (item["id"], user["id"]),
         )
         is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_trash_and_restore_keep_highlights_and_collection_membership(
+    db, fake_env, user
+):
+    """The trash keeps the annotations of an item: they come back on restore.
+
+    The soft delete must not drop the highlights or the collection links:
+    only the permanent purge does.
+    """
+    item = await _seed_item(db, fake_env, user["id"])
+    await create_highlight(db, user["id"], item["id"], "Trash content", 0, 13)
+    await db.execute(
+        "INSERT INTO collections (id, user_id, name) VALUES ('col-1', ?, 'Reading');",
+        (user["id"],),
+    )
+    await add_items_to_collection(db, user["id"], "Reading", [item["id"]])
+
+    await trash_item(db, user["id"], item["id"])
+
+    # The annotations are still there, they are just not listed.
+    assert await list_highlights(db, user["id"], item["id"]) == []
+    assert (await list_collections(db, user["id"]))[0]["item_count"] == 0
+
+    await restore_item(db, user["id"], item["id"])
+
+    assert len(await list_highlights(db, user["id"], item["id"])) == 1
+    assert (await list_collections(db, user["id"]))[0]["item_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_purge_removes_highlights_and_collection_membership(db, fake_env, user):
+    """The permanent purge takes the annotations of the item with it."""
+    item = await _seed_item(db, fake_env, user["id"])
+    await create_highlight(db, user["id"], item["id"], "Trash content", 0, 13)
+    await db.execute(
+        "INSERT INTO collections (id, user_id, name) VALUES ('col-1', ?, 'Reading');",
+        (user["id"],),
+    )
+    await add_items_to_collection(db, user["id"], "Reading", [item["id"]])
+    await trash_item(db, user["id"], item["id"])
+    await db.execute(
+        "UPDATE items SET deleted_at = datetime('now', '-40 days')"
+        " WHERE id = ? AND user_id = ?;",
+        (item["id"], user["id"]),
+    )
+
+    assert await purge_trash(db, fake_env, user["id"]) == 1
+
+    assert (
+        await db.query_all(
+            "SELECT id FROM highlights WHERE item_id = ?;", (item["id"],)
+        )
+        == []
+    )
+    assert (
+        await db.query_all(
+            "SELECT collection_id FROM collection_items WHERE item_id = ?;",
+            (item["id"],),
+        )
+        == []
     )
 
 
