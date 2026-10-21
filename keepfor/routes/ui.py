@@ -7,7 +7,6 @@ import asyncio
 import datetime
 import json
 import sys
-from html import escape
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse
 
@@ -20,6 +19,7 @@ from fastapi import (
     Response,
 )
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from markupsafe import escape
 
 from keepfor import deps
 from keepfor.models.items import (
@@ -81,9 +81,11 @@ if TYPE_CHECKING:
 
 router = APIRouter()
 
-# The three library layouts. The view is a URL parameter so the server
-# renders the requested layout; every view lists the same items.
-LIBRARY_VIEWS = ("cards", "list", "compact")
+# The three library layouts, mapped to the value that goes into the URL.
+# The view is a URL parameter so the server renders the requested layout;
+# every view lists the same items. The mapping is constant, so the layout
+# in a URL is never request data.
+LIBRARY_VIEW_PARAMS = {"cards": "cards", "list": "list", "compact": "compact"}
 
 # An archived item is left alone by Mark as Read / Mark as Unread.
 ARCHIVED_READ_CONFLICT = "Archived items cannot be marked read or unread"
@@ -244,7 +246,7 @@ async def library_page(
     # filter, a search or the pager never falls back to another layout.
     # Without one the links stay view-free and the client applies the
     # saved preference (localStorage).
-    view_param = view if view in LIBRARY_VIEWS else None
+    view_param = LIBRARY_VIEW_PARAMS.get(view)
     clean_view = view_param or "list"
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
@@ -369,7 +371,7 @@ async def search_htmx(
     quick_flag = str(quick).strip().lower() in ("1", "true", "on", "yes")
     # The layout travels with the search so the re-rendered pager and the
     # cards keep the view the page is in.
-    view_param = view if view in LIBRARY_VIEWS else None
+    view_param = LIBRARY_VIEW_PARAMS.get(view)
     view_q = f"?view={view_param}" if view_param else ""
     view_a = f"&view={view_param}" if view_param else ""
     # The mode selector was removed from the UI: always run hybrid. The
@@ -456,12 +458,14 @@ async def search_htmx(
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
         term = query.strip()
+        # Escaped, so the link stays safe whatever the query carries.
+        clear_href = escape(f"/{view_q}")
         if term:
             msg = f"No results for “{escape(term)}”"
-            clear = f' <a href="/{view_q}" class="underline">Clear search</a>'
+            clear = f' <a href="{clear_href}" class="underline">Clear search</a>'
         elif tag_list or untagged_only:
             msg = "No saves match these tags."
-            clear = f' <a href="/{view_q}" class="underline">Clear filters</a>'
+            clear = f' <a href="{clear_href}" class="underline">Clear filters</a>'
         else:
             msg = "No matching articles found."
             clear = ""
