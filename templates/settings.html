@@ -18,7 +18,7 @@
     <section class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
       <div>
         <div class="flex items-center space-x-2">
-          <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">iOS & Mobile</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-[var(--brand-50)] text-[var(--brand-700)] border border-[var(--brand-200)]">iOS & Mobile</span>
           <h3 class="text-base font-semibold text-slate-900">iPhone & iPad Quick Sharing</h3>
         </div>
         <p class="text-xs text-slate-600 mt-1 leading-relaxed">
@@ -31,7 +31,7 @@
         <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 flex flex-col justify-between">
           <div>
             <div class="flex items-center space-x-2 mb-2">
-              <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path></svg>
+              <svg class="w-4 h-4 text-[var(--brand-accent)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path></svg>
               <h4 class="text-xs font-bold text-slate-900">1-Tap Apple Shortcut (Zero Setup)</h4>
             </div>
             <p class="text-[11px] text-slate-600 leading-relaxed">
@@ -41,14 +41,14 @@
               <div><strong>1.</strong> In the Shortcuts app, tap <strong>+</strong> (New Shortcut)</div>
               <div><strong>2.</strong> Enable <em>"Show in Share Sheet"</em></div>
               <div><strong>3.</strong> Add action <em>Open URLs</em> with:</div>
-              <div class="font-mono text-[10px] text-blue-700 bg-slate-50 p-1 rounded break-all select-all">
+              <div class="font-mono text-[10px] text-[var(--brand-700)] bg-slate-50 p-1 rounded break-all select-all">
                 {{ base_url }}/save-popup?url=Shortcut Input
               </div>
             </div>
           </div>
           <div class="mt-3 pt-2 flex items-center justify-between border-t border-slate-200/60">
             <button type="button" onclick="navigator.clipboard.writeText('{{ base_url }}/save-popup?url=' + encodeURIComponent('Shortcut Input')); alert('Shortcut URL copied to clipboard!');"
-                    class="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center space-x-1">
+                    class="text-xs font-semibold text-[var(--brand-accent)] hover:text-[var(--brand-700)] flex items-center space-x-1">
               <span>Copy Shortcut URL</span>
             </button>
             <span class="text-[10px] text-slate-400">Works in any iOS app</span>
@@ -59,7 +59,7 @@
         <div class="bg-slate-50 border border-slate-200 rounded-lg p-4 flex flex-col justify-between">
           <div>
             <div class="flex items-center space-x-2 mb-2">
-              <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+              <svg class="w-4 h-4 text-[var(--brand-600)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
               <h4 class="text-xs font-bold text-slate-900">Smart Clipboard (PWA on Home Screen)</h4>
             </div>
             <p class="text-[11px] text-slate-600 leading-relaxed">
@@ -72,7 +72,7 @@
             </div>
           </div>
           <div class="mt-3 pt-2 flex items-center justify-between border-t border-slate-200/60">
-            <span class="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">{{ icon("check", class="w-3.5 h-3.5") }}<span>No setup needed</span></span>
+            <span class="inline-flex items-center gap-1 text-[11px] font-medium text-[var(--brand-700)]">{{ icon("check", class="w-3.5 h-3.5") }}<span>No setup needed</span></span>
             <span class="text-[10px] text-slate-400">Uses device clipboard</span>
           </div>
         </div>
@@ -89,14 +89,14 @@
       <div class="flex items-center space-x-4">
         <a id="bookmarklet" href="javascript:(function(){var u=encodeURIComponent(window.location.href);var ti=encodeURIComponent(document.title);var w=520,h=420;var l=Math.max(0,Math.round((window.screenX||0)+((window.outerWidth||window.screen.width)-w)/2));var p=Math.max(0,Math.round((window.screenY||0)+72));window.open('{{ base_url }}/save-popup?url='+u+'&title='+ti,'keepforme_popup','width='+w+',height='+h+',left='+l+',top='+p+',popup=yes');})();"
            onclick="alert('Drag this button to your browser bookmarks bar!'); return false;"
-           class="inline-flex items-center space-x-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg shadow-sm cursor-grab active:cursor-grabbing transition">
+           class="inline-flex items-center space-x-1.5 px-4 py-2 bg-[var(--brand-600)] hover:bg-[var(--brand-700)] text-white text-xs font-semibold rounded-lg shadow-sm cursor-grab active:cursor-grabbing transition">
           <svg width="14" height="14" viewBox="0 0 44 44" aria-hidden="true"><defs><linearGradient id="kfm-bookmarklet" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient></defs><rect x="2" y="2" width="40" height="40" rx="11" fill="url(#kfm-bookmarklet)"/><path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#fff"/></svg><span>Keepfor.me</span>
         </a>
         <span class="text-xs text-slate-500">← Drag to your bookmarks bar</span>
       </div>
       <div class="mt-3 text-[11px] text-slate-500 leading-relaxed">
         <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('bookmarklet').href); alert('Bookmarklet code copied!');"
-                class="font-medium text-blue-600 hover:underline">Copy code</button>
+                class="font-medium text-[var(--brand-accent)] hover:underline">Copy code</button>
         <span> — bookmarklets always show a generic icon: browsers never fetch a site icon for <code>javascript:</code> URLs, so our logo can't attach (editing a normal bookmark's URL to the code below resets its icon too). Tip: name it "Keepfor.me" to spot it fast, or use the browser extension for a real toolbar icon.</span>
       </div>
     </section>
@@ -111,15 +111,15 @@
     </p>
 
     {% if new_token %}
-    <div class="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-      <p class="text-xs font-semibold text-emerald-800 mb-1">New Personal Access Token Generated:</p>
+    <div class="mb-6 p-4 bg-[var(--brand-50)] border border-[var(--brand-200)] rounded-xl">
+      <p class="text-xs font-semibold text-[var(--brand-800)] mb-1">New Personal Access Token Generated:</p>
       <div class="flex items-center space-x-2">
         <input type="text" readonly value="{{ new_token }}" id="new-token-val"
-               class="flex-1 px-3 py-1.5 bg-white border border-emerald-300 rounded font-mono text-xs text-slate-800">
+               class="flex-1 px-3 py-1.5 bg-white border border-[var(--brand-300)] rounded font-mono text-xs text-slate-800">
         <button onclick="navigator.clipboard.writeText(document.getElementById('new-token-val').value); alert('Copied!');"
-                class="px-3 py-1.5 bg-emerald-600 text-white rounded text-xs font-medium hover:bg-emerald-700">Copy</button>
+                class="px-3 py-1.5 bg-[var(--brand-600)] text-white rounded text-xs font-medium hover:bg-[var(--brand-700)]">Copy</button>
       </div>
-      <p class="text-[11px] text-emerald-700 mt-2">Make sure to copy this token now. You will not be able to view it again!</p>
+      <p class="text-[11px] text-[var(--brand-700)] mt-2">Make sure to copy this token now. You will not be able to view it again!</p>
     </div>
     {% endif %}
 
@@ -260,7 +260,7 @@ opencode (opencode.json):
     </p>
 
     {% if deleted_count is not none %}
-    <div class="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800">
+    <div class="mb-4 p-3 bg-[var(--brand-50)] border border-[var(--brand-200)] rounded-lg text-xs text-[var(--brand-800)]">
       Deleted {{ deleted_count }} failed item{{ 's' if deleted_count != 1 else '' }}.
     </div>
     {% endif %}

@@ -15,9 +15,9 @@
         <h2 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Filter by Tag</h2>
         <div class="space-y-1">
           <a href="/" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium {% if not active_tags and not active_untagged %}bg-slate-200 text-slate-900{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
-            <span class="w-2 h-2 rounded-full bg-blue-600 shrink-0"></span>
+            <span class="w-2 h-2 rounded-full bg-[var(--brand-600)] shrink-0"></span>
             <span>All Items</span>
-            <span class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">{{ total_count or items|length }}</span>
+            <span id="sidebar-total" class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">{{ status_counts["all"] or items|length }}</span>
           </a>
           {% for t in tags %}
           {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
@@ -82,6 +82,8 @@
         <a href="/?category=inbox" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'inbox' %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("inbox", class="w-3.5 h-3.5") }}<span>Reading Inbox</span></a>
         <a href="/?category=reference" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'reference' %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("tool", class="w-3.5 h-3.5") }}<span>Reference &amp; Tools</span></a>
         <a href="/?category=notes" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'notes' %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("note", class="w-3.5 h-3.5") }}<span>Notes</span></a>
+        <a href="/?category=unread" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'unread' %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("book-open", class="w-3.5 h-3.5") }}<span>Unread</span></a>
+        <a href="/?category=read" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'read' %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("check", class="w-3.5 h-3.5") }}<span>Read</span></a>
         <a href="/?category=archive" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if _cat == 'archive' %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("archive", class="w-3.5 h-3.5") }}<span>Archive</span></a>
         <a href="{% if _cat and _cat != 'all' %}/?category={{ _cat }}&quick=1{% else %}/?quick=1{% endif %}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if active_quick %}bg-slate-900 text-white" aria-current="page"{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300"{% endif %}>{{ icon("zap", class="w-3.5 h-3.5") }}<span>Quick Reads (&lt; 5 min)</span></a>
       </div>
@@ -143,7 +145,7 @@
       <!-- Mobile tag strip: horizontal chips instead of the sidebar -->
       <div id="mobile-tags" class="md:hidden -mx-4 px-4 overflow-x-auto">
         <div class="flex gap-1.5 w-max py-1">
-          <a href="/" class="shrink-0 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if not active_tags and not active_untagged %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · {{ total_count or items|length }}</a>
+          <a href="/" class="shrink-0 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if not active_tags and not active_untagged %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · <span id="mobile-total">{{ status_counts["all"] or items|length }}</span></a>
           {% for t in tags %}
           {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
           {% if t.name in active_tags %}
@@ -168,7 +170,7 @@
 
       <!-- Search & Actions Toolbar -->
       <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-        <div class="bg-white border border-slate-200 rounded-xl p-2.5 shadow-sm flex-1 flex items-center gap-3 focus-within:border-blue-600 focus-within:ring-2 focus-within:ring-blue-100">
+        <div class="bg-white border border-slate-200 rounded-xl p-2.5 shadow-sm flex-1 flex items-center gap-3 focus-within:border-[var(--brand-600)] focus-within:ring-2 focus-within:ring-[var(--brand-100)]">
           <div class="relative flex-1 w-full">
             <span class="absolute inset-y-0 left-3 flex items-center text-slate-400 pointer-events-none">{{ icon("search", class="w-4 h-4") }}</span>
             <input type="search" id="search-input" name="query" placeholder="Search by keyword or meaning…"
@@ -180,7 +182,7 @@
                    hx-include="#active-tag-input, #active-status-input, #active-page-input, #active-perpage-input, #active-category-input, #active-quick-input"
                    hx-indicator="#search-spinner"
                    class="w-full pl-9 pr-10 py-1.5 border border-slate-200 rounded-lg text-sm sm:text-base focus:outline-none">
-            <span id="search-spinner" class="htmx-indicator absolute inset-y-0 right-3 items-center text-blue-600" aria-hidden="true">
+            <span id="search-spinner" class="htmx-indicator absolute inset-y-0 right-3 items-center text-[var(--brand-accent)]" aria-hidden="true">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.2-8.56"/></svg>
             </span>
           </div>
@@ -202,7 +204,7 @@
                   class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300 shadow-sm transition">{{ icon("check-square", class="w-3.5 h-3.5") }}<span>Select</span></button>
         </div>
       </div>
-      <p id="tag-mode-hint" class="hidden text-xs text-blue-700 bg-blue-50 border border-blue-200 px-3 py-2 rounded-xl">Tap a tag, then tap articles to add it. Tap again to stop.</p>
+      <p id="tag-mode-hint" class="hidden text-xs text-[var(--brand-700)] bg-[var(--brand-50)] border border-[var(--brand-200)] px-3 py-2 rounded-xl">Tap a tag, then tap articles to add it. Tap again to stop.</p>
 <form id="bulk-bar" action="/items/bulk-tags" method="POST" class="hidden sticky bottom-4 z-40 items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl shadow-lg">
   <input type="hidden" name="next" value="/">
   <span id="bulk-count" class="text-xs text-slate-600 whitespace-nowrap"></span>
@@ -292,6 +294,16 @@
           {% for item in items %}
             {% include "partials/item_card.html" %}
           {% endfor %}
+        {% elif query %}
+          <div class="col-span-all text-center py-16 bg-white border border-slate-200 rounded-xl">
+            <div class="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
+              {{ icon("search", class="w-6 h-6 stroke-[1.8]") }}
+            </div>
+            <h3 class="text-base font-semibold text-slate-800">No results for “{{ query }}”</h3>
+            <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              Try another keyword or <a href="/" class="underline font-medium text-slate-700">Clear search</a>.
+            </p>
+          </div>
         {% elif active_tags or active_untagged %}
           <div class="col-span-all text-center py-16 bg-white border border-slate-200 rounded-xl">
             <div class="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
@@ -349,20 +361,20 @@
     });
     el.addEventListener('dragend', function () { dragged = null; clearHints(); showTrash(false); });
   });
-  function clearHints() { cards().forEach(function (c) { c.classList.remove('ring-2', 'ring-blue-500'); }); }
+  function clearHints() { cards().forEach(function (c) { c.classList.remove('ring-2', 'brand-ring'); }); }
   document.addEventListener('dragover', function (e) {
     var card = e.target.closest && e.target.closest('#items-list [data-item-id]');
     if (dragged && !dragged.itemId && card) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
-      card.classList.add('ring-2', 'ring-blue-500');
+      card.classList.add('ring-2', 'brand-ring');
     }
     var trash = e.target.closest && e.target.closest('#tag-trash');
     if (dragged && dragged.itemId && trash) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
   });
   document.addEventListener('dragleave', function (e) {
     var card = e.target.closest && e.target.closest('#items-list [data-item-id]');
-    if (card) card.classList.remove('ring-2', 'ring-blue-500');
+    if (card) card.classList.remove('ring-2', 'brand-ring');
   });
   document.addEventListener('drop', function (e) {
     var card = e.target.closest && e.target.closest('#items-list [data-item-id]');

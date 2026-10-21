@@ -556,21 +556,28 @@ async def purge_trash(
     """Hard-deletes trashed items older than `older_than_days`.
 
     `user_id` limits the purge to one user; None purges every user in the
-    database, which is the shape a single-tenant host cron wants. The data
-    goes through the same hard delete as before: row, R2 snapshots,
-    vectors, highlights and collection links.
+    database, which is the shape a single-tenant host cron wants. It must
+    name a user: an empty string is refused. The data goes through the
+    same hard delete as before: row, R2 snapshots, vectors, highlights
+    and collection links.
 
     `scope` is the tenant scope: it carries the R2 prefix and the
     Vectorize namespace of the tenant whose data is destroyed. A
     multi-tenant host MUST pass it: without it the snapshots and the
     vectors of the tenant are orphaned (or the wrong prefix is hit), so
     such a call is refused. The purge is then limited to the scope's own
-    user, because a shared database holds the rows of every tenant. A
-    single-tenant self-host may omit it: the default scope is used.
+    user, because a shared database holds the rows of every tenant: a
+    scope that names no user is refused too. A single-tenant self-host
+    may omit it: the default scope is used.
+
+    A bad argument raises ValueError before anything is destroyed.
 
     `limit` caps how many items one call destroys.
     """
     from keepfor.runtime import is_multi_tenant
+
+    if user_id is not None and not user_id:
+        raise ValueError("purge_trash(): the user_id must not be empty.")
 
     if scope is None:
         if is_multi_tenant():
@@ -580,9 +587,14 @@ async def purge_trash(
             )
     else:
         scope_user = scope.user_id
+        if not scope_user:
+            raise ValueError(
+                "purge_trash(): the tenant scope must name a user: "
+                "the purge would take the rows of every user."
+            )
         if user_id is None:
             user_id = scope_user
-        elif scope_user and user_id != scope_user:
+        elif user_id != scope_user:
             raise ValueError(
                 "purge_trash(): the user_id does not match the tenant scope."
             )
@@ -1470,6 +1482,50 @@ async def unarchive_item(db: Database, user_id: str, item_id: str) -> bool:
     await db.execute(
         "UPDATE items SET read_state = 'unread',"
         " updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    return True
+
+
+async def mark_item_read(db: Database, user_id: str, item_id: str) -> bool:
+    """Mark an item read (read_state='read'); it stays in the library.
+
+    Archive stays a separate action (here: archive_item). An archived item
+    is left alone: the archive is the stronger state, so reading it must not
+    pull it back into the library. False means "missing or archived".
+    """
+    row = await db.query_first(
+        "SELECT id, read_state FROM items"
+        " WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        (item_id, user_id),
+    )
+    if not row or row["read_state"] == "archived":
+        return False
+    await db.execute(
+        "UPDATE items SET read_state = 'read',"
+        " updated_at = CURRENT_TIMESTAMP"
+        " WHERE id = ? AND user_id = ? AND read_state != 'archived';",
+        (item_id, user_id),
+    )
+    return True
+
+
+async def mark_item_unread(db: Database, user_id: str, item_id: str) -> bool:
+    """Undo mark_item_read: back to 'unread'.
+
+    An archived item is left alone, like mark_item_read does.
+    """
+    row = await db.query_first(
+        "SELECT id, read_state FROM items"
+        " WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        (item_id, user_id),
+    )
+    if not row or row["read_state"] == "archived":
+        return False
+    await db.execute(
+        "UPDATE items SET read_state = 'unread',"
+        " updated_at = CURRENT_TIMESTAMP"
+        " WHERE id = ? AND user_id = ? AND read_state != 'archived';",
         (item_id, user_id),
     )
     return True
