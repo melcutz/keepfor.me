@@ -818,6 +818,100 @@ async def test_purge_trash_refuses_a_user_that_is_not_the_scope(db, fake_env, us
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scope_user_id", ["", None])
+async def test_purge_trash_refuses_a_scope_without_a_user(
+    db, fake_env, user, scope_user_id
+):
+    """A scope that names no user would purge the rows of every user.
+
+    The scope names the tenant whose R2 prefix and Vectorize namespace
+    are hit, so it must name the user whose rows are destroyed too.
+    """
+    other = await register_user(db, "other7@example.com", "password123", True)
+    scope = TenantScope(
+        tenant_id="tenant-a",
+        user_id=scope_user_id,  # type: ignore[arg-type]
+        db=db,
+        bucket=fake_env.BUCKET,
+        index=fake_env.VECTORIZE,
+        blob_prefix="t/tenant-a/",
+        vector_namespace="tenant-a",
+    )
+    mine = await _seed_item(
+        db, fake_env, user["id"], "https://example.com/mine-noscope"
+    )
+    theirs = await _seed_item(
+        db, fake_env, other["id"], "https://example.com/theirs-noscope"
+    )
+    await _backdate_trash(db, user["id"], mine["id"])
+    await _backdate_trash(db, other["id"], theirs["id"])
+
+    with pytest.raises(ValueError):
+        await purge_trash(db, fake_env, scope=scope)
+
+    # Nothing was destroyed, for anybody.
+    for uid, item_id in ((user["id"], mine["id"]), (other["id"], theirs["id"])):
+        assert (
+            await db.query_first(
+                "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+                (item_id, uid),
+            )
+            is not None
+        )
+
+
+@pytest.mark.asyncio
+async def test_purge_trash_refuses_an_empty_user_id(db, fake_env, user):
+    """An empty user id names no user: the purge would be a silent no-op."""
+    item = await _seed_item(db, fake_env, user["id"], "https://example.com/empty-user")
+    await _backdate_trash(db, user["id"], item["id"])
+
+    with pytest.raises(ValueError):
+        await purge_trash(db, fake_env, "")
+
+    assert (
+        await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (item["id"], user["id"]),
+        )
+        is not None
+    )
+
+
+@pytest.mark.asyncio
+async def test_purge_trash_with_a_valid_scope_only_purges_its_own_user(
+    db, fake_env, user
+):
+    """A valid scope still purges its own user, and nobody else's."""
+    other = await register_user(db, "other8@example.com", "password123", True)
+    scope = _tenant_scope(db, fake_env, user["id"])
+    mine = await _seed_item(db, fake_env, user["id"], "https://example.com/mine-valid")
+    theirs = await _seed_item(
+        db, fake_env, other["id"], "https://example.com/theirs-valid"
+    )
+    await _backdate_trash(db, user["id"], mine["id"])
+    await _backdate_trash(db, other["id"], theirs["id"])
+
+    purged = await purge_trash(db, fake_env, user["id"], scope=scope)
+
+    assert purged == 1
+    assert (
+        await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (mine["id"], user["id"]),
+        )
+        is None
+    )
+    assert (
+        await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (theirs["id"], other["id"]),
+        )
+        is not None
+    )
+
+
+@pytest.mark.asyncio
 async def test_purge_trash_respects_the_item_limit(db, fake_env, user):
     """One call destroys at most `limit` items."""
     for i in range(3):
