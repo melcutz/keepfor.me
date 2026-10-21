@@ -95,13 +95,13 @@ def _rendered_ids(html):
 
 
 def _grid_ids(html):
-    """The cards of the grid only: the pinned shelf sits above it."""
+    """The cards of the feed (the items list is the only list of items)."""
     grid = html.split('id="items-list"', 1)[-1]
     return re.findall(r'id="item-card-([^"]+)"', grid)
 
 
 def _card_count(html, item_id):
-    """How many times a card is rendered (the pinned shelf + the grid)."""
+    """How many times a card is rendered."""
     return html.count(f'id="item-card-{item_id}"')
 
 
@@ -396,7 +396,7 @@ async def test_strong_bar_boundary(db, search_setup, monkeypatch):
 
 
 async def test_pinned_item_is_rendered_once(client, db, search_setup):
-    """Pinned items live on the shelf: the browse grid must not repeat them."""
+    """A pinned item is listed once, in the feed (the shelf is gone)."""
     _login(client, search_setup["session"])
     pinned_id = search_setup["alpha_ids"][0]
     await db.execute("UPDATE items SET is_pinned = 1 WHERE id = ?;", (pinned_id,))
@@ -404,13 +404,12 @@ async def test_pinned_item_is_rendered_once(client, db, search_setup):
     res = client.get("/")
     assert res.status_code == 200
     assert _card_count(res.text, pinned_id) == 1
-    assert pinned_id not in _grid_ids(res.text)
+    assert pinned_id in _grid_ids(res.text)
 
-    # A search keeps the pinned match: the shelf is not filtered by the
-    # query, so dropping the match would lose it.
+    # A search keeps the pinned match.
     res = client.get("/", params={"q": "alpha"})
     assert res.status_code == 200
-    assert _card_count(res.text, pinned_id) == 2
+    assert _card_count(res.text, pinned_id) == 1
     assert pinned_id in _grid_ids(res.text)
 
     res = client.post("/search", data={"query": "alpha", "tag": ""})
@@ -422,7 +421,7 @@ async def test_pinned_item_is_rendered_once(client, db, search_setup):
 async def test_browse_count_matches_rendered_items_with_pinned(
     client, db, search_setup
 ):
-    """The pinned items leave the grid, so the count must leave them too."""
+    """The pinned items are in the feed, so the count includes them."""
     _login(client, search_setup["session"])
     user_id = search_setup["user"]["id"]
     for n in range(20):
@@ -443,15 +442,15 @@ async def test_browse_count_matches_rendered_items_with_pinned(
 
     res = client.get("/")
     assert res.status_code == 200
-    # 28 saves, 1 of them pinned: the grid shows 27, in full pages.
-    assert _library_total(res.text) == 27
+    # 28 saves, 1 of them pinned: the feed shows all 28, in full pages.
+    assert _library_total(res.text) == 28
     assert len(_grid_ids(res.text)) == 20
-    assert "of 27 saves" in res.text
+    assert "of 28 saves" in res.text
 
     res = client.get("/", params={"page": 2})
     assert res.status_code == 200
-    assert _library_total(res.text) == 27
-    assert len(_grid_ids(res.text)) == 7
+    assert _library_total(res.text) == 28
+    assert len(_grid_ids(res.text)) == 8
 
 
 async def test_search_returns_a_pinned_match(client, db, search_setup):

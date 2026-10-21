@@ -35,7 +35,6 @@ from keepfor.models.items import (
     dismiss_suggestion,
     get_item,
     get_item_clean_html,
-    get_pinned_items,
     list_pending_suggestions,
     list_rules,
     list_trash,
@@ -81,6 +80,10 @@ if TYPE_CHECKING:
     from keepfor.models.db import Database
 
 router = APIRouter()
+
+# The three library layouts. The view is a URL parameter so the server
+# renders the requested layout; every view lists the same items.
+LIBRARY_VIEWS = ("cards", "list", "compact")
 
 # An archived item is left alone by Mark as Read / Mark as Unread.
 ARCHIVED_READ_CONFLICT = "Archived items cannot be marked read or unread"
@@ -207,6 +210,7 @@ async def library_page(
     per_page: int = 20,
     category: str | None = None,
     quick: bool = False,
+    view: str | None = None,
 ):
     user = await deps.get_current_user(request)
     if not user:
@@ -236,13 +240,9 @@ async def library_page(
     scope = deps.get_scope(request)
     clean_status = status.strip() if status and status.strip() else None
     clean_category = category.strip() if category and category.strip() else None
+    clean_view = view if view in LIBRARY_VIEWS else "list"
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
-    # The pinned shelf shows the pinned items, so the browse grid leaves
-    # them out (in the query, so the total and the pager match it). A
-    # search keeps them: the shelf is not filtered by the query, so
-    # hiding a pinned match would be a silent loss.
-    exclude_pinned = not (q or "").strip()
     items, total = await hybrid_search(
         db,
         env,
@@ -256,7 +256,6 @@ async def library_page(
         category=clean_category,
         quick=bool(quick),
         scope=scope,
-        exclude_pinned=exclude_pinned,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -273,10 +272,9 @@ async def library_page(
             category=clean_category,
             quick=bool(quick),
             scope=scope,
-            exclude_pinned=exclude_pinned,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
-    tags, status_counts, pinned_items, import_status = await asyncio.gather(
+    tags, status_counts, import_status = await asyncio.gather(
         list_user_tags(db, user["id"]),
         get_status_counts(
             db,
@@ -286,7 +284,6 @@ async def library_page(
             untagged=untagged_only,
             quick=bool(quick),
         ),
-        get_pinned_items(db, user["id"]),
         user_import_status(db, user["id"], limit=1),
     )
     tag_styles = tag_styles_for([t["name"] for t in tags])
@@ -321,11 +318,11 @@ async def library_page(
         total=total,
         per_page_options=PER_PAGE_OPTIONS,
         push_base=push_base,
-        pinned_items=pinned_items,
         active_category=clean_category or "all",
         active_quick=bool(quick),
         import_summary=import_summary,
         import_status=import_status,
+        view=clean_view,
         **pager,
     )
     response = HTMLResponse(content=html)
@@ -360,10 +357,6 @@ async def search_htmx(
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
     tag_list, untagged_only = parse_tag_filter(clean_tag)
-    # An empty query is the browse grid: the pinned shelf shows the
-    # pinned items, so the grid leaves them out. A real search keeps
-    # them, the shelf is not filtered by the query.
-    exclude_pinned = not query.strip()
     items, total = await hybrid_search(
         db,
         env,
@@ -378,7 +371,6 @@ async def search_htmx(
         category=clean_category,
         quick=quick_flag,
         scope=scope,
-        exclude_pinned=exclude_pinned,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -396,7 +388,6 @@ async def search_htmx(
             category=clean_category,
             quick=quick_flag,
             scope=scope,
-            exclude_pinned=exclude_pinned,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
     tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])

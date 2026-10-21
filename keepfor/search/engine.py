@@ -433,17 +433,11 @@ async def hybrid_search(
     tags_any: list[str] | None = None,
     tags_none: list[str] | None = None,
     scope: TenantScope | None = None,
-    exclude_pinned: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """Execute hybrid search with RRF fusion, filters, and pagination.
 
     Returns (page_items, total_matches). total is exact for browse, and
     the ranked-candidate count (~100 max) for text queries.
-
-    `exclude_pinned` drops the pinned items from the browse grid (and
-    from its total). The pinned shelf shows them, so the grid must not
-    repeat them; a search keeps them, because the shelf is not filtered
-    by the query.
     """
     if scope is None and user_id:
         from keepfor.defaults import default_scope
@@ -474,7 +468,6 @@ async def hybrid_search(
                 status=status,
                 category=category,
                 quick=quick,
-                exclude_pinned=exclude_pinned,
             ),
             count_recent_items(
                 db,
@@ -485,7 +478,6 @@ async def hybrid_search(
                 status=status,
                 category=category,
                 quick=quick,
-                exclude_pinned=exclude_pinned,
             ),
         )
         return items, total
@@ -650,9 +642,13 @@ async def get_recent_items(
     status: str | None = None,
     category: str | None = None,
     quick: bool = False,
-    exclude_pinned: bool = False,
 ) -> list[dict[str, Any]]:
-    """Retrieves recent items for user with pagination and optional filters."""
+    """Retrieves recent items for user with pagination and optional filters.
+
+    Browse order: pinned items first (is_pinned DESC), then newest first
+    (created_at DESC). The feed is one list, so a pinned item leads page 1
+    instead of sinking below newer saves.
+    """
     status_values = _status_values(status)
     status_clause = ""
     status_params: tuple = ()
@@ -665,8 +661,6 @@ async def get_recent_items(
     bare_cat, _ = _category_clause(category, "items")
     bare_cat_params = cat_params
     bare_quick = " AND word_count < 1000" if quick else ""
-    pinned_clause = " AND i.is_pinned = 0" if exclude_pinned else ""
-    bare_pinned = pinned_clause.replace("i.", "")
     tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))][
         :MAX_TAG_FILTERS
     ]
@@ -681,8 +675,8 @@ async def get_recent_items(
         SELECT {RECENT_COLUMNS}
         FROM items i
         WHERE i.user_id = ? AND i.deleted_at IS NULL
-          {status_clause}{cat_clause}{quick_clause}{pinned_clause} {exists}
-        ORDER BY i.created_at DESC
+          {status_clause}{cat_clause}{quick_clause} {exists}
+        ORDER BY i.is_pinned DESC, i.created_at DESC
         LIMIT ? OFFSET ?;
     """
         rows = await db.query_all(
@@ -693,9 +687,9 @@ async def get_recent_items(
             SELECT {RECENT_COLUMNS_BARE}
             FROM items
             WHERE user_id = ? AND deleted_at IS NULL
-              {bare_status}{bare_cat}{bare_quick}{bare_pinned}
+              {bare_status}{bare_cat}{bare_quick}
               AND NOT EXISTS (SELECT 1 FROM item_tags itx WHERE itx.item_id = items.id)
-            ORDER BY created_at DESC
+            ORDER BY is_pinned DESC, created_at DESC
             LIMIT ? OFFSET ?;
         """
         rows = await db.query_all(
@@ -706,8 +700,8 @@ async def get_recent_items(
             SELECT {RECENT_COLUMNS_BARE}
             FROM items
             WHERE user_id = ? AND deleted_at IS NULL
-              {bare_status}{bare_cat}{bare_quick}{bare_pinned}
-            ORDER BY created_at DESC
+              {bare_status}{bare_cat}{bare_quick}
+            ORDER BY is_pinned DESC, created_at DESC
             LIMIT ? OFFSET ?;
         """
         rows = await db.query_all(
@@ -748,7 +742,6 @@ async def count_recent_items(
     status: str | None = None,
     category: str | None = None,
     quick: bool = False,
-    exclude_pinned: bool = False,
 ) -> int:
     """Count items matching the browse filters (same WHERE as get_recent_items)."""
     status_values = _status_values(status)
@@ -761,8 +754,6 @@ async def count_recent_items(
     cat_clause_i, _ = _category_clause(category, "i")
     quick_clause = " AND word_count < 1000" if quick else ""
     quick_clause_i = " AND i.word_count < 1000" if quick else ""
-    pinned_clause = " AND i.is_pinned = 0" if exclude_pinned else ""
-    bare_pinned = pinned_clause.replace("i.", "")
     tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))][
         :MAX_TAG_FILTERS
     ]
@@ -778,14 +769,14 @@ async def count_recent_items(
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items i "
             f"WHERE i.user_id = ? AND i.deleted_at IS NULL"
-            f"{tag_clause}{cat_clause_i}{quick_clause_i}{pinned_clause} {exists};",
+            f"{tag_clause}{cat_clause_i}{quick_clause_i} {exists};",
             (user_id, *status_params, *cat_params, *tag_list),
         )
     elif untagged:
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items "
             "WHERE user_id = ? AND deleted_at IS NULL"
-            f"{status_clause}{cat_clause}{quick_clause}{bare_pinned} "
+            f"{status_clause}{cat_clause}{quick_clause} "
             "AND NOT EXISTS (SELECT 1 FROM item_tags itx "
             "WHERE itx.item_id = items.id);",
             (user_id, *status_params, *cat_params),
@@ -794,7 +785,7 @@ async def count_recent_items(
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items"
             " WHERE user_id = ? AND deleted_at IS NULL"
-            f"{status_clause}{cat_clause}{quick_clause}{bare_pinned};",
+            f"{status_clause}{cat_clause}{quick_clause};",
             (user_id, *status_params, *cat_params),
         )
     return rows[0]["count"] if rows else 0

@@ -1300,40 +1300,6 @@ async def toggle_pin_item(db: Database, user_id: str, item_id: str) -> bool | No
     return bool(new_val)
 
 
-async def get_pinned_items(db: Database, user_id: str) -> list[dict[str, Any]]:
-    """Pinned shelf items, newest first, with tags attached."""
-    rows = await db.query_all(
-        "SELECT * FROM items WHERE user_id = ? AND is_pinned = 1"
-        " AND deleted_at IS NULL ORDER BY created_at DESC;",
-        (user_id,),
-    )
-    if not rows:
-        return []
-
-    item_ids = [r["id"] for r in rows]
-    placeholders = ",".join("?" for _ in item_ids)
-    tag_rows = await db.query_all(
-        f"""
-        SELECT it.item_id, t.name as tag_name
-        FROM item_tags it
-        JOIN items i ON i.id = it.item_id AND i.user_id = ?
-        JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
-        WHERE it.item_id IN ({placeholders});
-        """,
-        (user_id, *item_ids),
-    )
-    item_tags_map: dict[str, list[str]] = {}
-    for tr in tag_rows:
-        item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
-
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        item = dict(r)
-        item["tags"] = item_tags_map.get(r["id"], [])
-        out.append(item)
-    return out
-
-
 async def update_user_notes(
     db: Database, user_id: str, item_id: str, user_notes: str | None
 ) -> bool:

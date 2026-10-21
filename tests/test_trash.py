@@ -1111,7 +1111,7 @@ async def test_trash_page_paginates(client, db, fake_env, user, session):
     for i in range(51):
         await db.execute(
             "INSERT INTO items (id, user_id, url, canonical_url, title, deleted_at)"
-            " VALUES (?, ?, ?, ?, ?, datetime('now', ?));",
+            " VALUES (?, ?, ?, ?, ?, datetime('2026-01-01 00:00:00', ?));",
             (
                 f"item-{i}",
                 user["id"],

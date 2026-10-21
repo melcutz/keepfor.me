@@ -10,7 +10,6 @@ from keepfor.consumer.extractor import extract_article, extract_image_url
 from keepfor.models.items import (
     archive_item,
     get_item,
-    get_pinned_items,
     save_item,
     save_note,
     toggle_pin_item,
@@ -67,42 +66,6 @@ async def test_toggle_pin_item(user_with_env):
     assert fetched["is_pinned"] == 1
     assert await toggle_pin_item(db, user["id"], item["id"]) is False
     assert await toggle_pin_item(db, user["id"], "missing") is None
-
-
-@pytest.mark.asyncio
-async def test_get_pinned_items(user_with_env):
-    user, env, db = user_with_env
-    a, _ = await save_item(db, env, user["id"], "https://example.com/a", [])
-    b, _ = await save_item(db, env, user["id"], "https://example.com/b", [])
-    await toggle_pin_item(db, user["id"], b["id"])
-    pinned = await get_pinned_items(db, user["id"])
-    assert [p["id"] for p in pinned] == [b["id"]]
-    assert a["id"] not in [p["id"] for p in pinned]
-
-
-@pytest.mark.asyncio
-async def test_get_pinned_items_batch_tags(user_with_env):
-    user, env, db = user_with_env
-    # Item 1 with 2 tags
-    i1, _ = await save_item(
-        db, env, user["id"], "https://example.com/pin1", ["tag1", "tag2"]
-    )
-    await toggle_pin_item(db, user["id"], i1["id"])
-
-    # Item 2 with 0 tags
-    i2, _ = await save_item(db, env, user["id"], "https://example.com/pin2", [])
-    await toggle_pin_item(db, user["id"], i2["id"])
-
-    # Item 3 with 1 tag
-    i3, _ = await save_item(db, env, user["id"], "https://example.com/pin3", ["tag3"])
-    await toggle_pin_item(db, user["id"], i3["id"])
-
-    pinned = await get_pinned_items(db, user["id"])
-    assert len(pinned) == 3
-    tags_by_id = {p["id"]: p["tags"] for p in pinned}
-    assert set(tags_by_id[i1["id"]]) == {"tag1", "tag2"}
-    assert tags_by_id[i2["id"]] == []
-    assert set(tags_by_id[i3["id"]]) == {"tag3"}
 
 
 @pytest.mark.asyncio
