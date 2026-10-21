@@ -127,13 +127,18 @@ async def favicon_proxy(request: Request, domain: str):
     domain without an icon no longer puts a failed request in the console.
 
     The route stays public (an expired session must not turn the images into
-    401s), but only a signed-in request may make us fetch the site's icon or
-    write it to the cache: an anonymous request gets the cached icon when
-    there is one and the fallback otherwise.
+    401s), but only a signed-in request may read the cache or make us fetch
+    the site's icon: an anonymous request gets the fallback, always, so the
+    response never reveals whether the domain is cached.
     """
     user = await deps.get_current_user(request)
     body, content_type = await resolve_favicon(
-        domain, deps.get_env_from_request(request), may_fetch=user is not None
+        domain,
+        deps.get_env_from_request(request),
+        may_fetch=user is not None,
+        db=deps.get_db(request) if user is not None else None,
+        headers=request.headers,
+        user_id=(user or {}).get("id"),
     )
     max_age = FALLBACK_MAX_AGE if body == FALLBACK_ICON else FAVICON_MAX_AGE
     return Response(
