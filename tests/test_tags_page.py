@@ -245,3 +245,81 @@ async def test_rename_returns_fragment_for_htmx(client, db, auth_headers):
     assert response.status_code == 200
     assert "newname" in response.text
     assert "<table" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_unicode_tags_create_rename_merge_via_form(client, db, auth_headers):
+    _login(client, auth_headers)
+    user_id = auth_headers["admin_user"]["id"]
+    for name in ("Konsumgüterbranche", "Straße", "Café", "konsumgu\u0308terbranche"):
+        response = client.post(
+            "/tags/create", data={"name": name}, follow_redirects=False
+        )
+        assert response.status_code in (200, 303, 307, 308)
+
+    rows = await db.query_all(
+        "SELECT name FROM tags WHERE user_id = ? ORDER BY name;", (user_id,)
+    )
+    assert [r["name"] for r in rows] == ["café", "konsumgüterbranche", "straße"]
+
+    response = client.post(
+        "/tags/rename",
+        data={"old_name": "straße", "new_name": "großstraße"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (200, 303, 307, 308)
+
+    response = client.post(
+        "/tags/merge",
+        data={"old_names": "café, großstraße", "new_name": "konsumgu\u0308terbranche"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (200, 303, 307, 308)
+
+    rows = await db.query_all(
+        "SELECT name FROM tags WHERE user_id = ? ORDER BY name;", (user_id,)
+    )
+    assert [r["name"] for r in rows] == ["konsumgüterbranche"]
+
+
+@pytest.mark.asyncio
+async def test_accept_german_suggestion_from_reader_and_recreate(
+    client, db, auth_headers
+):
+    _login(client, auth_headers)
+    user_id = auth_headers["admin_user"]["id"]
+    item_id = await _seed_item(db, user_id, "https://a.example/de", [])
+    sugg_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO suggested_tags (id, item_id, user_id, phrase, score)"
+        " VALUES (?, ?, ?, ?, ?);",
+        (sugg_id, item_id, user_id, "konsumgüterbranche", 4.0),
+    )
+    response = client.post(
+        f"/items/{item_id}/suggestions/{sugg_id}/accept",
+        data={"next": f"/items/{item_id}"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (303, 307, 308)
+    assert response.headers.get("location") == f"/items/{item_id}"
+    from keepfor.models.items import delete_tag, get_item_tags
+
+    assert "konsumgüterbranche" in await get_item_tags(db, user_id, item_id)
+    row = await db.query_first(
+        "SELECT status FROM suggested_tags WHERE id = ?;", (sugg_id,)
+    )
+    assert row["status"] == "accepted"
+
+    # Deleting and recreating the German tag by hand via /tags succeeds.
+    assert await delete_tag(db, user_id, "konsumgüterbranche") is True
+    recreate = client.post(
+        "/tags/create",
+        data={"name": "konsumgüterbranche"},
+        follow_redirects=False,
+    )
+    assert recreate.status_code in (200, 303, 307, 308)
+    tag_row = await db.query_first(
+        "SELECT name FROM tags WHERE user_id = ? AND name = ?;",
+        (user_id, "konsumgüterbranche"),
+    )
+    assert tag_row is not None

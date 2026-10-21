@@ -130,8 +130,7 @@ async def list_tags(
     if prefix:
         prefix_clause = " AND t.name LIKE ? ESCAPE '\\'"
         params.append(
-            prefix.strip()
-            .lower()
+            normalize_tag(prefix)
             .replace("\\", "\\\\")
             .replace("%", "\\%")
             .replace("_", "\\_")
@@ -179,7 +178,7 @@ async def search_tags(
     Matches the query as a substring of the name or description, plus a
     separator/case-folded variant (so "machinelearning" finds "machine-learning").
     """
-    q = (query or "").strip().lower()
+    q = normalize_tag(query or "")
     if not q:
         return []
     folded = q.replace("-", "").replace("_", "").replace(" ", "")
@@ -283,7 +282,7 @@ def _fold_tag_key(name: str) -> str:
     Lowercases, strips separators, and folds a trailing plural so that
     "tags" and "tag" collapse together.
     """
-    key = name.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+    key = normalize_tag(name).replace("-", "").replace("_", "").replace(" ", "")
     if len(key) > 3 and key.endswith("s") and not key.endswith("ss"):
         key = key[:-1]
     return key
@@ -291,10 +290,11 @@ def _fold_tag_key(name: str) -> str:
 
 def _acronym(name: str) -> str:
     """Initials of a multi-word tag ("machine-learning" -> "ml")."""
-    words = [w for w in name.replace("-", " ").replace("_", " ").split() if w]
+    clean = normalize_tag(name)
+    words = [w for w in clean.replace("-", " ").replace("_", " ").split() if w]
     if len(words) < 2:
-        return name.strip().lower()
-    return "".join(w[0].lower() for w in words)
+        return clean
+    return "".join(w[0] for w in words)
 
 
 async def find_duplicate_tags(db: Database, user_id: str) -> list[dict[str, Any]]:
@@ -483,7 +483,7 @@ async def set_item_tags(
     await remove_tags_from_item(
         db, user_id, item_id, await get_item_tags(db, user_id, item_id)
     )
-    clean = list(dict.fromkeys(t.strip().lower() for t in tags if t.strip()))
+    clean = list(dict.fromkeys(normalize_tag(t) for t in tags if normalize_tag(t)))
     if clean:
         await add_tags_to_item(db, user_id, item_id, clean)
     return {"found": True, "tags": clean}

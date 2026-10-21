@@ -11,13 +11,58 @@ def test_normalize_tag_lowercases_and_strips():
     assert tagger.normalize_tag("") == ""
 
 
+def test_normalize_tag_applies_nfc_without_ascii_folding():
+    # Composed (\u00fc) and decomposed (u + \u0308) normalize to the same NFC string.
+    composed = "konsumgüterbranche"
+    decomposed = "konsumgu\u0308terbranche"
+    assert composed != decomposed
+    assert tagger.normalize_tag(decomposed) == composed
+    assert tagger.normalize_tag("U\u0308bung") == "übung"
+    assert tagger.normalize_tag("Cafe\u0301") == "café"
+    # Must not fold umlauts to ASCII or eszett to 'ss'.
+    assert tagger.normalize_tag("Straße") == "straße"
+    assert tagger.normalize_tag("übung") != "ubung"
+
+
 def test_validate_tag_name_accepts_sane_names():
     assert tagger.validate_tag_name("machine-learning") == "machine-learning"
     assert tagger.validate_tag_name("  AI ") == "ai"
+    assert tagger.validate_tag_name("konsumgüterbranche") == "konsumgüterbranche"
+    assert tagger.validate_tag_name("konsumgu\u0308terbranche") == "konsumgüterbranche"
+    assert tagger.validate_tag_name("straße") == "straße"
+    assert tagger.validate_tag_name("café") == "café"
+    assert tagger.validate_tag_name("cafe\u0301") == "café"
+    assert tagger.validate_tag_name("Freie Hansestadt") == "freie hansestadt"
 
 
 def test_validate_tag_name_rejects_bad_names():
-    for bad in ["", "  ", "a", "x" * 65, "has/slash", "semi;colon", 'quote"x']:
+    for bad in [
+        "",
+        "  ",
+        "a",
+        "x" * 65,
+        "has/slash",
+        "#hashtag",
+        "a#b",
+        "semi;colon",
+        'quote"x',
+        "\U0001f680\U0001f680",
+        "ai\U0001f680",
+        "\U0001f680 rocket",
+        "a\x00b",
+        "a\nb",
+        "a\tb",
+        "a\x1fb",
+        "a  b",
+        "a--b",
+        "a__b",
+        "a -b",
+        "a_ b",
+        "_leading",
+        "trailing_",
+        "-leading",
+        "trailing-",
+    ]:
         assert tagger.validate_tag_name(bad) is None, bad
 
 
@@ -281,6 +326,8 @@ def test_german_suggestions_are_topical():
     assert "hamburg" in phrases
     assert not [p for p in phrases if p.endswith(" und")], phrases
     assert "hamburg und" not in phrases
+    for phrase in phrases:
+        assert tagger.validate_tag_name(phrase) == phrase, phrase
 
 
 def test_detect_language_reads_the_stopwords_of_the_page():
