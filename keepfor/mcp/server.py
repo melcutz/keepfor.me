@@ -1285,17 +1285,18 @@ MCP_TOOLS = [
     {
         "name": "find_cleanup",
         "description": "Suggests cleanup candidates in the library: duplicate "
-        "items (same normalized url), dead links, never-opened old items, "
-        "untagged items, and near-duplicate tags. Each category reports the "
-        "candidates, the total number of candidates and whether the list was "
-        "truncated. The item categories list one id with a reason; the group "
-        "categories list one entry per group: duplicates gives the group's ids "
-        "(capped), its size and whether the id list was truncated, "
-        "near-duplicate tags gives the group's tag names. "
+        "items (same normalized url), dead links, failed extractions, "
+        "never-opened old items, untagged items, and near-duplicate tags. Each "
+        "category reports the candidates, the total number of candidates and "
+        "whether the list was truncated. The item categories list one id with "
+        "a reason; the group categories list one entry per group: duplicates "
+        "gives the group's ids (capped), its size and whether the id list was "
+        "truncated, near-duplicate tags gives the group's tag names. "
         "Read-only: it reports what could be cleaned up, it never changes "
-        "anything. Dead links are items whose recorded extraction failed; no "
-        "network requests are made, so a link that was never fetched is not "
-        "detected.",
+        "anything. Dead links are items whose recorded failure is an origin "
+        "HTTP error and failed extractions are every other recorded failure; "
+        "no network requests are made, so a link that was never fetched is "
+        "not detected.",
         "inputSchema": {
             "type": "object",
             "properties": {
