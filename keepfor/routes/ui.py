@@ -40,6 +40,8 @@ from keepfor.models.items import (
     list_rules,
     list_trash,
     list_user_tags,
+    mark_item_read,
+    mark_item_unread,
     merge_tags,
     prune_unused_tags,
     record_open,
@@ -485,6 +487,12 @@ async def reader_page(
 
     background_tasks.add_task(_log_open_safely, db, user["id"], item_id)
 
+    # One-shot confirmation after Mark as Read / Unread (see /items/{id}/read).
+    read_flash = None
+    flash_cookie = request.cookies.get("read_flash")
+    if flash_cookie in ("read", "unread"):
+        read_flash = flash_cookie
+
     clean_html = await get_item_clean_html(
         db, env, user["id"], item_id, scope=deps.get_scope(request)
     )
@@ -497,9 +505,13 @@ async def reader_page(
         clean_html=clean_html,
         tag_styles=tag_styles,
         suggestions=suggestions,
+        read_flash=read_flash,
         hide_mobile_nav=True,
     )
-    return HTMLResponse(content=html)
+    response = HTMLResponse(content=html)
+    if flash_cookie:
+        response.delete_cookie("read_flash", path="/")
+    return response
 
 
 @router.get("/items/{item_id}/card", response_class=HTMLResponse)
@@ -612,6 +624,70 @@ async def unarchive_route(request: Request, item_id: str):
         template = jinja_env.get_template("partials/item_card.html")
         return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
     return RedirectResponse(url="/", status_code=303)
+
+
+def _referer_redirect(
+    request: Request, fallback: str, flash: str | None = None
+) -> RedirectResponse:
+    """No-JS fallback for card/reader POSTs: back to the same-origin referer.
+
+    `flash` is stored in a one-shot cookie the reader turns into an inline
+    confirmation (with undo) on the next render.
+    """
+    dest = fallback
+    referer = request.headers.get("referer")
+    if referer:
+        parsed_ref = urlparse(referer)
+        req_host = (request.url.netloc or "").lower()
+        ref_host = (parsed_ref.netloc or "").lower()
+        if not ref_host or ref_host == req_host:
+            candidate = parsed_ref.path + (
+                "?" + parsed_ref.query if parsed_ref.query else ""
+            )
+            if _is_safe_path(candidate):
+                dest = candidate
+    response = RedirectResponse(url=dest, status_code=303)
+    if flash:
+        response.set_cookie("read_flash", flash, path="/")
+    return response
+
+
+@router.post("/items/{item_id}/read", response_class=HTMLResponse)
+async def mark_read_route(request: Request, item_id: str):
+    """Mark as Read sets the read state only — archive stays a separate action."""
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+    ok = await mark_item_read(db, user["id"], item_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if request.headers.get("hx-request"):
+        item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        tag_styles = tag_styles_for(item.get("tags") or [])
+        template = jinja_env.get_template("partials/item_card.html")
+        return HTMLResponse(
+            content=template.render(item=item, tag_styles=tag_styles, just_read="read")
+        )
+    return _referer_redirect(request, "/", flash="read")
+
+
+@router.post("/items/{item_id}/unread", response_class=HTMLResponse)
+async def mark_unread_route(request: Request, item_id: str):
+    """Mark as Unread reverts the read state."""
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+    ok = await mark_item_unread(db, user["id"], item_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if request.headers.get("hx-request"):
+        item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        tag_styles = tag_styles_for(item.get("tags") or [])
+        template = jinja_env.get_template("partials/item_card.html")
+        return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
+    return _referer_redirect(request, "/", flash="unread")
 
 
 @router.get("/items/{item_id}/markdown")

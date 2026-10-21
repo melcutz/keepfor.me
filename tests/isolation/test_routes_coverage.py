@@ -61,6 +61,8 @@ EXERCISED_ROUTES: set[tuple[str, str]] = {
     ("POST", "/items/{item_id}/notes"),
     ("POST", "/items/{item_id}/archive"),
     ("POST", "/items/{item_id}/unarchive"),
+    ("POST", "/items/{item_id}/read"),
+    ("POST", "/items/{item_id}/unread"),
     ("POST", "/items/{item_id}/restore"),
     ("POST", "/items/{item_id}/delete-forever"),
     ("POST", "/items/{item_id}/tags"),

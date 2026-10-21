@@ -106,6 +106,35 @@ async def test_cross_tenant_post_unarchive(harness: IsolationHarness):
 
 
 @pytest.mark.asyncio
+async def test_cross_tenant_post_read(harness: IsolationHarness):
+    """Calling POST /items/{id}/read as tenant B fails for tenant A's item."""
+    a = harness.tenant_a
+    await _assert_cross_tenant_denied(harness, "POST", f"/items/{a.html_item_id}/read")
+    row = await a.db.query_first(
+        "SELECT read_state FROM items WHERE id = ?;", (a.html_item_id,)
+    )
+    assert row["read_state"] == "unread"
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_unread(harness: IsolationHarness):
+    """Calling POST /items/{id}/unread as tenant B fails for tenant A's item."""
+    a = harness.tenant_a
+    # Start from a read item, so a leaked update would change read_state.
+    await a.db.execute(
+        "UPDATE items SET read_state = 'read' WHERE id = ? AND user_id = ?;",
+        (a.html_item_id, a.user["id"]),
+    )
+    await _assert_cross_tenant_denied(
+        harness, "POST", f"/items/{a.html_item_id}/unread"
+    )
+    row = await a.db.query_first(
+        "SELECT read_state FROM items WHERE id = ?;", (a.html_item_id,)
+    )
+    assert row["read_state"] == "read"
+
+
+@pytest.mark.asyncio
 async def test_cross_tenant_post_tags(harness: IsolationHarness):
     """Calling POST /items/{id}/tags as tenant B fails for tenant A's item."""
     await _assert_cross_tenant_denied(
