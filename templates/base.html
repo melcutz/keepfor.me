@@ -26,13 +26,24 @@
       --border-subtle: #e7e3da;
       --text-ink: #1c1917;
       --text-muted: #78716c;
-      --accent-evergreen: #1e3a2f;
       --accent-terracotta: #b45309;
-      --contrib-s0: #e7e3da;
-      --contrib-s1: #c9e0c2;
-      --contrib-s2: #8fc183;
-      --contrib-s3: #3f7d44;
-      --contrib-s4: #1e3a2f;
+      --brand-50: #eff6ff;
+      --brand-100: #dbeafe;
+      --brand-200: #bfdbfe;
+      --brand-300: #93c5fd;
+      --brand-400: #60a5fa;
+      --brand-500: #3b82f6;
+      --brand-600: #2563eb;
+      --brand-700: #1d4ed8;
+      --brand-800: #1e40af;
+      --brand-900: #1e3a8a;
+      --brand-950: #172554;
+      --brand-accent: #2563eb;
+      --contrib-s0: #eff6ff;
+      --contrib-s1: #bfdbfe;
+      --contrib-s2: #93c5fd;
+      --contrib-s3: #3b82f6;
+      --contrib-s4: #1d4ed8;
     }
     [x-cloak] { display: none !important; }
     html { -webkit-tap-highlight-color: transparent; }
@@ -44,6 +55,9 @@
     /* 16px floor on form fields: readable on phones and stops iOS
        Safari's auto-zoom on focus (<16px inputs trigger it). */
     input, select, textarea { font-size: 16px; }
+    /* Ring colour for the library drag hint: the class name is added from
+       JavaScript, so it must live in CSS, not in a Tailwind colour utility. */
+    .brand-ring { --tw-ring-color: var(--brand-500); }
     /* htmx loading indicators: hidden until their request starts */
     .htmx-indicator { display: none; }
     .htmx-indicator.htmx-request { display: inline-flex; }
@@ -55,10 +69,10 @@
       --text-ink: #433422;
       --text-muted: #856d50;
       --contrib-s0: #e4d7b5;
-      --contrib-s1: #c5cca0;
-      --contrib-s2: #8fa06d;
-      --contrib-s3: #587342;
-      --contrib-s4: #334e27;
+      --contrib-s1: #bfdbfe;
+      --contrib-s2: #93c5fd;
+      --contrib-s3: #3b82f6;
+      --contrib-s4: #1d4ed8;
       background-color: #f4ecd8 !important;
       color: #433422 !important;
     }
@@ -98,11 +112,12 @@
       --border-subtle: #2d2b29;
       --text-ink: #f5f5f4;
       --text-muted: #a8a29e;
+      --brand-accent: #60a5fa;
       --contrib-s0: #262524;
-      --contrib-s1: #0e3d28;
-      --contrib-s2: #15623e;
-      --contrib-s3: #22a366;
-      --contrib-s4: #34d399;
+      --contrib-s1: #1e3a8a;
+      --contrib-s2: #1d4ed8;
+      --contrib-s3: #3b82f6;
+      --contrib-s4: #93c5fd;
       background-color: #121212 !important;
       color: #cbd5e1 !important;
     }
@@ -110,11 +125,10 @@
     .theme-dark .reader-card { background-color: #1c1b1a !important; border-color: #2d2b29 !important; }
     .theme-dark #site-header, .theme-dark #mobile-nav { background-color: rgba(18, 18, 18, 0.95) !important; border-color: #2d2b29 !important; }
     .theme-dark #site-header a, .theme-dark #site-header span, .theme-dark #mobile-nav a { color: #cbd5e1 !important; }
-    .theme-dark #site-header .text-blue-600, .theme-dark #mobile-nav .text-blue-600 { color: #60a5fa !important; }
     .theme-dark article h1, .theme-dark article .text-slate-900 { color: #f1f5f9 !important; }
     .theme-dark article .text-slate-700, .theme-dark article .text-slate-500, .theme-dark article .text-slate-400 { color: #94a3b8 !important; }
     .theme-dark article header { border-color: #2d2b29 !important; }
-    .theme-dark article .prose { --tw-prose-body: #e2e8f0; --tw-prose-headings: #f1f5f9; --tw-prose-links: #60a5fa; --tw-prose-bold: #f1f5f9; --tw-prose-quotes: #cbd5e1; --tw-prose-code: #e2e8f0; }
+    .theme-dark article .prose { --tw-prose-body: #e2e8f0; --tw-prose-headings: #f1f5f9; --tw-prose-links: var(--brand-400, #60a5fa); --tw-prose-bold: #f1f5f9; --tw-prose-quotes: #cbd5e1; --tw-prose-code: #e2e8f0; }
     .theme-dark #toc-drawer { background-color: #1c1b1a !important; border-color: #2d2b29 !important; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important; }
     .theme-dark #toc-drawer p { color: #94a3b8 !important; }
     .theme-dark #toc-drawer a { color: #cbd5e1 !important; }
@@ -128,7 +142,7 @@
     .theme-dark .reader-callout-notes { background-color: rgba(245, 158, 11, 0.08) !important; border-color: rgba(245, 158, 11, 0.2) !important; }
     .theme-dark .reader-callout-notes p, .theme-dark .reader-callout-notes span { color: #e2e8f0 !important; }
     .theme-dark .reader-callout-notes input { background-color: #262524 !important; border-color: #3f3c39 !important; color: #f5f5f4 !important; }
-    .theme-dark .reader-callout-notes button { background-color: #3b82f6 !important; color: #ffffff !important; }
+    .theme-dark .reader-callout-notes button { background-color: var(--brand-500, #3b82f6) !important; color: #ffffff !important; }
     .theme-dark .reader-control-bg { background-color: #262524 !important; border-color: #3f3c39 !important; }
     .theme-dark .reader-control-btn { color: #cbd5e1 !important; }
     .theme-dark .reader-control-btn:hover { background-color: #33312e !important; color: #ffffff !important; }
@@ -173,7 +187,14 @@
       theme: {
         extend: {
           colors: {
-            brand: { 50: '#fcfbf8', 500: '#1e3a2f', 600: '#152921' },
+            // Opacity modifiers (bg-brand-600/20) do not work on var()
+            // colours: use a plain CSS rule for translucent brand fills.
+            brand: {
+              50: 'var(--brand-50)', 100: 'var(--brand-100)', 200: 'var(--brand-200)',
+              300: 'var(--brand-300)', 400: 'var(--brand-400)', 500: 'var(--brand-500)',
+              600: 'var(--brand-600)', 700: 'var(--brand-700)', 800: 'var(--brand-800)',
+              900: 'var(--brand-900)', 950: 'var(--brand-950)', accent: 'var(--brand-accent)'
+            },
             paper: { 50: '#fcfbf8', 100: '#f4f1ea', 200: '#e7e3da' },
             ink: { DEFAULT: '#1c1917', muted: '#78716c' }
           }
@@ -191,7 +212,7 @@
     <div class="flex items-center space-x-6">
       <a href="/" class="flex items-center space-x-2 text-slate-900 font-extrabold tracking-[-0.03em] text-lg">
         <svg width="22" height="22" viewBox="0 0 44 44" aria-hidden="true"><defs><linearGradient id="kfm-base" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#0ea5e9"/></linearGradient></defs><rect x="2" y="2" width="40" height="40" rx="11" fill="url(#kfm-base)"/><path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#fff"/></svg>
-        <span>Keepfor<span class="text-blue-600">.me</span></span>
+        <span>Keepfor<span class="text-[var(--brand-accent)]">.me</span></span>
       </a>
       <nav class="hidden md:flex items-center space-x-4 text-sm font-medium text-slate-600">
         <a href="/" class="hover:text-slate-900 transition">Library</a>
@@ -225,15 +246,15 @@
   {% if current_user and not hide_mobile_nav %}
   <nav id="mobile-nav" aria-label="Mobile" class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200" style="padding-bottom: env(safe-area-inset-bottom);">
     <div class="grid grid-cols-6 items-center text-center py-1">
-      <a href="/" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'library' %}text-blue-600{% else %}text-slate-500{% endif %}">
+      <a href="/" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'library' %}text-[var(--brand-accent)]{% else %}text-slate-500{% endif %}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         <span>Library</span>
       </a>
-      <a href="/tags" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'tags' %}text-blue-600{% else %}text-slate-500{% endif %}">
+      <a href="/tags" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'tags' %}text-[var(--brand-accent)]{% else %}text-slate-500{% endif %}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z"/><circle cx="7" cy="7" r=".5" fill="currentColor"/></svg>
         <span>Tags</span>
       </a>
-      <a href="/trash" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'trash' %}text-blue-600{% else %}text-slate-500{% endif %}">
+      <a href="/trash" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'trash' %}text-[var(--brand-accent)]{% else %}text-slate-500{% endif %}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
         <span>Trash</span>
       </a>
@@ -241,11 +262,11 @@
               class="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-slate-900 text-white shadow-md hover:bg-slate-800 active:scale-95 transition">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       </button>
-      <a href="/stats" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'stats' %}text-blue-600{% else %}text-slate-500{% endif %}">
+      <a href="/stats" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'stats' %}text-[var(--brand-accent)]{% else %}text-slate-500{% endif %}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-6 4 3 5-8"/></svg>
         <span>Stats</span>
       </a>
-      <a href="/settings" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'settings' %}text-blue-600{% else %}text-slate-500{% endif %}">
+      <a href="/settings" class="flex flex-col items-center gap-0.5 py-1 text-xs font-semibold {% if active_nav == 'settings' %}text-[var(--brand-accent)]{% else %}text-slate-500{% endif %}">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span>Settings</span>
       </a>
@@ -256,7 +277,7 @@
   <!-- Quick Save: centered modal on desktop, bottom sheet on mobile -->
   {% if current_user %}
   <div id="ai-toast" class="hidden fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-stone-900 text-white rounded-xl text-xs font-medium shadow-xl flex items-center gap-1.5">
-    {{ icon("check", class="w-4 h-4 text-emerald-400 shrink-0") }}
+    {{ icon("check", class="w-4 h-4 text-[var(--brand-400)] shrink-0") }}
     <span>Copied clean Markdown for AI prompt</span>
   </div>
   <div id="save-modal" class="hidden fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4" onclick="if(event.target===this)closeSaveModal()">
@@ -320,7 +341,7 @@
   {% if current_user %}
   <div id="clipboard-toast" class="hidden fixed bottom-20 sm:bottom-6 inset-x-4 max-w-md mx-auto z-50 bg-slate-900 text-white rounded-xl p-3 shadow-xl border border-slate-800 flex items-center justify-between space-x-3 transition-all duration-300">
     <div class="flex items-center space-x-2.5 min-w-0">
-      <div class="w-7 h-7 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+      <div class="w-7 h-7 rounded-lg bg-[var(--brand-950)] text-[var(--brand-400)] flex items-center justify-center shrink-0">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
       </div>
       <div class="truncate text-xs">
@@ -330,7 +351,7 @@
     </div>
     <div class="flex items-center space-x-1 shrink-0">
       <button type="button" onclick="dismissClipboardToast()" class="px-2 py-1 text-xs text-slate-400 hover:text-white transition">Ignore</button>
-      <button type="button" id="clipboard-toast-save-btn" onclick="saveClipboardToast()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-sm transition">Save</button>
+      <button type="button" id="clipboard-toast-save-btn" onclick="saveClipboardToast()" class="px-3 py-1.5 bg-[var(--brand-600)] hover:bg-[var(--brand-700)] text-white text-xs font-semibold rounded-lg shadow-sm transition">Save</button>
     </div>
   </div>
   {% endif %}

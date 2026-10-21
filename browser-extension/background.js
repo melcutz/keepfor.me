@@ -24,7 +24,7 @@ async function saveViaConfig(url) {
 function setBadge(ok) {
   try {
     chrome.action.setBadgeText({ text: ok ? "✓" : "!" });
-    chrome.action.setBadgeBackgroundColor({ color: ok ? "#16a34a" : "#dc2626" });
+    chrome.action.setBadgeBackgroundColor({ color: ok ? "#2563eb" : "#dc2626" });
     setTimeout(() => chrome.action.setBadgeText({ text: "" }), 4000);
   } catch {}
 }

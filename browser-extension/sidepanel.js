@@ -60,7 +60,7 @@ function markSaved(listId, okUrls) {
         const s = document.createElement("span");
         s.className = "saved-tick";
         s.textContent = " ✓";
-        s.style.color = "#16a34a";
+        s.style.color = "var(--brand-accent, #2563eb)";
         label.querySelector(".t")?.appendChild(s);
       }
     }
@@ -84,7 +84,7 @@ $("tabs-save").addEventListener("click", async () => {
   const fails = res.filter((r) => !r.ok);
   const done = res.length - fails.length;
   $("tabs-prog").textContent = done === res.length ? `Saved ${done}/${res.length} ✓` : `Saved ${done}/${res.length}, ${fails.length} failed`;
-  $("tabs-prog").style.color = fails.length ? "" : "#16a34a";
+  $("tabs-prog").style.color = fails.length ? "" : "var(--brand-accent, #2563eb)";
   $("tabs-err").textContent = fails.map((f) => `${f.url}: ${f.error}`).join("\n");
   markSaved("tabs-list", res.filter((r) => r.ok).map((r) => r.url));
   updateSaveLabels();
@@ -122,7 +122,7 @@ $("hist-save").addEventListener("click", async () => {
   const fails = res.filter((r) => !r.ok);
   const done = res.length - fails.length;
   $("hist-prog").textContent = done === res.length ? `Saved ${done}/${res.length} ✓` : `Saved ${done}/${res.length}, ${fails.length} failed`;
-  $("hist-prog").style.color = fails.length ? "" : "#16a34a";
+  $("hist-prog").style.color = fails.length ? "" : "var(--brand-accent, #2563eb)";
   $("hist-err").textContent = fails.map((f) => `${f.url}: ${f.error}`).join("\n");
   markSaved("hist-list", res.filter((r) => r.ok).map((r) => r.url));
   updateSaveLabels();
