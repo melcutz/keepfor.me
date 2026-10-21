@@ -184,6 +184,17 @@ The library search is a URL parameter (`?q=`), like the view (issue #56). The se
 - **A page with an active search shows a "Clear search" control** that returns to `/` without the query — keeping the layout, so `?view=cards` stays in Cards (`#clear-search` in `templates/library.html`).
 - The live search posts to `/search` (htmx) but does **not** change the URL by itself — the `input` listener mirrors the query into `?q=` (debounced: the browser throttles `history.replaceState`). Without that, the URL says nothing about the search and the browser brings the last query back on the next navigation.
 
+## Favicons are served same-origin (`/favicons/<domain>`)
+
+Item cards used to point their `<img>` at a third-party favicon service. Those answer 404 for every domain without an icon, so every library page filled the browser console with failed requests (issue #61). The card now asks `/favicons/<domain>` instead, and that route **always answers 200**.
+
+- `keepfor/utils/favicon.py` owns it: `normalize_host()` keeps only public hostnames (IP literals, `localhost`, `*.local`, `*.internal` are refused), `_fetch_upstream()` goes through `keepfor/utils/egress.py` (so the SSRF policy, the size cap and the timeout apply), and the R2 cache stores `favicons/<domain>` as base64 text (R2's binary put differs between runtimes, its text put does not).
+- A domain with no icon gets the **transparent 1×1 PNG fallback**, so the card's letter tile shows through it. Never serve an upstream body that is not a raster image: an HTML error page would fail to decode in the browser, and SVG is refused because a script inside it runs when the URL is opened as a document.
+- The route is **public**, like `/favicon.ico`: a session that expires between the page and its images must not turn into a 401 in the console.
+- **Only a signed-in request may fetch or cache.** The route calls `deps.get_current_user()` (no 401) and passes `may_fetch` to `resolve_favicon()`; an anonymous request gets the cached icon on a cache hit and the fallback otherwise — no outbound fetch, no R2 write. Without that gate the route is an open fetch-and-store proxy for anyone.
+- **Only a real fetched icon is cached.** The fallback is never written to R2 (so there is no hourly re-fetch of iconless domains), and a failed fetch writes nothing either. A legacy `fallback: true` entry is treated as a miss and refetched.
+- The card must not point at any external favicon service — `tests/test_favicons.py` pins that for all three views.
+
 ## Performance: cold starts dominate latency
 
 Measured on prod: page loads are **~250-300ms warm but spike to 1.5-3.5s on ~15% of requests** (isolate cold starts). Compression is fine — a 200KB library page is 14KB on the wire. D1 queries are fast individually. Do not chase payload or query tuning first; look at what a cold start loads.

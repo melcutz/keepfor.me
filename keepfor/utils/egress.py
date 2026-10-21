@@ -62,6 +62,7 @@ class FetchResult:
     url: str
     bytes_read: int = 0
     headers: dict[str, str] = field(default_factory=dict)
+    body: bytes = b""  # raw bytes; `text` is the lossy utf-8 view of them
 
 
 def _get_env_val(env: Any, key: str) -> Any:
@@ -412,6 +413,7 @@ async def _fetch_limited_urllib(
             url=current_url,
             bytes_read=len(body_bytes),
             headers=headers_dict,
+            body=body_bytes,
         )
 
 
@@ -557,6 +559,7 @@ async def _fetch_limited_pyodide(
             url=current_url,
             bytes_read=len(body_bytes),
             headers=resp_headers,
+            body=body_bytes,
         )
 
 

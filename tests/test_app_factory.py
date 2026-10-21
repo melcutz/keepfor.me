@@ -32,6 +32,7 @@ PUBLIC_ROUTES = {
     "/auth/register",
     "/auth/logout",
     "/favicon.ico",
+    "/favicons/{domain}",
     "/manifest.webmanifest",
     "/icon-192.png",
     "/icon-512.png",

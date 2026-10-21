@@ -33,6 +33,18 @@ argument away in the first two cases.
 
 ### Added
 - **Web "Clean up" view** (GitHub issue #75): `GET /cleanup?kind=duplicates|failed_extraction|dead_links|untagged` lists cleanup candidates as ordinary item cards with tabs and counts, linked from /stats and Settings. `find_cleanup` now splits the failed items into two disjoint categories: dead links (a recorded origin HTTP error) and failed extractions (every other recorded failure), so the MCP `find_cleanup` tool gains the `failed_extraction` category and its `dead_links` narrows to origin HTTP errors. No live link checking: the view reads only what is already recorded.
+- **Indexer hooks for textless items** (keepfor-cloud#120): the new public
+  predicates in `keepfor.search.indexable` let an indexer skip an item that
+  holds no text instead of writing it to the index and deleting it after
+  extraction. `should_index_text(item)` returns `False` for a failed
+  extraction, a binary URL, a mostly unprintable body, an empty body, a bare
+  URL and a URL-only body. `should_index_title(item)` exposes title-only
+  indexing separately, so an excluded item stays title-indexable (the title
+  row of keepfor-cloud#119). The extraction processor consults the hook
+  before chunking and embedding, and keeps a title-only row for a textless
+  item: a saved image or a bare-URL bookmark has no text to index, but its
+  title still finds it in the library search. See
+  `docs/extension-points.md`, section 8.
 - **Scoped Trash purge** (GitHub issue #37): `purge_trash()` takes the tenant
   `scope` now, so a multi-tenant host destroys the R2 snapshots under the
   tenant prefix (`t/<tenant_id>/...`) and the vectors in the tenant
@@ -168,6 +180,7 @@ argument away in the first two cases.
   - Every query is scoped to the caller's `user_id`: reading another tenant's item or tag fails with `not_found`, and neither listing nor a prompt ever quotes another tenant's data. Covered by the isolation test suite.
 
 ### Fixed
+- **Unicode letters in tag names and NFC normalisation** (GitHub issue #74): `validate_tag_name` only accepted ASCII `[a-z0-9]`, so creating, renaming or merging tags with umlauts, `ß` or accented characters (`konsumgüterbranche`, `straße`, `café`) on `/tags` or over MCP failed, even though the tagger already produced German suggestions with those characters. Tag validation now accepts any Unicode letter or digit (`[^\W_]`) with the same single-separator and 2-64 character rules, and `normalize_tag` applies Unicode NFC normalisation before lowercasing across validation and save paths so composed (`ü`) and decomposed (`u` + combining diaeresis) inputs resolve to one tag without folding distinct letters (`ü` to `u` or `ß` to `ss`). Existing ASCII tags are unchanged and no migration is required; pre-existing tags that differ only by NFC form are not auto-merged and can be merged manually on `/tags` if needed.
 - **The pager keeps the page size you picked** (GitHub issue #62): every prev/next/page link pinned `per_page=20`, so a page size other than the default was overridden the moment the feed moved to another page. The links now carry the chosen size, and carry no `per_page` at all when it is the default (20). The rest of the query (`?view=`, the search text, the filters) travels as before.
 - **The library words are no keyword hits** (GitHub issue #63): every word of a query counted as a keyword, including the words of the library ("saved", "my", "library", "bookmark"), which are in the text of every item of a library. So "my saved zxqvbnm" found a keyword hit on "saved" and kept unrelated semantic results instead of showing the empty state. Only the content words of a query are a keyword hit now: the stopwords and the library words are dropped from the FTS terms, from the tag match and from the whole-word search of the semantic-only mode (ported from keepfor-cloud#142). A query of these words only ("library") falls back to its raw words, so it still finds the item titled with it, and a real search is unchanged ("local LLM" still matches).
 - **Saving a link keeps the library layout** (GitHub issue #64): the Save Link form posted no layout, so `/save` redirected to `/` and the library came back in the saved preference (`localStorage`) instead of the layout the page was in. The form now carries the layout of the page it was rendered on (a hidden `view` field, empty without an explicit `?view=`), the switcher updates it, and `/save` redirects to `/?view=<layout>` for the three known layouts only.
