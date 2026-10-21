@@ -179,6 +179,8 @@ Item cards used to point their `<img>` at a third-party favicon service. Those a
 - `keepfor/utils/favicon.py` owns it: `normalize_host()` keeps only public hostnames (IP literals, `localhost`, `*.local`, `*.internal` are refused), `_fetch_upstream()` goes through `keepfor/utils/egress.py` (so the SSRF policy, the size cap and the timeout apply), and the R2 cache stores `favicons/<domain>` as base64 text (R2's binary put differs between runtimes, its text put does not).
 - A domain with no icon gets the **transparent 1×1 PNG fallback**, so the card's letter tile shows through it. Never serve an upstream body that is not a raster image: an HTML error page would fail to decode in the browser, and SVG is refused because a script inside it runs when the URL is opened as a document.
 - The route is **public**, like `/favicon.ico`: a session that expires between the page and its images must not turn into a 401 in the console.
+- **Only a signed-in request may fetch or cache.** The route calls `deps.get_current_user()` (no 401) and passes `may_fetch` to `resolve_favicon()`; an anonymous request gets the cached icon on a cache hit and the fallback otherwise — no outbound fetch, no R2 write. Without that gate the route is an open fetch-and-store proxy for anyone.
+- **Only a real fetched icon is cached.** The fallback is never written to R2 (so there is no hourly re-fetch of iconless domains), and a failed fetch writes nothing either. A legacy `fallback: true` entry is treated as a miss and refetched.
 - The card must not point at any external favicon service — `tests/test_favicons.py` pins that for all three views.
 
 ## Performance: cold starts dominate latency

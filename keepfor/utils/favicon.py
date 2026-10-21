@@ -8,6 +8,10 @@ page filled the browser console with failed requests. The page now asks us
 instead: /favicons/<domain> always answers 200 -- with the site's icon when it
 has one, otherwise with a transparent fallback that leaves the card's letter
 tile visible.
+
+The route is public, so only a signed-in request may make us fetch a site's
+icon or write it to the cache. An anonymous request gets the cached icon when
+there is one and the fallback otherwise: no outbound request, no cache write.
 """
 
 from __future__ import annotations
@@ -65,8 +69,10 @@ _IMAGE_SIGNATURES = (
 FAVICON_TIMEOUT_S = 3.0
 FAVICON_MAX_BYTES = 256 * 1024
 FAVICON_MAX_AGE = 604800  # a real icon: keep it for a week
-FALLBACK_MAX_AGE = 3600  # no icon yet: look again sooner
 ICON_MAX_AGE = 30 * 86400  # a cached icon is refreshed after a month
+# The fallback is never stored: this is only how long the browser keeps it
+# before asking again (the next ask may come from a signed-in visitor).
+FALLBACK_MAX_AGE = 3600
 
 # Same browser agent the article fetcher uses: plenty of sites answer 403 to
 # an unknown agent.
@@ -169,12 +175,12 @@ async def _cache_get(bucket: Any, key: str) -> tuple[bytes, str] | None:
         if obj is None:
             return None
         payload = json.loads(await obj.text())
-        is_fallback = bool(payload.get("fallback"))
+        if payload.get("fallback"):
+            # A fallback entry from an older release: never served, refetched.
+            return None
         age = time.time() - float(payload.get("ts", 0))
-        if age > (FALLBACK_MAX_AGE if is_fallback else ICON_MAX_AGE):
+        if age > ICON_MAX_AGE:
             return None  # stale: look again
-        if is_fallback:
-            return FALLBACK_ICON, "image/png"
         return base64.b64decode(payload["b64"]), str(payload["ct"])
     except Exception:
         return None
@@ -190,7 +196,6 @@ async def _cache_put(bucket: Any, key: str, body: bytes, content_type: str) -> N
             {
                 "ct": content_type,
                 "b64": base64.b64encode(body).decode("ascii"),
-                "fallback": body == FALLBACK_ICON,
                 "ts": time.time(),
             }
         )
@@ -201,11 +206,18 @@ async def _cache_put(bucket: Any, key: str, body: bytes, content_type: str) -> N
         logger.warning("favicon cache write failed for %s", key, exc_info=True)
 
 
-async def resolve_favicon(domain: str, env: Any = None) -> tuple[bytes, str]:
+async def resolve_favicon(
+    domain: str, env: Any = None, *, may_fetch: bool = False
+) -> tuple[bytes, str]:
     """Return (bytes, content_type) for /favicons/<domain>. Never raises.
 
     An unknown, private or unreachable domain yields the transparent fallback,
     so the browser never sees a 404 for an icon.
+
+    `may_fetch` is the abuse guard: only a signed-in request may make us fetch
+    the site's icon and write it to the cache. An anonymous request gets the
+    cached icon when there is one and the fallback otherwise -- no outbound
+    request, no cache write.
     """
     host = normalize_host(domain)
     if host is None:
@@ -215,10 +227,13 @@ async def resolve_favicon(domain: str, env: Any = None) -> tuple[bytes, str]:
     cached = await _cache_get(bucket, key)
     if cached is not None:
         return cached
+    if not may_fetch:
+        return FALLBACK_ICON, "image/png"
     fetched = await _fetch_upstream(host)
     if fetched is None:
-        body, content_type = FALLBACK_ICON, "image/png"
-    else:
-        body, content_type = fetched
+        # No icon upstream: the fallback is never cached, so the site gets
+        # another chance on the next request.
+        return FALLBACK_ICON, "image/png"
+    body, content_type = fetched
     await _cache_put(bucket, key, body, content_type)
     return body, content_type
