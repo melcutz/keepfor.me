@@ -461,12 +461,11 @@ async def search_fts(
     # words ("saved", "my") are in the text of every item of a library,
     # so they prove nothing about the item. A content word matches the
     # words that start with it, so "llm" finds "LLMs" (#76). The words
-    # are matched one by one, like the tags and the whole-word search:
-    # an item that holds one of them is about it, and the rank puts the
-    # items that hold all of them first ("local LLM" finds the item whose
-    # text only says "LLMs" #76).
+    # are matched as a whole: an item must hold every one of them, so
+    # "Alpha guide 0" finds the item that holds all three and not the
+    # items that hold one of them.
     terms = [t for t in _content_terms(query) if t]
-    fts_terms = " OR ".join(_keyword_match(term) for term in terms)
+    fts_terms = " ".join(_keyword_match(term) for term in terms)
     if fts_terms:
         sql = """
             SELECT item_id, rank,
@@ -481,6 +480,13 @@ async def search_fts(
         """
         try:
             fts_matches = await db.query_all(sql, (fts_terms, user_id, user_id, limit))
+            if not fts_matches and len(terms) > 1:
+                # No item holds every word of the query: the union of the
+                # words still names the content, so "local LLM" finds the
+                # item whose text only says "LLMs" (#76). The strict query
+                # wins when it matches anything.
+                union = " OR ".join(_keyword_match(term) for term in terms)
+                fts_matches = await db.query_all(sql, (union, user_id, user_id, limit))
         except Exception:
             # Fallback to simple title/url LIKE search if FTS query syntax error
             fallback_sql = """

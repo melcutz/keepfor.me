@@ -32,17 +32,19 @@ class MockEnv:
 # - tagged: the plural of the concept is a tag, not a word of the text.
 # - models: the plural is in the text.
 # - library: a library word, for the rules of #72.
+# - rust_note: holds "rust" and "note", like the query "rust notes".
 LIBRARY = (
     ("open_webui", "Open WebUI", "chat with LLMs on your own machine", ()),
     ("tagged", "Notes on rust", "a page about the borrow checker", ("llms",)),
     ("models", "Model docs", "a list of models and their sizes", ()),
     ("library", "The library of Rust", "a library of rust books", ()),
+    ("rust_note", "Rust notes", "a note about rust", ()),
 )
 
 
 @pytest.fixture
 async def library(db):
-    """A user with four saved items."""
+    """A user with five saved items."""
     await register_user(db, "inflections@keepfor.me", "password123")
     user, session_id = await login_user(db, "inflections@keepfor.me", "password123")
     ids = {}
@@ -201,3 +203,25 @@ async def test_a_short_word_does_not_match_a_longer_one(db, library):
     results, total = await hybrid_search(db, MockEnv(), user_id, "ai", mode="keyword")
     assert results == []
     assert total == 0
+
+
+async def test_the_strict_query_wins_when_it_matches(library):
+    """The union of the words is a fallback, not the default.
+
+    The items that hold every word of the query are the matches, and an
+    item that holds only one of them does not come with them.
+    """
+    db = library["db"]
+    user_id = library["user"]["id"]
+    library_item = library["ids"]["library"]
+
+    results, total = await hybrid_search(
+        db, MockEnv(), user_id, "rust notes", mode="keyword"
+    )
+    # The library item holds "rust" but not "note": it is not a match.
+    assert library_item not in {i["id"] for i in results}
+    assert {i["id"] for i in results} == {
+        library["ids"]["tagged"],
+        library["ids"]["rust_note"],
+    }
+    assert total == 2
