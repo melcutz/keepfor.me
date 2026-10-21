@@ -540,6 +540,11 @@
       }
     });
     if (viewInput) viewInput.value = v;
+    // The Save Link form carries the layout into /save, so the library
+    // comes back in the layout it is in. The modal is rendered after
+    // this script, so the input is looked up when the sync runs.
+    var saveViewInput = document.getElementById('save-view-input');
+    if (saveViewInput) saveViewInput.value = v;
   }
   document.querySelectorAll('[data-view-btn]').forEach(function (b) {
     b.addEventListener('click', function () {

@@ -757,7 +757,12 @@ async def item_markdown(request: Request, item_id: str):
 
 
 @router.post("/save")
-async def save_form(request: Request, url: str = Form(...), tags: str = Form("")):
+async def save_form(
+    request: Request,
+    url: str = Form(...),
+    tags: str = Form(""),
+    view: str = Form(""),
+):
     user = await deps.require_user(request)
     db = deps.get_db(request)
     env = deps.get_env_from_request(request)
@@ -771,7 +776,12 @@ async def save_form(request: Request, url: str = Form(...), tags: str = Form("")
     await save_item(
         db, env, user["id"], clean_url, tag_list, scope=deps.get_scope(request)
     )
-    return RedirectResponse(url="/", status_code=303)
+    # The library comes back in the layout the save was made from. Only the
+    # three known layouts are accepted, so the value in the URL is a
+    # constant, never the raw form value.
+    view_param = LIBRARY_VIEW_PARAMS.get(view or "")
+    dest = f"/?view={view_param}" if view_param else "/"
+    return RedirectResponse(url=dest, status_code=303)
 
 
 @router.get("/save-popup", response_class=HTMLResponse)
