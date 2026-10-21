@@ -336,6 +336,121 @@ async def test_delete_highlight_route_no_js_fallback(
     assert response.headers["location"] == f"/items/{item_id}"
 
 
+@pytest.mark.asyncio
+async def test_delete_highlight_route_404_on_another_item(
+    db, client, auth, item_with_content
+):
+    """A highlight of another item is not deleted through this item's URL."""
+    user_id, item_id, content = item_with_content
+    client.cookies["kfm_session"] = auth[1]
+
+    other_item, _ = await save_item(
+        db,
+        MockEnv(),
+        user_id,
+        "https://example.com/highlight-other-article",
+        [],
+    )
+    highlight = await create_highlight(db, user_id, item_id, "test article", 23, 35)
+
+    response = client.post(
+        f"/items/{other_item['id']}/highlights/{highlight['id']}/delete",
+        headers={"hx-request": "true"},
+    )
+    assert response.status_code == 404
+
+    # The highlight survives: the URL did not name its item.
+    highlights = await list_highlights(db, user_id, item_id)
+    assert len(highlights) == 1
+
+
+# --- Cross-origin POSTs are refused ---
+
+
+@pytest.mark.asyncio
+async def test_create_highlight_route_rejects_cross_origin(
+    db, client, auth, item_with_content
+):
+    """A cross-origin POST gets 403 and creates nothing."""
+    user_id, item_id, content = item_with_content
+    client.cookies["kfm_session"] = auth[1]
+
+    response = client.post(
+        f"/items/{item_id}/highlights",
+        data={"text": "test article", "start_offset": 23, "end_offset": 35},
+        headers={"hx-request": "true", "Origin": "https://evil.test"},
+    )
+    assert response.status_code == 403
+    assert await list_highlights(db, user_id, item_id) == []
+
+
+@pytest.mark.asyncio
+async def test_delete_highlight_route_rejects_cross_origin(
+    db, client, auth, item_with_content
+):
+    """A cross-origin delete gets 403 and the highlight survives."""
+    user_id, item_id, content = item_with_content
+    client.cookies["kfm_session"] = auth[1]
+
+    highlight = await create_highlight(db, user_id, item_id, "test article", 23, 35)
+
+    response = client.post(
+        f"/items/{item_id}/highlights/{highlight['id']}/delete",
+        headers={"hx-request": "true", "Origin": "https://evil.test"},
+    )
+    assert response.status_code == 403
+    assert len(await list_highlights(db, user_id, item_id)) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_highlight_route_accepts_same_origin(
+    db, client, auth, item_with_content
+):
+    """The same-origin POST still works: the Origin check is not a blanket deny."""
+    user_id, item_id, content = item_with_content
+    client.cookies["kfm_session"] = auth[1]
+
+    response = client.post(
+        f"/items/{item_id}/highlights",
+        data={"text": "test article", "start_offset": 23, "end_offset": 35},
+        headers={"hx-request": "true", "Origin": "https://testserver"},
+    )
+    assert response.status_code == 200
+    assert len(await list_highlights(db, user_id, item_id)) == 1
+
+
+# --- Stored XSS ---
+
+XSS_PAYLOAD = "<img src=x onerror=alert(1)>"
+
+
+@pytest.mark.asyncio
+async def test_highlight_text_is_escaped_in_reader_and_fragment(
+    db, client, auth, item_with_content
+):
+    """Highlight text is article text: it is escaped, never rendered as markup."""
+    user_id, item_id, content = item_with_content
+    client.cookies["kfm_session"] = auth[1]
+
+    # A highlight created outside the route (MCP, import): the quote is markup.
+    await create_highlight(db, user_id, item_id, XSS_PAYLOAD, 0, len(XSS_PAYLOAD))
+
+    reader = client.get(f"/items/{item_id}")
+    assert reader.status_code == 200
+    assert XSS_PAYLOAD not in reader.text
+    assert "&lt;img src=x onerror=alert(1)&gt;" in reader.text
+
+    # The htmx fragment carries the same escaped text.
+    fragment = client.post(
+        f"/items/{item_id}/highlights",
+        data={"text": "test article", "start_offset": 23, "end_offset": 35},
+        headers={"hx-request": "true"},
+    )
+    assert fragment.status_code == 200
+    assert XSS_PAYLOAD not in fragment.text
+    assert "&lt;img src=x onerror=alert(1)&gt;" in fragment.text
+
+
 # --- Reader page shows highlights ---
 
 

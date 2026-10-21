@@ -1222,6 +1222,15 @@ async def trash_page(request: Request, page: int = 1):
     return HTMLResponse(content=html)
 
 
+def _is_same_origin(request: Request) -> bool:
+    """Reject cross-origin form POSTs when an Origin header is present."""
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+    host = (request.headers.get("host") or request.url.netloc or "").lower()
+    return urlparse(origin).netloc.lower() == host
+
+
 @router.post("/items/{item_id}/restore", response_class=HTMLResponse)
 async def restore_item_route(request: Request, item_id: str):
     user = await deps.require_user(request)
@@ -1260,6 +1269,8 @@ async def create_highlight_route(
 ):
     """Create a highlight on an item. Returns the highlight list fragment for htmx,
     or redirects for no-JS fallback."""
+    if not _is_same_origin(request):
+        raise HTTPException(status_code=403, detail="Invalid Origin")
     user = await deps.require_user(request)
     db = deps.get_db(request)
 
@@ -1334,10 +1345,14 @@ async def create_highlight_route(
 async def delete_highlight_route(request: Request, item_id: str, highlight_id: str):
     """Delete a highlight. Returns the updated highlights list fragment for htmx,
     or redirects for no-JS fallback."""
+    if not _is_same_origin(request):
+        raise HTTPException(status_code=403, detail="Invalid Origin")
     user = await deps.require_user(request)
     db = deps.get_db(request)
 
-    ok = await delete_highlight(db, user["id"], highlight_id)
+    # The highlight must belong to the item in the URL: the htmx fragment
+    # below lists the highlights of that item.
+    ok = await delete_highlight(db, user["id"], highlight_id, item_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Highlight not found")
 

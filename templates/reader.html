@@ -340,7 +340,6 @@
   });
 
   // Highlighting functionality
-  const articleBody = document.getElementById('article-body');
   let highlightButton = null;
   let currentSelection = null;
 
@@ -498,7 +497,7 @@
     const parent = textNode.parentNode;
     if (before) parent.insertBefore(document.createTextNode(before), textNode);
     const mark = document.createElement('mark');
-    mark.className = 'bg-amber-200/50 rounded px-0.5';
+    mark.className = 'bg-[var(--brand-100)] rounded px-0.5';
     mark.textContent = match;
     parent.insertBefore(mark, textNode);
     if (after) parent.insertBefore(document.createTextNode(after), textNode);
