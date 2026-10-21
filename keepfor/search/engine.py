@@ -190,11 +190,160 @@ async def get_status_counts(
 # "llm-tools" answers the query "llm", "email" does not answer "ai".
 _TAG_SEPARATORS = ("-", "_", "/", ".")
 
+# The words of a query that name no content: the function words of the
+# language ("the", "in", "what") and the words of the library ("saved",
+# "my", "library"). They are in the text of every item of a library
+# ("a bookmark is a saved link to my favourite pages"), so a keyword
+# hit on one of them proves nothing: "my saved zxqvbnm" used to keep
+# unrelated semantic results because "saved" was a keyword (#63, ported
+# from keepfor-cloud#142).
+SEARCH_STOPWORDS = frozenset(
+    {
+        "a",
+        "about",
+        "after",
+        "all",
+        "an",
+        "and",
+        "any",
+        "are",
+        "as",
+        "at",
+        "be",
+        "before",
+        "between",
+        "but",
+        "by",
+        "can",
+        "compare",
+        "comparison",
+        "could",
+        "describe",
+        "did",
+        "difference",
+        "do",
+        "does",
+        "during",
+        "explain",
+        "for",
+        "from",
+        "have",
+        "how",
+        "i",
+        "if",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "like",
+        "make",
+        "many",
+        "more",
+        "most",
+        "much",
+        "no",
+        "not",
+        "of",
+        "on",
+        "or",
+        "our",
+        "out",
+        "over",
+        "same",
+        "shall",
+        "she",
+        "should",
+        "so",
+        "some",
+        "such",
+        "than",
+        "that",
+        "the",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "through",
+        "to",
+        "too",
+        "under",
+        "until",
+        "up",
+        "us",
+        "very",
+        "was",
+        "we",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "while",
+        "who",
+        "whom",
+        "why",
+        "will",
+        "with",
+        "would",
+        "you",
+        "your",
+    }
+)
+
+# The words that name the library and not its content. They are in the
+# text of every item of a library, so a keyword hit on one of them is
+# no hit at all: "what have I saved about zxqvbnm?" names no content
+# and the library holds no word of it.
+LIBRARY_META_WORDS = frozenset(
+    {
+        "bookmark",
+        "bookmarked",
+        "bookmarks",
+        "collection",
+        "collections",
+        "item",
+        "items",
+        "keep",
+        "kept",
+        "libraries",
+        "library",
+        "me",
+        "mine",
+        "my",
+        "save",
+        "saved",
+        "saves",
+        "saving",
+        "show",
+        "stored",
+    }
+)
+
 
 def _query_terms(query: str) -> list[str]:
     """The lowercased terms of a query (the tokens the FTS matcher sees)."""
     clean = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
     return [t.lower() for t in clean.split() if t]
+
+
+def _content_terms(query: str) -> list[str]:
+    """The terms of a query that name content (the terms of a keyword hit).
+
+    The stopwords and the library words ("saved", "my", "library") name
+    no content, so they are no keyword hit. A query made of these words
+    only ("library") falls back to its raw words, so it still finds the
+    item titled with it.
+    """
+    terms = _query_terms(query)
+    content = [
+        t for t in terms if t not in SEARCH_STOPWORDS and t not in LIBRARY_META_WORDS
+    ]
+    return content or terms
 
 
 async def search_tag_hits(
@@ -207,11 +356,14 @@ async def search_tag_hits(
     hybrid rule dropped it (#55). Tag names are matched on word
     boundaries and case-insensitively, like the FTS tokenizer.
 
+    Only the content words of the query count (#63): a tag named "saved"
+    is no proof that the item is about what the query asks for.
+
     The join order is pinned to the tags: without it SQLite scans the
     live items of the user first (57 ms on a 2k-item library against
     0.1 ms with the tag index).
     """
-    terms = _query_terms(query)
+    terms = _content_terms(query)
     if not terms:
         return []
     name = "LOWER(t.name)"
@@ -272,38 +424,37 @@ async def search_fts(
     # the text, so an item that names the concept in a tag ("llm") had no
     # keyword hit at all. The query runs in parallel with the FTS one.
     tag_task = asyncio.create_task(search_tag_hits(db, user_id, query, limit=limit))
-    if clean_q:
-        # Format for prefix matching: word1* word2*
-        fts_terms = " ".join(f'"{term}"*' for term in clean_q.split() if term)
-        if fts_terms:
-            sql = """
-                SELECT item_id, rank,
-                       snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
-                FROM items_fts
-                WHERE items_fts MATCH ? AND user_id = ?
-                  AND EXISTS (SELECT 1 FROM items i
-                              WHERE i.id = items_fts.item_id AND i.user_id = ?
-                                AND i.deleted_at IS NULL)
-                ORDER BY rank
+    # Only the content words of the query are matched (#63): the library
+    # words ("saved", "my") are in the text of every item of a library,
+    # so they prove nothing about the item.
+    fts_terms = " ".join(f'"{term}"*' for term in _content_terms(query) if term)
+    if fts_terms:
+        sql = """
+            SELECT item_id, rank,
+                   snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
+            FROM items_fts
+            WHERE items_fts MATCH ? AND user_id = ?
+              AND EXISTS (SELECT 1 FROM items i
+                          WHERE i.id = items_fts.item_id AND i.user_id = ?
+                            AND i.deleted_at IS NULL)
+            ORDER BY rank
+            LIMIT ?;
+        """
+        try:
+            fts_matches = await db.query_all(sql, (fts_terms, user_id, user_id, limit))
+        except Exception:
+            # Fallback to simple title/url LIKE search if FTS query syntax error
+            fallback_sql = """
+                SELECT id as item_id, 0.0 as rank, excerpt as snippet
+                FROM items
+                WHERE user_id = ? AND deleted_at IS NULL
+                  AND (title LIKE ? OR url LIKE ?)
                 LIMIT ?;
             """
-            try:
-                fts_matches = await db.query_all(
-                    sql, (fts_terms, user_id, user_id, limit)
-                )
-            except Exception:
-                # Fallback to simple title/url LIKE search if FTS query syntax error
-                fallback_sql = """
-                    SELECT id as item_id, 0.0 as rank, excerpt as snippet
-                    FROM items
-                    WHERE user_id = ? AND deleted_at IS NULL
-                      AND (title LIKE ? OR url LIKE ?)
-                    LIMIT ?;
-                """
-                like_term = f"%{clean_q}%"
-                fts_matches = await db.query_all(
-                    fallback_sql, (user_id, like_term, like_term, limit)
-                )
+            like_term = f"%{clean_q}%"
+            fts_matches = await db.query_all(
+                fallback_sql, (user_id, like_term, like_term, limit)
+            )
     tag_matches = await tag_task
 
     seen = set()
@@ -325,8 +476,12 @@ async def search_fts_whole_words(
 
     FTS5 matches whole tokens (case-insensitive), so this is the keyword
     signal of the semantic-only mode, where no keyword ranking runs.
+
+    Only the content words of the query count (#63): the library words
+    ("saved", "my") are in the text of every item of a library, so they
+    are no proof that the item is about what the query asks for.
     """
-    terms = _query_terms(query)
+    terms = _content_terms(query)
     if not terms:
         return set()
     match = " OR ".join(f'"{t}"' for t in terms)
