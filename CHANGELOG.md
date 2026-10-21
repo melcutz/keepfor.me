@@ -40,7 +40,10 @@ argument away in the first two cases.
   URL and a URL-only body. `should_index_title(item)` exposes title-only
   indexing separately, so an excluded item stays title-indexable (the title
   row of keepfor-cloud#119). The extraction processor consults the hook
-  before chunking and embedding. See `docs/extension-points.md`, section 8.
+  before chunking and embedding, and keeps a title-only row for a textless
+  item: a saved image or a bare-URL bookmark has no text to index, but its
+  title still finds it in the library search. See
+  `docs/extension-points.md`, section 8.
 - **Scoped Trash purge** (GitHub issue #37): `purge_trash()` takes the tenant
   `scope` now, so a multi-tenant host destroys the R2 snapshots under the
   tenant prefix (`t/<tenant_id>/...`) and the vectors in the tenant

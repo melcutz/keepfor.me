@@ -25,6 +25,9 @@ class MockEnv:
     QUEUE = None
 
 
+PHOTO_URL = "https://example.com/photo.jpg"
+
+
 def _item(**over):
     item = {
         "url": "https://example.com/post",
@@ -109,27 +112,39 @@ def test_title_hook_follows_the_title():
 # ==========================================
 
 
-@pytest.mark.asyncio
-async def test_processor_skips_index_and_chunks_for_non_text_item(db, monkeypatch):
-    """An image save gets stored but never reaches FTS or the chunker."""
-    from keepfor.consumer import processor
+class FakeVectorize:
+    """A Vectorize binding that records the vectors it is given."""
 
-    user = await register_user(db, "u1@test.local", "password123")
-    item_id = "55555555-5555-5555-5555-555555555555"
+    def __init__(self):
+        self.upserts: list[dict] = []
+
+    async def upsert(self, vectors):
+        self.upserts.extend(vectors)
+
+
+def _env_with_vectors():
+    """An env whose Vectorize binding records the vectors it receives."""
+    env = MockEnv()
+    env.VECTORIZE = FakeVectorize()
+    return env
+
+
+async def _insert_photo(db, user_id, item_id):
+    """Saves a .jpg item (no text to extract)."""
     await db.execute(
         "INSERT INTO items (id, user_id, url, canonical_url, status, created_at) "
         "VALUES (?,?,?,?, 'queued', '2026-01-01 00:00:00');",
-        (
-            item_id,
-            user["id"],
-            "https://example.com/photo.jpg",
-            "https://example.com/photo.jpg",
-        ),
+        (item_id, user_id, PHOTO_URL, PHOTO_URL),
     )
+
+
+async def _extract_photo(db, monkeypatch, env, item_id, title="The Photograph"):
+    """Extracts the item as a title with no text; returns the chunker calls."""
+    from keepfor.consumer import processor
 
     async def fake_fetch_and_extract(url, item_id):
         return {
-            "title": "The Photograph",
+            "title": title,
             "byline": "",
             "site_name": "example.com",
             "published_date": "",
@@ -143,7 +158,7 @@ async def test_processor_skips_index_and_chunks_for_non_text_item(db, monkeypatc
     monkeypatch.setattr(
         "keepfor.consumer.processor._fetch_and_extract", fake_fetch_and_extract
     )
-    chunk_calls: list[list[tuple]] = []
+    chunk_calls: list[tuple[str, tuple]] = []
     real_split = processor.recursive_character_split
 
     def spy(text, **kwargs):
@@ -152,19 +167,76 @@ async def test_processor_skips_index_and_chunks_for_non_text_item(db, monkeypatc
 
     monkeypatch.setattr(processor, "recursive_character_split", spy)
 
-    await processor.extract_and_store(
-        db, MockEnv(), item_id, "https://example.com/photo.jpg"
+    await processor.extract_and_store(db, env, item_id, PHOTO_URL)
+    return chunk_calls
+
+
+@pytest.mark.asyncio
+async def test_processor_keeps_a_title_only_row_for_a_non_text_item(db, monkeypatch):
+    """An image save keeps a title-only FTS row: no text, but findable."""
+    user = await register_user(db, "u1@test.local", "password123")
+    item_id = "55555555-5555-5555-5555-555555555555"
+    env = _env_with_vectors()
+
+    await _insert_photo(db, user["id"], item_id)
+    await db.execute(
+        "UPDATE items SET why_saved = ? WHERE id = ?;",
+        ("A note about the exhibition", item_id),
     )
+    chunk_calls = await _extract_photo(db, monkeypatch, env, item_id)
 
     row = await db.query_first("SELECT status, title FROM items WHERE id=?", (item_id,))
     assert row["status"] == "ok"
     fts = await db.query_first(
-        "SELECT item_id FROM items_fts WHERE item_id = ?;", (item_id,)
+        "SELECT title, content_text FROM items_fts WHERE item_id = ? AND user_id = ?;",
+        (item_id, user["id"]),
     )
-    assert fts is None
+    assert fts is not None
+    assert fts["title"] == "The Photograph"
+    # The title and the user's own note, no extracted text.
+    assert fts["content_text"] == "A note about the exhibition"
+    # No chunks means no embeddings and no vectors.
     chunks = await db.query_all("SELECT * FROM chunks WHERE item_id = ?;", (item_id,))
     assert chunks == []
     assert chunk_calls == []
+    assert env.VECTORIZE.upserts == []
+
+
+@pytest.mark.asyncio
+async def test_a_textless_item_is_found_by_a_title_search(db, monkeypatch):
+    """A saved .jpg is found by its title in the library search."""
+    from keepfor.search.engine import hybrid_search
+
+    user = await register_user(db, "u3@test.local", "password123")
+    item_id = "77777777-7777-7777-7777-777777777777"
+    env = _env_with_vectors()
+
+    await _insert_photo(db, user["id"], item_id)
+    await _extract_photo(db, monkeypatch, env, item_id)
+
+    results, total = await hybrid_search(db, env, user["id"], "Photograph")
+    assert [r["id"] for r in results] == [item_id]
+    assert total == 1
+
+
+@pytest.mark.asyncio
+async def test_a_re_extraction_keeps_the_title_only_row(db, monkeypatch):
+    """Extracting the same textless item again keeps its title-only row."""
+    user = await register_user(db, "u4@test.local", "password123")
+    item_id = "88888888-8888-8888-8888-888888888888"
+    env = _env_with_vectors()
+
+    await _insert_photo(db, user["id"], item_id)
+    await _extract_photo(db, monkeypatch, env, item_id)
+    await _extract_photo(db, monkeypatch, env, item_id)
+
+    rows = await db.query_all(
+        "SELECT title, content_text FROM items_fts WHERE item_id = ? AND user_id = ?;",
+        (item_id, user["id"]),
+    )
+    assert len(rows) == 1
+    assert rows[0]["title"] == "The Photograph"
+    assert not (rows[0]["content_text"] or "").strip()
 
 
 @pytest.mark.asyncio

@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 from keepfor.consumer.extractor import article_from_reader_markdown, extract_article
 from keepfor.models.db import Database
-from keepfor.search.indexable import should_index_text
+from keepfor.search.indexable import should_index_text, should_index_title
 from keepfor.utils.chunker import recursive_character_split
 from keepfor.utils.egress import (
     _get_env_val,
@@ -346,37 +346,39 @@ async def extract_and_store(
         # vector chunks (keepfor-cloud#120): a non-text item is skipped up
         # front instead of being written here and deleted afterwards by the
         # hosted ingest. The DELETE stays unconditional so a re-extraction
-        # that turns textless cannot leave a stale row behind; a hosted
-        # ingest keeps its own title-only row via should_index_title (#119).
-        index_text = should_index_text(
-            {
-                "url": url,
-                "title": extracted.get("title") or "",
-                "content_text": extracted.get("content_text") or "",
-                "status": "ok",
-            }
-        )
+        # that turns textless cannot leave a stale row behind.
+        index_item = {
+            "url": url,
+            "title": extracted.get("title") or "",
+            "content_text": extracted.get("content_text") or "",
+            "status": "ok",
+        }
+        index_text = should_index_text(index_item)
+        # A textless item keeps a title-only row (should_index_title): a
+        # saved image, a bare-URL bookmark or a failed extraction has no
+        # text to index, but its title still finds it in library search.
+        index_title = should_index_title(index_item)
         await db.execute(
             "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
             (item_id, user_id),
         )
+        # Fetch the v2 fields to include in FTS
+        item_row = await db.query_first(
+            "SELECT agent_summary, why_saved, source_context, saved_by "
+            "FROM items WHERE id = ? AND user_id = ?;",
+            (item_id, user_id),
+        )
+        v2_fields = " ".join(
+            p
+            for p in [
+                item_row.get("agent_summary") if item_row else None,
+                item_row.get("why_saved") if item_row else None,
+                item_row.get("source_context") if item_row else None,
+                item_row.get("saved_by") if item_row else None,
+            ]
+            if p
+        )
         if index_text:
-            # Fetch the v2 fields to include in FTS
-            item_row = await db.query_first(
-                "SELECT agent_summary, why_saved, source_context, saved_by "
-                "FROM items WHERE id = ? AND user_id = ?;",
-                (item_id, user_id),
-            )
-            v2_fields = " ".join(
-                p
-                for p in [
-                    item_row.get("agent_summary") if item_row else None,
-                    item_row.get("why_saved") if item_row else None,
-                    item_row.get("source_context") if item_row else None,
-                    item_row.get("saved_by") if item_row else None,
-                ]
-                if p
-            )
             combined_content = " ".join(
                 p
                 for p in [
@@ -394,6 +396,13 @@ async def extract_and_store(
                 "INSERT INTO items_fts (item_id, user_id, title, content_text) "
                 "VALUES (?, ?, ?, ?);",
                 (item_id, user_id, extracted["title"], combined_content),
+            )
+        elif index_title:
+            # Title-only row: no text to index, but the title still finds it.
+            await db.execute(
+                "INSERT INTO items_fts (item_id, user_id, title, content_text) "
+                "VALUES (?, ?, ?, ?);",
+                (item_id, user_id, extracted["title"], v2_fields),
             )
 
         # 5b. Automatic tagging (fail-open: a tagger defect must never
