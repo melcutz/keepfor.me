@@ -643,7 +643,12 @@ async def get_recent_items(
     category: str | None = None,
     quick: bool = False,
 ) -> list[dict[str, Any]]:
-    """Retrieves recent items for user with pagination and optional filters."""
+    """Retrieves recent items for user with pagination and optional filters.
+
+    Browse order: pinned items first (is_pinned DESC), then newest first
+    (created_at DESC). The feed is one list, so a pinned item leads page 1
+    instead of sinking below newer saves.
+    """
     status_values = _status_values(status)
     status_clause = ""
     status_params: tuple = ()
@@ -671,7 +676,7 @@ async def get_recent_items(
         FROM items i
         WHERE i.user_id = ? AND i.deleted_at IS NULL
           {status_clause}{cat_clause}{quick_clause} {exists}
-        ORDER BY i.created_at DESC
+        ORDER BY i.is_pinned DESC, i.created_at DESC
         LIMIT ? OFFSET ?;
     """
         rows = await db.query_all(
@@ -684,7 +689,7 @@ async def get_recent_items(
             WHERE user_id = ? AND deleted_at IS NULL
               {bare_status}{bare_cat}{bare_quick}
               AND NOT EXISTS (SELECT 1 FROM item_tags itx WHERE itx.item_id = items.id)
-            ORDER BY created_at DESC
+            ORDER BY is_pinned DESC, created_at DESC
             LIMIT ? OFFSET ?;
         """
         rows = await db.query_all(
@@ -696,7 +701,7 @@ async def get_recent_items(
             FROM items
             WHERE user_id = ? AND deleted_at IS NULL
               {bare_status}{bare_cat}{bare_quick}
-            ORDER BY created_at DESC
+            ORDER BY is_pinned DESC, created_at DESC
             LIMIT ? OFFSET ?;
         """
         rows = await db.query_all(
