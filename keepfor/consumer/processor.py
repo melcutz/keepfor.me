@@ -45,6 +45,11 @@ MAX_HTML_BYTES = 5 * 1024 * 1024  # 5MB
 FETCH_TIMEOUT = 20
 SUMMARY_TIMEOUT = 4.0
 SUMMARY_MODEL = "@cf/meta/llama-3.2-3b-instruct"
+# Pending suggestions are listed ORDER BY score DESC, so a match from the
+# user's own vocabulary must outrank every novel keyphrase. A keyphrase
+# score is an occurrence count with small multipliers, so a constant far
+# above any of them always lists first.
+EXISTING_SUGGESTION_SCORE = 1000.0
 
 
 def get_reader_proxy_base(env: Any = None) -> str:
@@ -397,14 +402,26 @@ async def extract_and_store(
                 url=url,
                 body=extracted.get("content_text") or "",
                 user_tags=vocab,
-                limit=5,
+                limit=_tagger.MAX_SUGGESTIONS,
             )
-            phrases = [(s.phrase, s.score) for s in novel if s.phrase not in already]
-            for tag in matched.suggest_only:
-                if tag not in already and tag not in [p for p, _ in phrases]:
-                    phrases.append((tag, 1.0))
+            # Existing-vocabulary matches lead the list (their score also
+            # outranks every novel keyphrase in the pending view) and the
+            # combined suggestions are capped.
+            phrases = [
+                (tag, EXISTING_SUGGESTION_SCORE)
+                for tag in matched.suggest_only
+                if tag not in already
+            ]
+            seen = {p for p, _ in phrases}
+            phrases += [
+                (s.phrase, s.score)
+                for s in novel
+                if s.phrase not in already and s.phrase not in seen
+            ]
             if phrases:
-                await add_suggestions(db, user_id, item_id, phrases)
+                await add_suggestions(
+                    db, user_id, item_id, phrases[: _tagger.MAX_SUGGESTIONS]
+                )
             rules_rows = await db.query_all(
                 "SELECT field, substr, tag FROM tag_rules WHERE user_id = ?;",
                 (user_id,),

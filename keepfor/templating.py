@@ -11,9 +11,13 @@ from typing import Any
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader
 
 from keepfor.paths import templates_dir
+from keepfor.utils.dates import normalize_published_date
 
 _core_loader = FileSystemLoader(str(templates_dir()))
 jinja_env = Environment(loader=ChoiceLoader([_core_loader]), autoescape=True)
+# Templates show the published date through the same normaliser the
+# extractors use, so a raw timestamp never reaches the page.
+jinja_env.filters["published_date"] = normalize_published_date
 
 
 def configure_templates(

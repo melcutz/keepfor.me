@@ -90,6 +90,36 @@ async def test_extraction_records_suggestions(user_env, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_suggestions_prefer_existing_and_cap(user_env, monkeypatch):
+    from keepfor.models.items import save_item
+
+    user, env, db = user_env
+    seed_id = "seed-item"
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status)"
+        " VALUES (?, ?, ?, ?, 'ok');",
+        (seed_id, user["id"], "https://example.com/seed", "https://example.com/seed"),
+    )
+    # 'caching' appears exactly once in the body: suggest-only, not auto-apply.
+    await add_tags_to_item(db, user["id"], seed_id, ["caching"])
+
+    async def fake_fetch(url: str, headers=None) -> str:
+        return HTML
+
+    monkeypatch.setattr("keepfor.consumer.processor.fetch_page_html", fake_fetch)
+    item, _ = await save_item(db, env, user["id"], "https://example.com/pg16", [])
+    # Mirrors list_pending_suggestions' ORDER BY score DESC.
+    rows = await db.query_all(
+        "SELECT phrase, score FROM suggested_tags WHERE item_id = ?"
+        " ORDER BY score DESC;",
+        (item["id"],),
+    )
+    assert 1 <= len(rows) <= 5
+    # The user's own vocabulary is offered before novel keyphrases.
+    assert rows[0]["phrase"] == "caching"
+
+
+@pytest.mark.asyncio
 async def test_tagger_failure_never_fails_extraction(user_env, monkeypatch):
     from keepfor.models.items import save_item
 
