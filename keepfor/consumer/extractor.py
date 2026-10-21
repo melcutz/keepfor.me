@@ -195,7 +195,7 @@ def _drop_duplicate_leading_h1(html_str: str, title: str | None) -> str:
         (n for n in soup.children if getattr(n, "name", None) or str(n).strip()),
         None,
     )
-    if getattr(first, "name", None) != "h1":
+    if first is None or getattr(first, "name", None) != "h1":
         return html_str
     if _fold_title(first.get_text(" ", strip=True)) != _fold_title(title):
         return html_str
