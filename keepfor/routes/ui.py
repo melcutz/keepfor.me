@@ -22,6 +22,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from markupsafe import escape
 
 from keepfor import deps
+from keepfor.models.cleanup import find_cleanup
 from keepfor.models.items import (
     accept_suggestion,
     add_tags_to_item,
@@ -52,6 +53,7 @@ from keepfor.models.items import (
     suggest_rules,
     suggest_tags,
     toggle_pin_item,
+    trash_item,
     unarchive_item,
     update_user_notes,
 )
@@ -1182,6 +1184,29 @@ async def trash_page(request: Request, page: int = 1):
     return HTMLResponse(content=html)
 
 
+def _is_same_origin(request: Request) -> bool:
+    """Reject cross-origin form POSTs when an Origin header is present."""
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+    host = (request.headers.get("host") or request.url.netloc or "").lower()
+    return urlparse(origin).netloc.lower() == host
+
+
+@router.post("/items/{item_id}/trash", response_class=HTMLResponse)
+async def trash_item_route(request: Request, item_id: str):
+    """No-JS form fallback for moving an item to the Trash."""
+    if not _is_same_origin(request):
+        raise HTTPException(status_code=403, detail="Invalid Origin")
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+    if not await trash_item(db, user["id"], item_id):
+        raise HTTPException(status_code=404, detail="Item not found")
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content="")
+    return _referer_redirect(request, "/cleanup")
+
+
 @router.post("/items/{item_id}/restore", response_class=HTMLResponse)
 async def restore_item_route(request: Request, item_id: str):
     user = await deps.require_user(request)
@@ -1202,3 +1227,102 @@ async def delete_forever_route(request: Request, item_id: str):
     ):
         raise HTTPException(status_code=404, detail="Item not found")
     return RedirectResponse(url="/trash", status_code=303)
+
+
+# ==========================================
+# Clean up: duplicates, failed extractions, dead links, untagged items
+# ==========================================
+
+# The four ?kind= tabs, in tab order. Each maps to the find_cleanup
+# category of the same name, so the view stays a read-only report.
+CLEANUP_KINDS = ("duplicates", "failed_extraction", "dead_links", "untagged")
+CLEANUP_LABELS = {
+    "duplicates": "Duplicates",
+    "failed_extraction": "Failed extractions",
+    "dead_links": "Dead links",
+    "untagged": "Untagged",
+}
+# The summary noun after "We found N ...": every phrase pluralizes with a
+# bare "s", so the count line works for 1 and for many.
+CLEANUP_SUMMARIES = {
+    "duplicates": "duplicate group",
+    "failed_extraction": "failed extraction",
+    "dead_links": "dead link",
+    "untagged": "untagged item",
+}
+CLEANUP_EMPTY_COPY = {
+    "duplicates": "We found no duplicate items.",
+    "failed_extraction": "We found no failed extractions.",
+    "dead_links": "We found no dead links.",
+    "untagged": "We found no untagged items.",
+}
+
+# Clean up rows per page (the Trash view's fixed page size).
+CLEANUP_PAGE_SIZE = 20
+
+
+@router.get("/cleanup", response_class=HTMLResponse)
+async def cleanup_page(request: Request, kind: str = "duplicates", page: int = 1):
+    """The web view over find_cleanup: what could be tidied, never changed.
+
+    Rows are the ordinary item card, so every action reuses an existing
+    route: the title opens the reader (our copy, not the origin), the card
+    buttons move to Trash, visit the origin, or tag the item.
+    """
+    user = await deps.get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/auth/login", status_code=303)
+    db = deps.get_db(request)
+    clean_kind = (kind or "").strip().lower()
+    if clean_kind not in CLEANUP_KINDS:
+        clean_kind = "duplicates"
+    page = max(page, 1)
+    # One entry beyond the page tells the template an older page exists
+    # (the Trash view's extra-row trick). shortcut: a duplicate group
+    # lists at most 10 ids (the model's MCP payload cap), so a bigger
+    # group surfaces only its first 10 members; raise it when the web
+    # needs full groups.
+    report = await find_cleanup(
+        db,
+        user["id"],
+        categories=list(CLEANUP_KINDS),
+        limit=page * CLEANUP_PAGE_SIZE + 1,
+    )
+    kind_report = report[clean_kind]
+    ids: list[str] = []
+    if clean_kind == "duplicates":
+        # One entry per group of duplicate urls: flatten so every listed
+        # duplicate gets a row (a group's members stay adjacent).
+        seen: set[str] = set()
+        for group in kind_report["items"]:
+            for iid in group.get("ids", []):
+                if iid not in seen:
+                    seen.add(iid)
+                    ids.append(iid)
+    else:
+        ids = [entry["id"] for entry in kind_report["items"]]
+
+    start = (page - 1) * CLEANUP_PAGE_SIZE
+    page_ids = ids[start : start + CLEANUP_PAGE_SIZE]
+    has_more = len(ids) > start + CLEANUP_PAGE_SIZE
+    # One get_item per row, run together: the D1 round trips do not add up.
+    rows = await asyncio.gather(*(get_item(db, user["id"], iid) for iid in page_ids))
+    items = [item for item in rows if item]
+    tag_styles = tag_styles_for([t for item in items for t in (item.get("tags") or [])])
+
+    template = jinja_env.get_template("cleanup.html")
+    html = template.render(
+        current_user=user,
+        kind=clean_kind,
+        items=items,
+        count=kind_report["count"],
+        counts={k: report[k]["count"] for k in CLEANUP_KINDS},
+        tag_styles=tag_styles,
+        active_nav="cleanup",
+        page=page,
+        has_more=has_more,
+        summary=CLEANUP_SUMMARIES[clean_kind],
+        empty_copy=CLEANUP_EMPTY_COPY[clean_kind],
+        labels=CLEANUP_LABELS,
+    )
+    return HTMLResponse(content=html)

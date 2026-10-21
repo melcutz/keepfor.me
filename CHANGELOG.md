@@ -32,6 +32,7 @@ argument away in the first two cases.
   snapshots and the vectors stay until the user deletes the item for good.
 
 ### Added
+- **Web "Clean up" view** (GitHub issue #75): `GET /cleanup?kind=duplicates|failed_extraction|dead_links|untagged` lists cleanup candidates as ordinary item cards with tabs and counts, linked from /stats and Settings. `find_cleanup` now splits the failed items into two disjoint categories: dead links (a recorded origin HTTP error) and failed extractions (every other recorded failure), so the MCP `find_cleanup` tool gains the `failed_extraction` category and its `dead_links` narrows to origin HTTP errors. No live link checking: the view reads only what is already recorded.
 - **Scoped Trash purge** (GitHub issue #37): `purge_trash()` takes the tenant
   `scope` now, so a multi-tenant host destroys the R2 snapshots under the
   tenant prefix (`t/<tenant_id>/...`) and the vectors in the tenant

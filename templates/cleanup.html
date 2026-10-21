@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Clean up - Keepfor.me{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 sm:px-8 py-8 space-y-6">
+  <div>
+    <h1 class="text-xl font-bold text-slate-900 tracking-tight">Clean up library</h1>
+    <p class="text-xs text-slate-500 mt-1">We found items worth a look. Nothing changes until you act.</p>
+  </div>
+
+  <nav class="flex flex-wrap gap-2" aria-label="Clean up kinds">
+    {% for k in ["duplicates", "failed_extraction", "dead_links", "untagged"] %}
+    <a href="/cleanup?kind={{ k }}"
+       aria-current="{% if kind == k %}page{% else %}false{% endif %}"
+       class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium {% if kind == k %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600 hover:border-slate-300{% endif %}">
+      {{ labels[k] }} <span class="opacity-70">({{ counts[k] }})</span>
+    </a>
+    {% endfor %}
+  </nav>
+
+  {% if items %}
+  <p class="text-sm text-slate-700">We found {{ count }} {{ summary }}{{ 's' if count != 1 }}.</p>
+  <div id="items-list" class="space-y-4">
+    {% for item in items %}
+      {% include "partials/item_card.html" %}
+    {% endfor %}
+  </div>
+  {% if page > 1 or has_more %}
+  <nav class="flex items-center justify-between text-sm" aria-label="Clean up pages">
+    {% if page > 1 %}
+    <a href="/cleanup?kind={{ kind }}&page={{ page - 1 }}" class="text-slate-600 hover:text-slate-900 transition">← Newer</a>
+    {% else %}
+    <span></span>
+    {% endif %}
+    {% if has_more %}
+    <a href="/cleanup?kind={{ kind }}&page={{ page + 1 }}" class="text-slate-600 hover:text-slate-900 transition">Older →</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+  {% else %}
+  <div class="text-center py-12 text-slate-400 text-sm">{{ empty_copy }}</div>
+  {% endif %}
+</div>
+{% endblock %}
