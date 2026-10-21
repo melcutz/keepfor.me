@@ -131,3 +131,196 @@ def test_heavy_nlp_libs_not_imported_by_tagger():
 
     for mod in ("sklearn", "nltk", "spacy", "keybert"):
         assert mod not in sys.modules, mod
+
+
+# Three sample articles in the shape the extraction pipeline produces.
+# `want` holds the phrases a reader would expect as tags.
+ARTICLES = [
+    {
+        "title": "Why Postgres 16 parallel vacuum changed our write path",
+        "excerpt": "A deep dive into autovacuum tuning and dead tuples.",
+        "url": "https://example.com/postgres-16-parallel-vacuum",
+        "body": """
+            Postgres 16 introduced parallel vacuum, which changes the cost model for
+            large tables. Before this release, a vacuum of a table with millions of
+            dead tuples ran on a single worker and the transaction id wraparound risk
+            grew quietly in the background. We operate a multi-tenant Postgres cluster
+            where every tenant table is partitioned by customer id, and the autovacuum
+            settings were tuned for a much smaller workload. Parallel vacuum let us
+            lower the vacuum cost limit without falling behind on bloat. The real win
+            was not the speed. It was that our dead tuple ratio finally fell below the
+            threshold where the planner started choosing sequential scans over the
+            index. We now run vacuum aggressively during low traffic hours and keep the
+            autovacuum threshold low enough that bloat never accumulates.
+        """,
+        "want": {"postgres", "parallel vacuum"},
+        "junk": {"parallel vacuum changed", "vacuum cost limit"},
+    },
+    {
+        "title": "Freight operators rethink the supply chain",
+        "excerpt": "Ocean carriers add capacity while shippers build resilience.",
+        "url": "https://example.com/freight-supply-chain-2026",
+        "body": """
+            The shipping industry entered the year with freight rates down and capacity
+            up. Carriers around the world ordered new vessels, and the resulting supply
+            of container space has pushed spot rates lower across the major trade lanes.
+            Shippers, for their part, have stopped treating the ocean as a single point
+            of failure. Analysts in Rotterdam and Singapore describe the shift as a
+            move from just in time to just in case, with importers holding more
+            inventory and booking capacity earlier. The logistics providers in between
+            are adapting with software that models arrival dates and reroutes cargo
+            around port congestion. For the freight operators themselves, the margin
+            story depends on how quickly they can turn capacity back around.
+        """,
+        "want": {"freight operators", "supply chain"},
+        "junk": {"supply chain ocean", "carriers around"},
+    },
+    {
+        "title": "Anarchism",
+        "excerpt": "A political philosophy and a movement.",
+        "url": "https://en.wikipedia.org/wiki/Anarchism",
+        "body": """
+            Anarchism is a political philosophy and a movement that advocates the
+            absence of hierarchical domination. Anarchists argue that the state and
+            coercive authority are undesirable, and they advocate the replacement of
+            the state with a stateless society. The philosophy has a long and varied
+            history, with roots in ancient Greek thinkers and in the religious
+            anarchism of the nineteenth century. Anarchism is usually considered a
+            radical left-wing political movement. During the twentieth century it was
+            widely associated with protests, and many anarchist organisations were
+            targeted by state repression.
+        """,
+        "want": {"anarchism", "political philosophy"},
+        "junk": {"anarchism political philosophy", "philosophy and a movement"},
+    },
+]
+
+
+def _suggest(article, user_tags=()):
+    return tagger.suggest_new_tags(
+        title=article["title"],
+        excerpt=article["excerpt"],
+        url=article["url"],
+        body=article["body"],
+        user_tags=list(user_tags),
+        limit=5,
+    )
+
+
+def test_suggestions_never_start_or_end_with_a_stopword():
+    for article in ARTICLES:
+        for suggestion in _suggest(article):
+            words = suggestion.phrase.split()
+            assert words[0] not in tagger.STOPWORDS, (article["title"], suggestion)
+            assert words[-1] not in tagger.STOPWORDS, (article["title"], suggestion)
+            assert not [w for w in words if w in tagger.STOPWORDS], (
+                article["title"],
+                suggestion,
+            )
+
+
+def test_suggestions_are_topical_phrases_not_fragments():
+    for article in ARTICLES:
+        phrases = {s.phrase for s in _suggest(article)}
+        assert phrases & article["want"], (article["title"], phrases)
+        assert not (phrases & article["junk"]), (article["title"], phrases)
+
+
+def test_suggestions_are_capped():
+    for article in ARTICLES:
+        assert len(_suggest(article)) <= 5
+
+
+# Contraction forms of stopwords. The tokeniser keeps them as single words,
+# so they must be stoplisted explicitly or they leak into suggestions
+# ("tests aren't", "it's").
+CONTRACTION_STOPWORDS = {
+    "isn't",
+    "aren't",
+    "wasn't",
+    "weren't",
+    "don't",
+    "doesn't",
+    "didn't",
+    "can't",
+    "couldn't",
+    "won't",
+    "wouldn't",
+    "shouldn't",
+    "mustn't",
+    "hasn't",
+    "haven't",
+    "hadn't",
+    "it's",
+    "that's",
+    "there's",
+    "here's",
+    "what's",
+    "let's",
+    "i'm",
+    "i've",
+    "i'd",
+    "i'll",
+    "he's",
+    "she's",
+    "you're",
+    "we're",
+    "they're",
+    "we've",
+    "they've",
+    "we'll",
+    "you'll",
+    "they'll",
+}
+
+
+def test_contraction_stopwords_never_appear_in_suggestions():
+    article = {
+        "title": "Flaky Tests Aren't a Bug: It's the Clock",
+        "excerpt": "We blamed the code, didn't we? The truth is subtler.",
+        "url": "https://example.com/blog/flaky-tests",
+        "body": (
+            "The suite wasn't slow; it was nondeterministic. The scheduler "
+            "wasn't the culprit. Fixing the clock skew turned everything "
+            "green. Graceful, wasn't it?"
+        ),
+    }
+    for suggestion in _suggest(article):
+        words = suggestion.phrase.split()
+        assert not (set(words) & CONTRACTION_STOPWORDS), suggestion
+
+
+def test_suggestions_prefer_the_users_existing_vocabulary():
+    article = ARTICLES[0]
+    match = tagger.match_existing_tags(
+        title=article["title"],
+        excerpt=article["excerpt"],
+        url=article["url"],
+        body=article["body"],
+        user_tags=["postgres"],
+    )
+    assert "postgres" in match.auto_apply
+    # An existing tag is never re-proposed as a new keyphrase.
+    phrases = {s.phrase for s in _suggest(article, ["postgres"])}
+    assert "postgres" not in phrases
+    # A novel phrase that already contains an existing tag loses to it.
+    assert not [p for p in phrases if "postgres" in p.split()], phrases
+
+
+def test_a_repeated_word_is_not_a_phrase():
+    body = (
+        "Postgres postgres tuning is postgres postgres tuning for postgres "
+        "users. Postgres postgres vacuum tuning keeps postgres postgres fast."
+    )
+    out = tagger.suggest_new_tags(
+        title="Postgres tuning",
+        excerpt="",
+        url="https://example.com/postgres-tuning",
+        body=body,
+        user_tags=[],
+        limit=5,
+    )
+    assert out, "expected the repeated keyphrase to still yield suggestions"
+    assert all(len(set(s.phrase.split())) == len(s.phrase.split()) for s in out), [
+        s.phrase for s in out
+    ]

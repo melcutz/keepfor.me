@@ -550,7 +550,11 @@ async def suggest_tags_for_item(
     db: Database, user_id: str, item_id: str
 ) -> list[dict[str, Any]]:
     """Suggestions for an item drawn from the existing tag vocabulary first."""
-    from keepfor.utils.tagger import match_existing_tags, suggest_new_tags
+    from keepfor.utils.tagger import (
+        MAX_SUGGESTIONS,
+        match_existing_tags,
+        suggest_new_tags,
+    )
 
     item = await db.query_first(
         "SELECT title, excerpt, url, content_text FROM items"
@@ -579,14 +583,18 @@ async def suggest_tags_for_item(
         user_tags,
     ):
         out.append({"name": s.phrase, "reason": "new", "score": s.score})
-    return out
+    return out[:MAX_SUGGESTIONS]
 
 
 async def suggest_tags_for_text(
     db: Database, user_id: str, text: str
 ) -> list[dict[str, Any]]:
     """Suggestions for arbitrary text drawn from the existing vocabulary first."""
-    from keepfor.utils.tagger import match_existing_tags, suggest_new_tags
+    from keepfor.utils.tagger import (
+        MAX_SUGGESTIONS,
+        match_existing_tags,
+        suggest_new_tags,
+    )
 
     user_tags = [r["name"] for r in await _list_user_tag_names(db, user_id)]
     match = match_existing_tags("", "", "", text, user_tags)
@@ -596,7 +604,7 @@ async def suggest_tags_for_text(
     out += [{"name": t, "reason": "existing"} for t in match.suggest_only]
     for s in suggest_new_tags("", "", "", text, user_tags):
         out.append({"name": s.phrase, "reason": "new", "score": s.score})
-    return out
+    return out[:MAX_SUGGESTIONS]
 
 
 async def _list_user_tag_names(db: Database, user_id: str) -> list[dict[str, Any]]:

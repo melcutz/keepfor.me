@@ -353,6 +353,31 @@ async def test_suggest_tags_for_text(db):
 
 
 @pytest.mark.asyncio
+async def test_suggest_tags_for_item_caps_total_and_prefers_vocabulary(db):
+    user_id = str(uuid.uuid4())
+    await create_tag(db, user_id, "python")
+    item_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, title,"
+        " content_text, status)"
+        " VALUES (?, ?, ?, ?, ?, ?, 'ok');",
+        (
+            item_id,
+            user_id,
+            "https://a.example/java",
+            "https://a.example/java",
+            "Java versus Rust versus Kotlin versus Scala versus Perl versus Ruby",
+            "I love python programming. Python is fun.",
+        ),
+    )
+    suggestions = await tags_model.suggest_tags_for_item(db, user_id, item_id)
+    # The user's own vocabulary is listed before novel keyphrases, and the
+    # combined output never exceeds the cap.
+    assert suggestions[0]["name"] == "python"
+    assert 1 <= len(suggestions) <= 5
+
+
+@pytest.mark.asyncio
 async def test_expand_tag_names_includes_children(db):
     user_id = str(uuid.uuid4())
     await create_tag(db, user_id, "work")
