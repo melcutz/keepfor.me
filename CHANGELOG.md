@@ -177,6 +177,7 @@ argument away in the first two cases.
 - `reading_history` with `event="opened"` plus a tag or query filter raised a SQLite parameter mismatch instead of returning results.
 - The FTS5 re-index after extraction read the item's provenance fields by `id` only; it is now scoped to the owning `user_id` as well.
 - **Note bodies lost on read**: the MCP 0.2.0 content cap was applied inside `get_item`, so every caller (the reader page, the Copy-for-AI action, `GET /api/items/{id}`) got a truncated body — and notes, which have no excerpt, lost their text entirely. The cap now lives in the MCP `get_item` tool only; `get_item` returns the full body by default.
+- **Wikipedia reader output** (GitHub issue #43): a Wikipedia article is extracted with its own rule. The `[edit]` fragments next to the headings, the duplicated H1, the site chrome and the junk byline ("Contributors to Wikimedia projects") are gone, the title loses the " - Wikipedia" suffix, and the date is the **last modification** of the article instead of its creation date. The library card and the reader now show the same date.
 
 ### Changed
 - FTS5 index now includes the provenance fields (`agent_summary`, `why_saved`, `source_context`, `saved_by`) in `content_text` for searchability.

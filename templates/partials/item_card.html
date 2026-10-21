@@ -39,7 +39,7 @@
         <span class="whitespace-nowrap px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full font-medium">{{ (item.word_count // 200) + 1 }} min read</span>
         <span>•</span>
         {% endif %}
-        <span class="whitespace-nowrap">{{ item.created_at[:10] }}</span>
+        <span class="whitespace-nowrap">{{ item.published_date or item.created_at[:10] }}</span>
 
         {% if item.status == 'queued' or item.status == 'fetching' %}
         <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium animate-pulse">{{ icon("clock", class="w-3 h-3 text-amber-500") }}<span>Extracting...</span></span>

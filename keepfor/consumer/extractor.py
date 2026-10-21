@@ -345,6 +345,15 @@ def _is_github_url(url: str) -> bool:
     return host == "github.com" or host.endswith(".github.com")
 
 
+def _is_wikipedia_url(url: str) -> bool:
+    """Check if URL is a Wikipedia article page."""
+    try:
+        host = (urlparse(url).netloc or "").lower()
+    except Exception:
+        return False
+    return host == "wikipedia.org" or host.endswith(".wikipedia.org")
+
+
 # YouTube embeds the full video description in `ytInitialPlayerResponse`.
 # og:description is truncated to ~160 chars; this is the whole thing.
 _YT_SHORT_DESC_RE = re.compile(r'"shortDescription":"((?:[^"\\]|\\.)*)"')
@@ -501,6 +510,213 @@ def extract_github_article(html: str, url: str) -> dict[str, Any]:
     }
 
 
+# Wikipedia is a fixed template: the article body is always inside
+# #mw-content-text, every heading carries an "[edit]" fragment, the title is
+# repeated in the body and the schema.org block carries the real metadata
+# (author = "Contributors to Wikimedia projects", dateModified = last edit).
+_WIKI_CHROME_SELECTORS = (
+    ".mw-editsection",  # the "[edit]" fragment next to every heading
+    ".mw-editsection-like",  # same fragment inside transcluded excerpts
+    ".mw-empty-elt",  # spacing-only spans
+    ".navbox",  # "Navigation menu" boxes
+    ".vertical-navbox",
+    ".sistersitebox",
+    ".metadata",  # authority control box
+    ".catlinks",
+    ".printfooter",
+)
+_WIKI_TITLE_SUFFIX_RE = re.compile(r"\s*[-–—]\s*wikipedia\s*$", re.IGNORECASE)
+_WIKI_MONTHS = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+_HTML_BLOCK_END_RE = re.compile(
+    r"(?i)</(?:p|div|h[1-6]|li|tr|blockquote|pre|dd|dt|section|figcaption|caption)>"
+    r"|<br\s*/?>"
+)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _tag_text(node: Any) -> str | None:
+    """Text content of a node, or None when there is nothing to read."""
+    if node is None:
+        return None
+    text = node.get_text(" ", strip=True) if hasattr(node, "get_text") else str(node)
+    return text.strip() or None
+
+
+def _as_text(value: Any) -> str | None:
+    """String value of a metadata field, or None."""
+    return value.strip() or None if isinstance(value, str) else None
+
+
+def _meta_content(soup: Any, prop: str) -> str | None:
+    """Content of an OpenGraph/name meta tag, or None."""
+    tag = soup.find("meta", property=prop) or soup.find("meta", attrs={"name": prop})
+    if tag and tag.get("content"):
+        return str(tag["content"]).strip() or None
+    return None
+
+
+def _wikipedia_jsonld(soup: Any) -> dict[str, Any]:
+    """Return the page's schema.org metadata (Wikipedia ships an Article)."""
+    best: dict[str, Any] = {}
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = script.string or script.get_text() or ""
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if isinstance(data, list):
+            data = next((d for d in data if isinstance(d, dict)), None)
+        if not isinstance(data, dict):
+            continue
+        if data.get("dateModified") or "Article" in str(data.get("@type", "")):
+            return data
+        best = best or data
+    return best
+
+
+def _normalize_iso_date(value: Any) -> str | None:
+    """Normalize an ISO timestamp to YYYY-MM-DD."""
+    if not value:
+        return None
+    match = re.match(r"(\d{4}-\d{2}-\d{2})", str(value).strip())
+    return match.group(1) if match else None
+
+
+def _wikipedia_last_modified(soup: Any) -> str | None:
+    """Date of the footer's "This page was last edited on 13 August 2026"."""
+    node = soup.find(id="footer-info-lastmod")
+    if not node:
+        return None
+    text = node.get_text(" ", strip=True)
+    match = re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", text)
+    if match:
+        month = _WIKI_MONTHS.get(match.group(2).lower())
+        if month:
+            return f"{match.group(3)}-{month:02d}-{int(match.group(1)):02d}"
+    return _normalize_iso_date(text)
+
+
+def _html_to_text(html_str: str) -> str:
+    """Flatten reader HTML to plain text, keeping block boundaries as lines."""
+    text = re.sub(r"(?i)</t[dh]>", " ", html_str)
+    text = _HTML_BLOCK_END_RE.sub("\n", text)
+    text = _HTML_TAG_RE.sub("", text)
+    return _clean_plain_text(html_module.unescape(text))
+
+
+def extract_wikipedia_article(html: str, url: str) -> dict[str, Any]:
+    """Extract a Wikipedia article: one title, no [edit] links, one date."""
+    soup_cls, _ = _load_parsers()
+    soup = soup_cls(html or "", "html.parser")
+
+    ld = _wikipedia_jsonld(soup)
+
+    title = None
+    for candidate in (
+        _as_text(ld.get("name")),
+        _tag_text(soup.select_one(".mw-page-title-main")),
+        _tag_text(soup.find(id="firstHeading")),
+        _meta_content(soup, "og:title"),
+        _tag_text(soup.title),
+    ):
+        cleaned = candidate and _WIKI_TITLE_SUFFIX_RE.sub("", candidate).strip()
+        if cleaned:
+            title = cleaned
+            break
+    if not title:
+        title = url
+
+    # The byline Wikipedia exposes is "Contributors to Wikimedia projects":
+    # chrome, not an author. The site name carries the source instead.
+    published_date = _normalize_iso_date(ld.get("dateModified")) or (
+        _wikipedia_last_modified(soup)
+    )
+
+    root = (
+        soup.select_one("#mw-content-text .mw-parser-output")
+        or soup.select_one(".mw-parser-output")
+        or soup.find(id="mw-content-text")
+        or soup.find("main")
+        or soup.body
+        or soup
+    )
+
+    # The short description is invisible metadata (display:none): it is the
+    # card excerpt, not a line of the article.
+    excerpt = _tag_text(root.select_one(".shortdescription")) or _as_text(
+        ld.get("headline")
+    )
+
+    for selector in _WIKI_CHROME_SELECTORS:
+        for node in root.select(selector):
+            node.decompose()
+    # Wikipedia ships parser debug reports as HTML comments: not content.
+    from bs4 import Comment  # bs4 is loaded by _load_parsers() above
+
+    for node in root.find_all(string=lambda s: isinstance(s, Comment)):
+        node.extract()
+    # Hidden elements (short description, citation metadata): the sanitizer
+    # drops the style attribute, so they would surface as junk.
+    for node in root.find_all(style=re.compile(r"display\s*:\s*none", re.IGNORECASE)):
+        node.decompose()
+    for node in root.find_all(
+        ["nav", "header", "footer", "aside", "noscript", "script", "style"]
+    ):
+        node.decompose()
+    # The reader renders the title itself: an H1 in the body duplicates it.
+    for node in root.find_all("h1"):
+        node.decompose()
+    # Any edit link left over is Wikipedia chrome, never article content.
+    for node in root.find_all("a", href=True):
+        if "action=edit" in node["href"]:
+            node.decompose()
+
+    # Wikipedia links are site-relative; the reader needs absolute ones.
+    for node in root.find_all(["a", "img"]):
+        attr = "href" if node.name == "a" else "src"
+        value = node.get(attr)
+        if not value or value.startswith(("#", "data:")):
+            continue
+        node[attr] = urljoin(url, value)
+
+    clean_html = sanitize_clean_html(str(root))
+    plain_text = _html_to_text(clean_html)
+    word_count = len(plain_text.split())
+
+    image = ld.get("image")
+    image_url = _meta_content(soup, "og:image") or (
+        image if isinstance(image, str) else None
+    )
+
+    return {
+        "title": title,
+        "byline": None,
+        "site_name": "Wikipedia",
+        "published_date": published_date,
+        "excerpt": excerpt,
+        "content_text": plain_text,
+        "clean_html": clean_html,
+        "is_fallback": 0 if word_count >= 50 else 1,
+        "word_count": word_count,
+        "image_url": image_url,
+        "blocked_reason": detect_blocked_page(title, plain_text, None),
+        "redirect_url": detect_redirect_url(html, url),
+    }
+
+
 def _extract_with_readability(html: str, url: str) -> str | None:
     """Simple readability-like extraction using BeautifulSoup.
 
@@ -599,6 +815,8 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
         return extract_youtube_article(html, url)
     if _is_github_url(url):
         return extract_github_article(html, url)
+    if _is_wikipedia_url(url):
+        return extract_wikipedia_article(html, url)
 
     title = None
     byline = None
