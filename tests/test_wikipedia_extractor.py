@@ -130,10 +130,10 @@ def test_is_wikipedia_url_domain_boundaries():
 
 
 @pytest.mark.asyncio
-async def test_card_and_reader_show_the_same_date(
+async def test_card_shows_the_saved_date_and_the_published_date(
     client, db, auth_headers, monkeypatch
 ):
-    """The library card and the reader must not disagree about the date."""
+    """The card keeps the save date and labels the article's own date."""
     from keepfor.consumer import processor
 
     user = auth_headers["admin_user"]
@@ -155,9 +155,11 @@ async def test_card_and_reader_show_the_same_date(
     card = client.get(f"/items/{item_id}/card")
     assert reader.status_code == 200
     assert card.status_code == 200
-    # The last modification, not the save date, and the same on both views.
+    # The card shows the save date and the last modification, labelled.
+    assert "2026-01-01" in card.text
+    assert "Published 2026-08-13" in card.text
+    # The reader shows the last modification, not the save date.
     assert "2026-08-13" in reader.text
-    assert "2026-08-13" in card.text
     assert "2026-01-01" not in reader.text
     # No site suffix, no contributor byline.
     assert "Raft (algorithm) - Wikipedia" not in reader.text

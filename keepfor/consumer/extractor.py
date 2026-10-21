@@ -7,6 +7,8 @@ import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from keepfor.utils.dates import normalize_published_date
+
 # NOTE: trafilatura and bs4 are imported lazily (see _load_parsers) rather
 # than at module scope. This module is reachable from the Worker entrypoint
 # via the consumer chain, so eager imports made *every* request -- including
@@ -410,7 +412,7 @@ def extract_youtube_article(html: str, url: str) -> dict[str, Any]:
     published_date = None
     og_date = soup.find("meta", attrs={"itemprop": "datePublished"})
     if og_date and og_date.get("content"):
-        published_date = og_date["content"].strip()
+        published_date = normalize_published_date(og_date["content"])
 
     image_url = None
     og_img = soup.find("meta", property="og:image")
@@ -587,14 +589,6 @@ def _wikipedia_jsonld(soup: Any) -> dict[str, Any]:
     return best
 
 
-def _normalize_iso_date(value: Any) -> str | None:
-    """Normalize an ISO timestamp to YYYY-MM-DD."""
-    if not value:
-        return None
-    match = re.match(r"(\d{4}-\d{2}-\d{2})", str(value).strip())
-    return match.group(1) if match else None
-
-
 def _wikipedia_last_modified(soup: Any) -> str | None:
     """Date of the footer's "This page was last edited on 13 August 2026"."""
     node = soup.find(id="footer-info-lastmod")
@@ -606,7 +600,7 @@ def _wikipedia_last_modified(soup: Any) -> str | None:
         month = _WIKI_MONTHS.get(match.group(2).lower())
         if month:
             return f"{match.group(3)}-{month:02d}-{int(match.group(1)):02d}"
-    return _normalize_iso_date(text)
+    return normalize_published_date(text)
 
 
 def _html_to_text(html_str: str) -> str:
@@ -641,7 +635,7 @@ def extract_wikipedia_article(html: str, url: str) -> dict[str, Any]:
 
     # The byline Wikipedia exposes is "Contributors to Wikimedia projects":
     # chrome, not an author. The site name carries the source instead.
-    published_date = _normalize_iso_date(ld.get("dateModified")) or (
+    published_date = normalize_published_date(ld.get("dateModified")) or (
         _wikipedia_last_modified(soup)
     )
 
@@ -847,7 +841,7 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
             title = metadata.title
             byline = metadata.author
             site_name = metadata.sitename
-            published_date = metadata.date
+            published_date = normalize_published_date(metadata.date)
             excerpt = metadata.description
 
     is_fallback = False
