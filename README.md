@@ -81,6 +81,10 @@ from keepfor.models.items import purge_trash
 
 # Hard-deletes trashed items older than 30 days (row, snapshots, vectors).
 await purge_trash(db, env, user_id=None, older_than_days=30)
+
+# A multi-tenant host passes the tenant scope: it carries the R2 prefix
+# and the Vectorize namespace of the tenant. An unscoped call is refused.
+await purge_trash(db, env, user_id=None, older_than_days=30, scope=scope)
 ```
 
 Nothing is deleted behind the user's back: without a scheduler the Trash

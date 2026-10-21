@@ -32,3 +32,18 @@ def reset_providers() -> None:
     """Reset the process-wide providers instance (useful for test isolation)."""
     global _providers
     _providers = None
+
+
+def is_multi_tenant() -> bool:
+    """True when the app runs with a hosted, multi-tenant scope provider.
+
+    The default scope provider is single-tenant: one database, one R2
+    prefix and one Vectorize namespace, so the tenant scope is optional.
+    Any other provider (keepfor-cloud) is multi-tenant: the scope carries
+    the tenant prefix and namespace and must be passed explicitly.
+
+    The request-scoped twin is `keepfor.deps.is_single_tenant`.
+    """
+    from keepfor.defaults import SingleTenantScopeProvider
+
+    return not isinstance(get_providers().scope, SingleTenantScopeProvider)

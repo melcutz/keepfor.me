@@ -32,6 +32,15 @@ argument away in the first two cases.
   snapshots and the vectors stay until the user deletes the item for good.
 
 ### Added
+- **Scoped Trash purge** (GitHub issue #37): `purge_trash()` takes the tenant
+  `scope` now, so a multi-tenant host destroys the R2 snapshots under the
+  tenant prefix (`t/<tenant_id>/...`) and the vectors in the tenant
+  namespace instead of orphaning them. An unscoped call is **refused** in
+  multi-tenant mode (a single-tenant self-host keeps working unchanged),
+  the purge is then limited to the scope's own user (a shared database holds
+  the rows of every tenant), and the new `limit` caps how many items one
+  call destroys. `list_purgeable_items(db, user_id, older_than_days, limit)`
+  exposes the 30-day selection, so a host never copies the SQL.
 - **MCP `library_digest`** (GitHub issue #22): a read-only recap of the library for a period — how many items were **saved** and **opened**, how many are still **unread**, the **top tags**, and a short list of **unread highlights**. Takes optional `since`, `until` and `tag` (child tags count). Inputs are bounded (32-character dates, 64-character tag; unparsable or reversed ranges are rejected) and the response is capped (10 tags, 5 highlights, 5 tags per highlight, 120-character titles, 200-character urls) and stays under 4 KB.
 - **Read-only MCP tokens** (GitHub issue #29, part of keepfor-cloud#61): a
   Personal Access Token can now be limited to read-only. Over MCP a read-only
@@ -80,7 +89,9 @@ argument away in the first two cases.
     archived or re-tagged while it waits in the Trash.
   - `purge_trash(db, env, user_id=None, older_than_days=30)` hard-deletes
     trashed items older than the window, so a host can schedule the 30-day
-    purge. Without a `user_id` it purges every user of the database.
+    purge. Without a `user_id` it purges every user of the database. A
+    multi-tenant host passes the tenant `scope` too (see the scoped purge
+    above): the R2 prefix and the Vectorize namespace are per tenant.
   - Migration `0014_trash.sql` (additive): the nullable `items.deleted_at`
     column and its `(user_id, deleted_at)` index. Apply it before deploying:
     `npx wrangler d1 migrations apply keepfor-me-db --remote`.
