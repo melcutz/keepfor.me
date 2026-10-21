@@ -67,6 +67,8 @@ EXERCISED_ROUTES: set[tuple[str, str]] = {
     ("POST", "/items/{item_id}/restore"),
     ("POST", "/items/{item_id}/delete-forever"),
     ("POST", "/items/{item_id}/tags"),
+    ("POST", "/items/{item_id}/highlights"),
+    ("POST", "/items/{item_id}/highlights/{highlight_id}/delete"),
     ("POST", "/items/{item_id}/suggestions/{sugg_id}/accept"),
     ("POST", "/items/{item_id}/suggestions/{sugg_id}/dismiss"),
     ("POST", "/items/bulk-tags"),

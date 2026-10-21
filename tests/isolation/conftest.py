@@ -55,6 +55,7 @@ class TenantFixture:
     tag_names: list[str]
     rule_id: str
     suggestion_id: str
+    highlight_id: str
     auth_headers: dict[str, str]
     cookies: dict[str, str]
     unique_keyword: str
@@ -403,9 +404,10 @@ async def _seed_single_tenant(
 
     # 1 highlight and 1 collection (issue #24): the isolation snapshot covers
     # them, so every tenant owns something that must never leak.
-    await create_highlight(
+    highlight = await create_highlight(
         db, user_id, item1["id"], f"Highlight {unique_keyword}", 0, 8
     )
+    highlight_id = highlight["id"] if highlight else ""
     collection_name = f"Collection {unique_keyword}"
     await create_collection(db, user_id, collection_name)
     await add_items_to_collection(db, user_id, collection_name, [item1["id"]])
@@ -442,6 +444,7 @@ async def _seed_single_tenant(
         tag_names=["tag1", "tag2"],
         rule_id=rule_id,
         suggestion_id=sugg_id,
+        highlight_id=highlight_id,
         auth_headers={"Authorization": f"Bearer {pat['token']}"},
         cookies={"kfm_session": session_id},
         unique_keyword=unique_keyword,
