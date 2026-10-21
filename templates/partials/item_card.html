@@ -40,6 +40,11 @@
         <span>•</span>
         {% endif %}
         <span class="whitespace-nowrap">{{ item.created_at[:10] }}</span>
+        {% set published = item.published_date|published_date %}
+        {% if published %}
+        <span>•</span>
+        <span class="whitespace-nowrap">Published {{ published }}</span>
+        {% endif %}
 
         {% if item.status == 'queued' or item.status == 'fetching' %}
         <span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium animate-pulse">{{ icon("clock", class="w-3 h-3 text-amber-500") }}<span>Extracting...</span></span>

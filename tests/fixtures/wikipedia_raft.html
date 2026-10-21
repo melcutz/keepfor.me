@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<!-- Saved from https://en.wikipedia.org/wiki/Raft_(algorithm) on 2026-10-20.
+     <head> trimmed to title/og/JSON-LD; body verbatim. Reproduces the four
+     extraction symptoms of issue #43. -->
+<html><head><meta charset='utf-8'><title>Raft (algorithm) - Wikipedia</title><meta property="og:title" content="Raft (algorithm) - Wikipedia"><meta property="og:image" content="https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg/1280px-Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=index&amp;utm_content=thumbnail"><script type="application/ld+json">{"@context":"https:\/\/schema.org","@type":"Article","name":"Raft (algorithm)","url":"https:\/\/en.wikipedia.org\/wiki\/Raft_(algorithm)","sameAs":"http:\/\/www.wikidata.org\/entity\/Q17100313","mainEntity":"http:\/\/www.wikidata.org\/entity\/Q17100313","author":{"@type":"Organization","name":"Contributors to Wikimedia projects"},"publisher":{"@type":"Organization","name":"Wikimedia Foundation, Inc.","logo":{"@type":"ImageObject","url":"https:\/\/www.wikimedia.org\/static\/images\/wmf-hor-googpub.png"}},"datePublished":"2013-08-13T05:32:30Z","dateModified":"2026-08-13T09:54:41Z","image":"https:\/\/upload.wikimedia.org\/wikipedia\/commons\/1\/1b\/Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg?utm_source=en.wikipedia.org&utm_campaign=index&utm_content=original","headline":"consensus algorithm"}</script></head><body class="skin--responsive skin-vector skin-vector-search-vue mediawiki ltr sitedir-ltr mw-hide-empty-elt ns-0 ns-subject mw-editable page-Raft_algorithm rootpage-Raft_algorithm skin-vector-2022 action-view">
+<div id="mw-aria-live-region" class="mw-aria-live-region" aria-live="polite"></div><a class="mw-jump-link" href="#bodyContent">Jump to content</a>
+<div class="vector-header-container">
+	<header class="vector-header mw-header no-font-mode-scale">
+		<div class="vector-header-start">
+			<nav class="vector-main-menu-landmark" aria-label="Site">
+				
+<div id="vector-main-menu-dropdown" class="vector-dropdown vector-main-menu-dropdown vector-button-flush-left vector-button-flush-right"  title="Main menu" >
+	<input type="checkbox" id="vector-main-menu-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-main-menu-dropdown" class="vector-dropdown-checkbox "  aria-label="Main menu"   >
+	<label id="vector-main-menu-dropdown-label" for="vector-main-menu-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-menu mw-ui-icon-wikimedia-menu cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Main menu</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+				<div id="vector-main-menu-unpinned-container" class="vector-unpinned-container">
+		
+<div id="vector-main-menu" class="vector-main-menu vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-main-menu-pinnable-header vector-pinnable-header-unpinned"
+	data-feature-name="main-menu-pinned"
+	data-pinnable-element-id="vector-main-menu"
+	data-pinned-container-id="vector-main-menu-pinned-container"
+	data-unpinned-container-id="vector-main-menu-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">Main menu</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-main-menu.pin" aria-label="Move Main menu to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-main-menu.unpin" aria-label="Hide Main menu">hide</button>
+</div>
+
+	
+<div id="p-navigation" class="vector-menu mw-portlet mw-portlet-navigation"  >
+	<div class="vector-menu-heading">
+		Navigation
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-mainpage-description" class="mw-list-item"><a href="/wiki/Main_Page" title="Visit the main page [z]" accesskey="z"><span>Main page</span></a></li><li id="n-contents" class="mw-list-item"><a href="/wiki/Wikipedia:Contents" title="Guides to browsing Wikipedia"><span>Contents</span></a></li><li id="n-currentevents" class="mw-list-item"><a href="/wiki/Portal:Current_events" title="Articles related to current events"><span>Current events</span></a></li><li id="n-randompage" class="mw-list-item"><a href="/wiki/Special:Random" title="Visit a randomly selected article [x]" accesskey="x"><span>Random article</span></a></li><li id="n-aboutsite" class="mw-list-item"><a href="/wiki/Wikipedia:About" title="Learn about Wikipedia and how it works"><span>About Wikipedia</span></a></li><li id="n-contactpage" class="mw-list-item"><a href="//en.wikipedia.org/wiki/Wikipedia:Contact_us" title="How to contact Wikipedia"><span>Contact us</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-interaction" class="vector-menu mw-portlet mw-portlet-interaction"  >
+	<div class="vector-menu-heading">
+		Contribute
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="n-help" class="mw-list-item"><a href="/wiki/Help:Contents" title="Guidance on how to use and edit Wikipedia"><span>Help</span></a></li><li id="n-introduction" class="mw-list-item"><a href="/wiki/Help:Introduction" title="Learn how to edit Wikipedia"><span>Learn to edit</span></a></li><li id="n-portal" class="mw-list-item"><a href="/wiki/Wikipedia:Community_portal" title="The hub for editors"><span>Community portal</span></a></li><li id="n-recentchanges" class="mw-list-item"><a href="/wiki/Special:RecentChanges" title="A list of recent changes to Wikipedia [r]" accesskey="r"><span>Recent changes</span></a></li><li id="n-upload" class="mw-list-item"><a href="/wiki/Wikipedia:File_upload_wizard" title="Add images or other media for use on Wikipedia"><span>Upload file</span></a></li><li id="n-specialpages" class="mw-list-item"><a href="/wiki/Special:SpecialPages" title="A list of all special pages [q]" accesskey="q"><span>Special pages</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+</div>
+
+				</div>
+
+	</div>
+</div>
+
+		</nav>
+			
+<a href="/wiki/Main_Page" class="mw-logo">
+	<img class="mw-logo-icon" src="/static/images/icons/enwiki-25.svg" alt="" aria-hidden="true" height="50" width="50">
+	<span class="mw-logo-container skin-invert">
+		<img class="mw-logo-wordmark" alt="Wikipedia" src="/static/images/mobile/copyright/wikipedia-wordmark-en-25.svg" style="width: 8.75em; height: 1.375em;">
+		<img class="mw-logo-tagline" alt="The Free Encyclopedia" src="/static/images/mobile/copyright/wikipedia-tagline-en-25.svg" width="140" height="11" style="width: 8.75em; height: 0.6875em;">
+	</span>
+</a>
+
+		</div>
+		<div class="vector-header-end">
+			
+<div id="p-search" role="search" class="vector-search-box-vue  vector-search-box-collapses vector-search-box-show-thumbnail vector-search-box-auto-expand-width vector-search-box">
+	<a href="/wiki/Special:Search" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only search-toggle" title="Search Wikipedia [f]" accesskey="f"><span class="vector-icon mw-ui-icon-search mw-ui-icon-wikimedia-search cdx-button__icon"></span>
+
+<span>Search</span>
+	</a>
+	<div class="vector-typeahead-search-container">
+		<div class="cdx-typeahead-search cdx-typeahead-search--show-thumbnail cdx-typeahead-search--auto-expand-width">
+			<form action="/w/index.php" id="searchform" class="cdx-search-input cdx-search-input--has-end-button">
+				<div id="simpleSearch" class="cdx-search-input__input-wrapper"  data-search-loc="header-moved">
+					<div class="cdx-text-input cdx-text-input--has-start-icon">
+						<input
+							class="cdx-text-input__input mw-searchInput" autocomplete="off"
+							 type="search" name="search" placeholder="Search Wikipedia" aria-label="Search Wikipedia" autocapitalize="none" spellcheck="false" title="Search Wikipedia [f]" accesskey="f" id="searchInput"
+							>
+						<span class="cdx-text-input__icon cdx-text-input__start-icon"></span>
+					</div>
+					<input type="hidden" name="title" value="Special:Search">
+				</div>
+				<button class="cdx-button cdx-search-input__end-button">Search</button>
+			</form>
+		</div>
+	</div>
+</div>
+
+			<nav class="vector-user-links vector-user-links-wide" aria-label="Personal tools">
+	<div class="vector-user-links-main">
+	
+<div id="p-vector-user-menu-preferences" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-userpage" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	<nav class="vector-appearance-landmark" aria-label="Appearance">
+		
+<div id="vector-appearance-dropdown" class="vector-dropdown "  title="Change the appearance of the page&#039;s font size, width, and color" >
+	<input type="checkbox" id="vector-appearance-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-appearance-dropdown" class="vector-dropdown-checkbox "  aria-label="Appearance"   >
+	<label id="vector-appearance-dropdown-label" for="vector-appearance-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-appearance mw-ui-icon-wikimedia-appearance cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Appearance</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+			<div id="vector-appearance-unpinned-container" class="vector-unpinned-container">
+				
+			</div>
+		
+	</div>
+</div>
+
+	</nav>
+	
+<div id="p-vector-user-menu-notifications" class="vector-menu mw-portlet emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+<div id="p-vector-user-menu-overflow" class="vector-menu mw-portlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=en.wikipedia.org&amp;uselang=en" data-mw-donate-attempt="top_link" class=""><span>Donate</span></a>
+</li>
+<li id="pt-createaccount-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:CreateAccount&amp;returnto=Raft+%28algorithm%29" title="You are encouraged to create an account and log in; however, it is not mandatory" class=""><span>Create account</span></a>
+</li>
+<li id="pt-login-2" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:UserLogin&amp;returnto=Raft+%28algorithm%29" title="You&#039;re encouraged to log in; however, it&#039;s not mandatory. [o]" accesskey="o" class=""><span>Log in</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	</div>
+	
+<div id="vector-user-links-dropdown" class="vector-dropdown vector-user-menu vector-button-flush-right vector-user-menu-logged-out vector-user-links-dropdown--collapsible"  title="Log in and more options" >
+	<input type="checkbox" id="vector-user-links-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-user-links-dropdown" class="vector-dropdown-checkbox "  aria-label="Personal tools"   >
+	<label id="vector-user-links-dropdown-label" for="vector-user-links-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Personal tools</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+		
+<div id="p-personal" class="vector-menu mw-portlet mw-portlet-personal"  title="User menu" >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="pt-sitesupport" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="https://donate.wikimedia.org/?wmf_source=donate&amp;wmf_medium=sidebar&amp;wmf_campaign=en.wikipedia.org&amp;uselang=en" data-mw-donate-attempt="top_link" class=""><span class="vector-icon mw-ui-icon-heart mw-ui-icon-wikimedia-heart cdx-button__icon"></span>
+
+<span>Donate</span></a>
+</li>
+<li id="pt-createaccount" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:CreateAccount&amp;returnto=Raft+%28algorithm%29" title="You are encouraged to create an account and log in; however, it is not mandatory" class=""><span class="vector-icon mw-ui-icon-userAvatar mw-ui-icon-wikimedia-userAvatar cdx-button__icon"></span>
+
+<span>Create account</span></a>
+</li>
+<li id="pt-login" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Special:UserLogin&amp;returnto=Raft+%28algorithm%29" title="You&#039;re encouraged to log in; however, it&#039;s not mandatory. [o]" accesskey="o" class=""><span class="vector-icon mw-ui-icon-logIn mw-ui-icon-wikimedia-logIn cdx-button__icon"></span>
+
+<span>Log in</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+	
+	</div>
+</div>
+
+</nav>
+
+		</div>
+	</header>
+</div>
+<div class="mw-page-container">
+	<div class="mw-page-container-inner">
+		<div class="vector-sitenotice-container">
+			<div id="siteNotice"><!-- CentralNotice --></div>
+		</div>
+		<div class="vector-column-start">
+			<div class="vector-main-menu-container">
+		<div id="mw-navigation">
+			<nav id="mw-panel" class="vector-main-menu-landmark" aria-label="Site">
+				<div id="vector-main-menu-pinned-container" class="vector-pinned-container">
+				
+				</div>
+		</nav>
+		</div>
+	</div>
+	<div class="vector-sticky-pinned-container">
+				<nav id="mw-panel-toc" aria-label="Contents" data-event-name="ui.sidebar-toc" class="mw-table-of-contents-container vector-toc-landmark">
+					<div id="vector-toc-pinned-container" class="vector-pinned-container">
+					<div id="vector-toc" class="vector-toc vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-toc-pinnable-header vector-pinnable-header-pinned"
+	data-feature-name="toc-pinned"
+	data-pinnable-element-id="vector-toc"
+	data-pinned-container-id="vector-toc-pinned-container"
+	data-unpinned-container-id="vector-toc-unpinned-container"
+>
+	<h2 class="vector-pinnable-header-label">Contents</h2>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-toc.pin" aria-label="Move Contents to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-toc.unpin" aria-label="Hide Contents">hide</button>
+</div>
+
+
+	<ul class="vector-toc-contents" id="mw-panel-toc-list">
+		<li id="toc-mw-content-text"
+			class="vector-toc-list-item vector-toc-level-1">
+			<a href="#" class="vector-toc-link">
+				<div class="vector-toc-text">(Top)</div>
+			</a>
+		</li>
+		<li id="toc-Basics"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#Basics">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">1</span>
+				<span>Basics</span>
+			</div>
+		</a>
+		
+			<button aria-controls="toc-Basics-sublist" class="cdx-button cdx-button--weight-quiet cdx-button--icon-only vector-toc-toggle">
+				<span class="vector-icon mw-ui-icon-wikimedia-expand"></span>
+				<span>Toggle Basics subsection</span>
+			</button>
+		
+		<ul id="toc-Basics-sublist" class="vector-toc-list">
+			<li id="toc-Approach_of_the_consensus_problem_in_Raft"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#Approach_of_the_consensus_problem_in_Raft">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.1</span>
+					<span>Approach of the consensus problem in Raft</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Approach_of_the_consensus_problem_in_Raft-sublist" class="vector-toc-list">
+				<li id="toc-Leader_election"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#Leader_election">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.1.1</span>
+					<span>Leader election</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Leader_election-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-Log_replication"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#Log_replication">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.1.2</span>
+					<span>Log replication</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Log_replication-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+	</ul>
+		</li>
+		<li id="toc-Safety"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#Safety">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.2</span>
+					<span>Safety</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Safety-sublist" class="vector-toc-list">
+				<li id="toc-Safety_rules_in_Raft"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#Safety_rules_in_Raft">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.2.1</span>
+					<span>Safety rules in Raft</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Safety_rules_in_Raft-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-State_machine_safety"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#State_machine_safety">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.2.2</span>
+					<span>State machine safety</span>
+				</div>
+			</a>
+			
+			<ul id="toc-State_machine_safety-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-Follower_crashes"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#Follower_crashes">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.2.3</span>
+					<span>Follower crashes</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Follower_crashes-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-Timing_and_availability"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#Timing_and_availability">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.2.4</span>
+					<span>Timing and availability</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Timing_and_availability-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+	</ul>
+		</li>
+		<li id="toc-Cluster_Membership_Changes"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#Cluster_Membership_Changes">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.3</span>
+					<span>Cluster Membership Changes</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Cluster_Membership_Changes-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-Log_Compaction"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#Log_Compaction">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.4</span>
+					<span>Log Compaction</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Log_Compaction-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-Issues"
+			class="vector-toc-list-item vector-toc-level-2">
+			<a class="vector-toc-link" href="#Issues">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.5</span>
+					<span>Issues</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Issues-sublist" class="vector-toc-list">
+				<li id="toc-Leader_Bottleneck"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#Leader_Bottleneck">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.5.1</span>
+					<span>Leader Bottleneck</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Leader_Bottleneck-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-Reconfiguration"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#Reconfiguration">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.5.2</span>
+					<span>Reconfiguration</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Reconfiguration-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+		<li id="toc-Byzantine_Faults"
+			class="vector-toc-list-item vector-toc-level-3">
+			<a class="vector-toc-link" href="#Byzantine_Faults">
+				<div class="vector-toc-text">
+					<span class="vector-toc-numb">1.5.3</span>
+					<span>Byzantine Faults</span>
+				</div>
+			</a>
+			
+			<ul id="toc-Byzantine_Faults-sublist" class="vector-toc-list">
+			</ul>
+		</li>
+	</ul>
+		</li>
+	</ul>
+	</li>
+	<li id="toc-Extensions"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#Extensions">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">2</span>
+				<span>Extensions</span>
+			</div>
+		</a>
+		
+		<ul id="toc-Extensions-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-Production_use_of_Raft"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#Production_use_of_Raft">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">3</span>
+				<span>Production use of Raft</span>
+			</div>
+		</a>
+		
+		<ul id="toc-Production_use_of_Raft-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-References"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#References">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">4</span>
+				<span>References</span>
+			</div>
+		</a>
+		
+		<ul id="toc-References-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+	<li id="toc-External_links"
+		class="vector-toc-list-item vector-toc-level-1 vector-toc-list-item-expanded">
+		<a class="vector-toc-link" href="#External_links">
+			<div class="vector-toc-text">
+				<span class="vector-toc-numb">5</span>
+				<span>External links</span>
+			</div>
+		</a>
+		
+		<ul id="toc-External_links-sublist" class="vector-toc-list">
+		</ul>
+	</li>
+</ul>
+</div>
+
+					</div>
+		</nav>
+			</div>
+		</div>
+		<div class="mw-content-container">
+			<main id="content" class="mw-body">
+				<header class="mw-body-header vector-page-titlebar no-font-mode-scale">
+					<nav aria-label="Contents" class="vector-toc-landmark">
+						
+<div id="vector-page-titlebar-toc" class="vector-dropdown vector-page-titlebar-toc vector-button-flush-left"  title="Table of Contents" >
+	<input type="checkbox" id="vector-page-titlebar-toc-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-titlebar-toc" class="vector-dropdown-checkbox "  aria-label="Toggle the table of contents"   >
+	<label id="vector-page-titlebar-toc-label" for="vector-page-titlebar-toc-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-listBullet mw-ui-icon-wikimedia-listBullet cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Toggle the table of contents</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+							<div id="vector-page-titlebar-toc-unpinned-container" class="vector-unpinned-container">
+			</div>
+		
+	</div>
+</div>
+
+					</nav>
+					<h1 id="firstHeading" class="firstHeading mw-first-heading"><span lang="en" dir="ltr"><span class="mw-page-title-main">Raft (algorithm)</span></span></h1>
+			
+<div id="p-lang-btn" class="vector-dropdown mw-portlet mw-portlet-lang"  >
+	<input type="checkbox" id="p-lang-btn-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-p-lang-btn" class="vector-dropdown-checkbox mw-interlanguage-selector"  aria-label="5 languages" aria-description="Go to an article in another language. Available in 5 languages"  >
+	<label id="p-lang-btn-label" for="p-lang-btn-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--action-progressive mw-portlet-lang-heading-5" aria-hidden="true"  ><span class="vector-icon mw-ui-icon-language-progressive mw-ui-icon-wikimedia-language-progressive cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">5 languages</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+		<div class="vector-menu-content">
+			
+			<ul class="vector-menu-content-list">
+				
+				<li class="interlanguage-link interwiki-es mw-list-item"><a href="https://es.wikipedia.org/wiki/Raft" title="Raft – Spanish" lang="es" hreflang="es" data-title="Raft" data-language-autonym="Español" data-language-local-name="Spanish" class="interlanguage-link-target"><span>Español</span></a></li><li class="interlanguage-link interwiki-ja mw-list-item"><a href="https://ja.wikipedia.org/wiki/Raft_(%E3%82%A2%E3%83%AB%E3%82%B4%E3%83%AA%E3%82%BA%E3%83%A0)" title="Raft (アルゴリズム) – Japanese" lang="ja" hreflang="ja" data-title="Raft (アルゴリズム)" data-language-autonym="日本語" data-language-local-name="Japanese" class="interlanguage-link-target"><span>日本語</span></a></li><li class="interlanguage-link interwiki-ko mw-list-item"><a href="https://ko.wikipedia.org/wiki/%EB%9E%98%ED%94%84%ED%8A%B8_(%EC%BB%B4%ED%93%A8%ED%84%B0_%EA%B3%BC%ED%95%99)" title="래프트 (컴퓨터 과학) – Korean" lang="ko" hreflang="ko" data-title="래프트 (컴퓨터 과학)" data-language-autonym="한국어" data-language-local-name="Korean" class="interlanguage-link-target"><span>한국어</span></a></li><li class="interlanguage-link interwiki-ru mw-list-item"><a href="https://ru.wikipedia.org/wiki/Raft_(%D0%B0%D0%BB%D0%B3%D0%BE%D1%80%D0%B8%D1%82%D0%BC)" title="Raft (алгоритм) – Russian" lang="ru" hreflang="ru" data-title="Raft (алгоритм)" data-language-autonym="Русский" data-language-local-name="Russian" class="interlanguage-link-target"><span>Русский</span></a></li><li class="interlanguage-link interwiki-zh mw-list-item"><a href="https://zh.wikipedia.org/wiki/Raft" title="Raft – Chinese" lang="zh" hreflang="zh" data-title="Raft" data-language-autonym="中文" data-language-local-name="Chinese" class="interlanguage-link-target"><span>中文</span></a></li>
+			</ul>
+			<div class="after-portlet after-portlet-lang"><span class="wb-langlinks-edit wb-langlinks-link"><a href="https://www.wikidata.org/wiki/Special:EntityPage/Q17100313#sitelinks-wikipedia" title="Edit interlanguage links" class="wbc-editpage">Edit links</a></span></div>
+		</div>
+
+	</div>
+</div>
+</header>
+				<div class="vector-page-toolbar">
+					<div class="vector-page-toolbar-container">
+						<div id="left-navigation">
+							<nav aria-label="Namespaces">
+								
+<div id="p-associated-pages" class="vector-menu vector-menu-tabs mw-portlet mw-portlet-associated-pages"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="ca-nstab-main" class="selected mw-list-item vector-tab-noicon"><a data-mw-interface  href="/wiki/Raft_(algorithm)" title="View the content page [c]" accesskey="c" class=""><span>Article</span></a>
+</li>
+<li id="ca-talk" class="mw-list-item vector-tab-noicon"><a data-mw-interface  href="/wiki/Talk:Raft_(algorithm)" rel="discussion" title="Discuss improvements to the content page [t]" accesskey="t" class=""><span>Talk</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+								
+<div id="vector-variants-dropdown" class="vector-dropdown emptyPortlet"  >
+	<input type="checkbox" id="vector-variants-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-variants-dropdown" class="vector-dropdown-checkbox " aria-label="Change language variant"    >
+	<label id="vector-variants-dropdown-label" for="vector-variants-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet" aria-hidden="true"  ><span class="vector-dropdown-label-text">English</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+					
+<div id="p-variants" class="vector-menu mw-portlet mw-portlet-variants emptyPortlet"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			
+		</ul>
+		
+	</div>
+</div>
+
+				
+	</div>
+</div>
+
+							</nav>
+						</div>
+						<div id="right-navigation" class="vector-collapsible">
+							<nav aria-label="Views">
+			    
+<div id="p-views" class="vector-menu vector-menu-tabs mw-portlet mw-portlet-views"  >
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="ca-view" class="selected mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface  href="/wiki/Raft_(algorithm)" class=""><span>Read</span></a>
+</li>
+<li id="ca-edit" class="mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface  href="/w/index.php?title=Raft_(algorithm)&amp;action=edit" title="Edit this page [e]" accesskey="e" class=""><span>Edit</span></a>
+</li>
+<li id="ca-history" class="mw-list-item vector-menu-item--collapsible vector-tab-noicon"><a data-mw-interface  href="/w/index.php?title=Raft_(algorithm)&amp;action=history" title="Past revisions of this page [h]" accesskey="h" class=""><span>View history</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+			</nav>
+
+							<nav class="vector-page-tools-landmark" aria-label="Page tools">
+								
+<div id="vector-page-tools-dropdown" class="vector-dropdown vector-page-tools-dropdown"  >
+	<input type="checkbox" id="vector-page-tools-dropdown-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-page-tools-dropdown" class="vector-dropdown-checkbox "  aria-label="Tools"   >
+	<label id="vector-page-tools-dropdown-label" for="vector-page-tools-dropdown-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-verticalEllipsis mw-ui-icon-wikimedia-verticalEllipsis cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Tools</span>
+	</label>
+	<div class="vector-dropdown-content">
+
+
+									<div id="vector-page-tools-unpinned-container" class="vector-unpinned-container">
+						
+<div id="vector-page-tools" class="vector-page-tools vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-page-tools-pinnable-header vector-pinnable-header-unpinned"
+	data-feature-name="page-tools-pinned"
+	data-pinnable-element-id="vector-page-tools"
+	data-pinned-container-id="vector-page-tools-pinned-container"
+	data-unpinned-container-id="vector-page-tools-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">Tools</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-page-tools.pin" aria-label="Move Tools to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-page-tools.unpin" aria-label="Hide Tools">hide</button>
+</div>
+
+	
+<div id="p-cactions" class="vector-menu mw-portlet mw-portlet-cactions emptyPortlet vector-has-collapsible-items"  >
+	<div class="vector-menu-heading">
+		Actions
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			<li id="ca-view-more" class="selected mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/wiki/Raft_(algorithm)" class=""><span class="vector-icon mw-ui-icon-eye mw-ui-icon-wikimedia-eye cdx-button__icon"></span>
+
+<span>Read</span></a>
+</li>
+<li id="ca-edit-more" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Raft_(algorithm)&amp;action=edit" title="Edit this page [e]" accesskey="e" class=""><span class="vector-icon mw-ui-icon-edit mw-ui-icon-wikimedia-edit cdx-button__icon"></span>
+
+<span>Edit</span></a>
+</li>
+<li id="ca-history-more" class="mw-list-item vector-menu-item--collapsible"><a data-mw-interface  href="/w/index.php?title=Raft_(algorithm)&amp;action=history" title="Past revisions of this page [h]" accesskey="h" class=""><span class="vector-icon mw-ui-icon-history mw-ui-icon-wikimedia-history cdx-button__icon"></span>
+
+<span>View history</span></a>
+</li>
+
+			
+		</ul>
+		
+	</div>
+</div>
+
+<div id="p-tb" class="vector-menu mw-portlet mw-portlet-tb"  >
+	<div class="vector-menu-heading">
+		General
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="t-whatlinkshere" class="mw-list-item"><a href="/wiki/Special:WhatLinksHere/Raft_(algorithm)" title="List of all English Wikipedia pages containing links to this page [j]" accesskey="j"><span>What links here</span></a></li><li id="t-recentchangeslinked" class="mw-list-item"><a href="/wiki/Special:RecentChangesLinked/Raft_(algorithm)" rel="nofollow" title="Recent changes in pages linked from this page [k]" accesskey="k"><span>Related changes</span></a></li><li id="t-upload" class="mw-list-item"><a href="//en.wikipedia.org/wiki/Wikipedia:File_Upload_Wizard" title="Upload files [u]" accesskey="u"><span>Upload file</span></a></li><li id="t-permalink" class="mw-list-item"><a href="/w/index.php?title=Raft_(algorithm)&amp;oldid=1369179570" title="Permanent link to this revision of this page"><span>Permanent link</span></a></li><li id="t-info" class="mw-list-item"><a href="/w/index.php?title=Raft_(algorithm)&amp;action=info" title="More information about this page"><span>Page information</span></a></li><li id="t-cite" class="mw-list-item"><a href="/w/index.php?title=Special:CiteThisPage&amp;page=Raft_%28algorithm%29&amp;id=1369179570&amp;wpFormIdentifier=titleform" title="Information on how to cite this page"><span>Cite this page</span></a></li><li id="t-urlshortener" class="mw-list-item"><a href="/w/index.php?title=Special:UrlShortener&amp;url=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FRaft_%28algorithm%29"><span>Get shortened URL</span></a></li><li id="parsermigration-switch-to-legacy" class="mw-list-item"><a href="/w/index.php?title=Raft_(algorithm)&amp;useparsoid=0"><span>Switch to legacy parser</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+<div id="p-coll-print_export" class="vector-menu mw-portlet mw-portlet-coll-print_export"  >
+	<div class="vector-menu-heading">
+		Print/export
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="coll-download-as-rl" class="mw-list-item"><a href="/w/index.php?title=Special:DownloadAsPdf&amp;page=Raft_%28algorithm%29&amp;action=show-download-screen" title="Download this page as a PDF file"><span>Download as PDF</span></a></li><li id="t-print" class="mw-list-item"><a href="javascript:print();" rel="alternate" title="Printable version of this page [p]" accesskey="p"><span>Printable version</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+<div id="p-wikibase-otherprojects" class="vector-menu mw-portlet mw-portlet-wikibase-otherprojects"  >
+	<div class="vector-menu-heading">
+		In other projects
+	</div>
+	<div class="vector-menu-content">
+		
+		<ul class="vector-menu-content-list">
+			
+			<li id="t-wikibase" class="wb-otherproject-link wb-otherproject-wikibase-dataitem mw-list-item"><a href="https://www.wikidata.org/wiki/Special:EntityPage/Q17100313" title="Structured data on this page hosted by Wikidata [g]" accesskey="g"><span>Wikidata item</span></a></li>
+		</ul>
+		
+	</div>
+</div>
+
+</div>
+
+									</div>
+				
+	</div>
+</div>
+
+							</nav>
+						</div>
+					</div>
+				</div>
+				<div class="vector-column-end no-font-mode-scale">
+					<div class="vector-sticky-pinned-container">
+						<nav class="vector-page-tools-landmark" aria-label="Page tools">
+							<div id="vector-page-tools-pinned-container" class="vector-pinned-container">
+				
+							</div>
+		</nav>
+						<nav class="vector-appearance-landmark" aria-label="Appearance">
+							<div id="vector-appearance-pinned-container" class="vector-pinned-container">
+				<div id="vector-appearance" class="vector-appearance vector-pinnable-element">
+	<div
+	class="vector-pinnable-header vector-appearance-pinnable-header vector-pinnable-header-pinned"
+	data-feature-name="appearance-pinned"
+	data-pinnable-element-id="vector-appearance"
+	data-pinned-container-id="vector-appearance-pinned-container"
+	data-unpinned-container-id="vector-appearance-unpinned-container"
+>
+	<div class="vector-pinnable-header-label">Appearance</div>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-pin-button" data-event-name="pinnable-header.vector-appearance.pin" aria-label="Move Appearance to sidebar">move to sidebar</button>
+	<button class="vector-pinnable-header-toggle-button vector-pinnable-header-unpin-button" data-event-name="pinnable-header.vector-appearance.unpin" aria-label="Hide Appearance">hide</button>
+</div>
+
+
+</div>
+
+							</div>
+		</nav>
+					</div>
+				</div>
+				<div id="bodyContent" class="vector-body" aria-labelledby="firstHeading" data-mw-ve-target-container>
+					<div class="vector-body-before-content">
+							<div class="mw-indicators">
+		</div>
+
+						<div id="siteSub" class="noprint">From Wikipedia, the free encyclopedia</div>
+						<div id="contentSub"><div id="mw-content-subtitle"></div></div>
+						
+					</div>
+					
+					<div id="mw-content-text" class="mw-body-content"><div class="mw-content-ltr mw-parser-output" lang="en" dir="ltr" data-mw-parsoid-version="0.24.0.0-alpha24" data-mw-html-version="2.8.0"><section data-mw-section-id="0" id="mwAQ"><div class="shortdescription nomobile noexcerpt noprint searchaux" style="display:none" about="#mwt1" typeof="mw:Transclusion" id="mwAg" data-mw='{"parts":[{"template":{"target":{"wt":"Short description","href":"./Template:Short_description"},"params":{"1":{"wt":"Consensus algorithm"}},"i":0}}]}'>Consensus algorithm</div><span class="mw-empty-elt" about="#mwt1"><link rel="mw:PageProp/Category" href="./Category:Articles_with_short_description"/><link rel="mw:PageProp/Category" href="./Category:Short_description_matches_Wikidata"/></span>
+
+<span class="mw-empty-elt" about="#mwt2" typeof="mw:Transclusion" id="mwAw" data-mw='{"parts":[{"template":{"target":{"wt":"Infobox algorithm\n  ","href":"./Template:Infobox_algorithm"},"params":{"class":{"wt":"[[Consensus algorithm]]"},"image":{"wt":"Raft Consensus Algorithm Mascot on transparent background.svg"},"imagesize":{"wt":""},"caption":{"wt":"The Raft consensus algorithm mascot."}},"i":0}}]}'><style data-mw-deduplicate="TemplateStyles:r1358620234" typeof="mw:Extension/templatestyles" about="#mwt3" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Infobox/styles.css"},"body":{"extsrc":""}}'>@media(min-width:640px){.mw-parser-output .infobox{margin-left:1em;float:right;clear:right;width:22em}}.mw-parser-output .infobox-subbox{padding:0;border:none;margin:-3px;width:auto;min-width:100%;font-size:100%;clear:none;float:none;background-color:transparent;color:inherit}.mw-parser-output .infobox-3cols-child{margin:-3px}.mw-parser-output .infobox .navbar{font-size:100%}.mw-parser-output .infobox-hiddenrow,body.skin--responsive.skin--responsive .mw-parser-output .infobox .infobox-hiddenrow{display:none}@media screen{html.skin-theme-clientpref-night .mw-parser-output .infobox-full-data:not(.notheme)>div:not(.notheme)[style]{background:#1f1f23!important;color:#f8f9fa}}@media screen and (prefers-color-scheme:dark){html.skin-theme-clientpref-os .mw-parser-output .infobox-full-data:not(.notheme)>div:not(.notheme)[style]{background:#1f1f23!important;color:#f8f9fa}}@media(min-width:640px){body.skin--responsive .mw-parser-output .infobox-table{display:table!important}body.skin--responsive .mw-parser-output .infobox-table>caption{display:table-caption!important}body.skin--responsive .mw-parser-output .infobox-table>tbody{display:table-row-group}body.skin--responsive .mw-parser-output .infobox-table th,body.skin--responsive .mw-parser-output .infobox-table td{padding-left:inherit;padding-right:inherit}}</style></span><table class="infobox" about="#mwt2" id="mwBA"><tbody><tr><th colspan="2" class="infobox-above fn" style="padding-bottom:0.2em;; background-color: #e0e0e0; color:inherit;">Raft</th></tr><tr><td colspan="2" class="infobox-image"><span class="mw-default-size" typeof="mw:File/Frameless"><a href="https://en.wikipedia.org/wiki/File:Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg" class="mw-file-description"><img resource="https://en.wikipedia.org/wiki/File:Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg" src="//thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg/250px-Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" srcset="//thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg/500px-Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail 2x" data-file-width="492" data-file-height="492" data-file-type="drawing" height="250" width="250" class="mw-file-element"/></a></span><div class="infobox-caption">The Raft consensus algorithm mascot.</div></td></tr><tr><th scope="row" class="infobox-label">Class</th><td class="infobox-data"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Consensus_algorithm" title="Consensus algorithm" class="mw-redirect">Consensus algorithm</a></td></tr></tbody></table>
+
+<p id="mwBQ"><b id="mwBg">Raft</b> is a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Consensus_(computer_science)" title="Consensus (computer science)" id="mwBw">consensus</a> algorithm designed as an alternative to the <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Paxos_(computer_science)" title="Paxos (computer science)" id="mwCA">Paxos</a> family of algorithms. It was meant to be more understandable than Paxos by means of separation of logic, but it is also formally proven safe and offers some additional features.<sup about="#mwt4" class="mw-ref reference" id="cite_ref-paper_1-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"paper"}}'><a href="#cite_note-paper-1" id="mwCQ"><span class="mw-reflink-text" id="mwCg"><span class="cite-bracket" id="mwCw">[</span>1<span class="cite-bracket" id="mwDA">]</span></span></a></sup> Raft offers a generic way to distribute a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Finite-state_machine" title="Finite-state machine" id="mwDQ">state machine</a> across a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Computer_cluster" title="Computer cluster" id="mwDg">cluster</a> of computing systems, ensuring that each node in the cluster agrees upon the same series of state transitions. It has a number of open-source reference implementations, with full-specification implementations in <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Go_(programming_language)" title="Go (programming language)" id="mwDw">Go</a>, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/C++" title="C++" id="mwEA">C++</a>, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Java_(programming_language)" title="Java (programming language)" id="mwEQ">Java</a>, <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/JavaScript" title="JavaScript" id="mwEg">JavaScript</a>, and <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Scala_(programming_language)" title="Scala (programming language)" id="mwEw">Scala</a>.<sup about="#mwt5" class="mw-ref reference" id="cite_ref-website_2-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"website"}}'><a href="#cite_note-website-2" id="mwFA"><span class="mw-reflink-text" id="mwFQ"><span class="cite-bracket" id="mwFg">[</span>2<span class="cite-bracket" id="mwFw">]</span></span></a></sup> It is named after Reliable, Replicated, Redundant, And Fault-Tolerant.<sup about="#mwt6" class="mw-ref reference" id="cite_ref-3" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-3"}}'><a href="#cite_note-3" id="mwGA"><span class="mw-reflink-text" id="mwGQ"><span class="cite-bracket" id="mwGg">[</span>3<span class="cite-bracket" id="mwGw">]</span></span></a></sup></p>
+
+<p id="mwHA">Raft is not <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Byzantine_fault" title="Byzantine fault" id="mwHQ">Byzantine fault tolerant</a> in the base form; the nodes trust the elected leader, and the algorithm assumes all participants are trustworthy, yielding only crash fault tolerance. However there exist variants that use cryptographic signatures to achieve Byzantine fault tolerance.<sup about="#mwt7" class="mw-ref reference" id="cite_ref-4" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-4"}}'><a href="#cite_note-4" id="mwHg"><span class="mw-reflink-text" id="mwHw"><span class="cite-bracket" id="mwIA">[</span>4<span class="cite-bracket" id="mwIQ">]</span></span></a></sup></p>
+
+<meta property="mw:PageProp/toc" id="mwIg" data-mw='{"autoGenerated":true}'/></section><section data-mw-section-id="1" id="mwIw" aria-labelledby="Basics"><div class="mw-heading mw-heading2"><h2 id="Basics">Basics</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=1" title="Edit section: Basics"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwJA">Raft achieves consensus via an elected leader. A server in a raft cluster is either a <i id="mwJQ">leader</i> or a <i id="mwJg">follower</i>, and can be a <i id="mwJw">candidate</i> in the precise case of an election (leader unavailable). The leader is responsible for log replication to the followers. It regularly informs the followers of its existence by sending a heartbeat message. Each follower has a timeout (typically between 150 and 300 ms) in which it expects the heartbeat from the leader. The timeout is reset on receiving the heartbeat. If no heartbeat is received the follower changes its status to candidate and starts a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Leader_election" title="Leader election" id="mwKA">leader election</a>.<sup about="#mwt8" class="mw-ref reference" id="cite_ref-paper_1-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"paper"}}'><a href="#cite_note-paper-1" id="mwKQ"><span class="mw-reflink-text" id="mwKg"><span class="cite-bracket" id="mwKw">[</span>1<span class="cite-bracket" id="mwLA">]</span></span></a></sup><sup about="#mwt9" class="mw-ref reference" id="cite_ref-secretlives_5-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"secretlives"}}'><a href="#cite_note-secretlives-5" id="mwLQ"><span class="mw-reflink-text" id="mwLg"><span class="cite-bracket" id="mwLw">[</span>5<span class="cite-bracket" id="mwMA">]</span></span></a></sup></p>
+
+<section data-mw-section-id="2" id="mwMQ" aria-labelledby="Approach_of_the_consensus_problem_in_Raft"><div class="mw-heading mw-heading3"><h3 id="Approach_of_the_consensus_problem_in_Raft">Approach of the consensus problem in Raft</h3><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=2" title="Edit section: Approach of the consensus problem in Raft"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwMg">Raft implements consensus by a leader approach. The cluster has one and only one elected leader which is fully responsible for managing log replication on the other servers of the cluster. It means that the leader can decide on new entries' placement and establishment of data flow between it and the other servers without consulting other servers. A leader leads until it fails or disconnects, in which case surviving servers elect a new leader.</p>
+
+<p id="mwMw">The consensus problem is decomposed in Raft into two relatively independent subproblems listed down below.</p>
+
+<section data-mw-section-id="3" id="mwNA" aria-labelledby="Leader_election"><div class="mw-heading mw-heading4"><h4 id="Leader_election">Leader election</h4><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=3" title="Edit section: Leader election"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwNQ">When the existing leader fails or when the algorithm initializes, a new leader needs to be elected.</p>
+
+<p id="mwNg">In this case, a new <i id="mwNw">term</i> starts in the cluster. A term is an arbitrary period of time on the server for which a new leader needs to be elected. Each term starts with a leader election. If the election is completed successfully (i.e. a single leader is elected) the term keeps going with normal operations orchestrated by the new leader. If the election is a failure, a new term starts, with a new election.</p>
+
+<p id="mwOA">A leader election is started by a <i id="mwOQ">candidate</i> server. A server becomes a candidate if it receives no communication by the leader over a period called the <i id="mwOg">election timeout</i>, so it assumes there is no acting leader anymore. It starts the election by increasing the term counter, voting for itself as new leader, and sending a message to all other servers requesting their vote. A server will vote only once per term, on a first-come-first-served basis. If a candidate receives a message from another server with a term number larger than the candidate's current term, then the candidate's election is defeated and the candidate changes into a follower and recognizes the leader as legitimate. If a candidate receives a majority of votes, then it becomes the new leader. If neither happens, e.g., because of a split vote, then a new term starts, and a new election begins.<sup about="#mwt10" class="mw-ref reference" id="cite_ref-paper_1-2" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"paper"}}'><a href="#cite_note-paper-1" id="mwOw"><span class="mw-reflink-text" id="mwPA"><span class="cite-bracket" id="mwPQ">[</span>1<span class="cite-bracket" id="mwPg">]</span></span></a></sup></p>
+
+<p id="mwPw">Raft uses a randomized election timeout to ensure that split vote problems are resolved quickly. This should reduce the chance of a split vote because servers won't become candidates at the same time: a single server will time out, win the election, then become leader and send heartbeat messages to other servers before any of the followers can become candidates.<sup about="#mwt11" class="mw-ref reference" id="cite_ref-paper_1-3" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"paper"}}'><a href="#cite_note-paper-1" id="mwQA"><span class="mw-reflink-text" id="mwQQ"><span class="cite-bracket" id="mwQg">[</span>1<span class="cite-bracket" id="mwQw">]</span></span></a></sup></p>
+
+</section><section data-mw-section-id="4" id="mwRA" aria-labelledby="Log_replication"><div class="mw-heading mw-heading4"><h4 id="Log_replication">Log replication</h4><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=4" title="Edit section: Log replication"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwRQ">The leader is responsible for the log replication. It accepts client requests. Each client request consists of a command to be executed by the replicated state machines in the cluster. After being appended to the leader's log as a new entry, each of the requests is forwarded to the followers as AppendEntries messages. In case of unavailability of the followers, the leader retries AppendEntries messages indefinitely, until the log entry is eventually stored by all of the followers.</p>
+
+<p id="mwRg">Once the leader receives confirmation from half or more of its followers that the entry has been replicated, the leader applies the entry to its local state machine, and the request is considered <i id="mwRw">committed</i>.<sup about="#mwt12" class="mw-ref reference" id="cite_ref-paper_1-4" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"paper"}}'><a href="#cite_note-paper-1" id="mwSA"><span class="mw-reflink-text" id="mwSQ"><span class="cite-bracket" id="mwSg">[</span>1<span class="cite-bracket" id="mwSw">]</span></span></a></sup><sup about="#mwt13" class="mw-ref reference" id="cite_ref-secretlives_5-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":"secretlives"}}'><a href="#cite_note-secretlives-5" id="mwTA"><span class="mw-reflink-text" id="mwTQ"><span class="cite-bracket" id="mwTg">[</span>5<span class="cite-bracket" id="mwTw">]</span></span></a></sup> This event also commits all previous entries in the leader's log. Once a follower learns that a log entry is committed, it applies the entry to its local state machine. This ensures consistency of the logs between all the servers through the cluster, ensuring that the safety rule of Log Matching is respected.</p>
+
+<p id="mwUA">In the case of a leader crash, the logs can be left inconsistent, with some logs from the old leader not being fully replicated through the cluster. The new leader will then handle inconsistency by forcing the followers to duplicate its own log. To do so, for each of its followers, the leader will compare its log with the log from the follower, find the last entry where they agree, then delete all the entries coming after this critical entry in the follower log and replace it with its own log entries. This mechanism will restore log consistency in a cluster subject to failures.</p>
+
+</section></section><section data-mw-section-id="5" id="mwUQ" aria-labelledby="Safety"><div class="mw-heading mw-heading3"><h3 id="Safety">Safety</h3><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=5" title="Edit section: Safety"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+
+<section data-mw-section-id="6" id="mwUg" aria-labelledby="Safety_rules_in_Raft"><div class="mw-heading mw-heading4"><h4 id="Safety_rules_in_Raft">Safety rules in Raft</h4><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=6" title="Edit section: Safety rules in Raft"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwUw">Raft guarantees each of these safety properties:</p>
+<ul id="mwVA"><li id="mwVQ"><b id="mwVg">Election safety:</b> at most one leader can be elected in a given term.</li>
+<li id="mwVw"><b id="mwWA">Leader append-only:</b> a leader can only append new entries to its logs (it can neither overwrite nor delete entries).</li>
+<li id="mwWQ"><b id="mwWg">Log matching:</b> if two logs contain an entry with the same index and term, then the logs are identical in all entries up through the given index.</li>
+<li id="mwWw"><b id="mwXA">Leader completeness:</b> if a log entry is committed in a given term then it will be present in the logs of the leaders since this term.</li>
+<li id="mwXQ"><b id="mwXg">State machine safety:</b> if a server has applied a particular log entry to its state machine, then no other server may apply a different command for the same log.</li></ul>
+<p id="mwXw">The first four rules are guaranteed by the details of the algorithm described in the previous section. The State Machine Safety is guaranteed by a restriction on the election process.</p>
+
+</section><section data-mw-section-id="7" id="mwYA" aria-labelledby="State_machine_safety"><div class="mw-heading mw-heading4"><h4 id="State_machine_safety">State machine safety</h4><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=7" title="Edit section: State machine safety"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwYQ">This rule is ensured by a simple restriction: a candidate can't win an election unless its log contains all committed entries. In order to be elected, a candidate has to contact a majority of the cluster, and given the rules for logs to be committed, it means that every committed entry is going to be present on at least one of the servers the candidates contact.</p>
+
+<p id="mwYg">Raft determines which of two logs (carried by two distinct servers) is more up-to-date by comparing the index term of the last entries in the logs. If the logs have a last entry with different terms, then the log with the later term is more up-to-date. If the logs end with the same term, then whichever log is longer is more up-to-date.</p>
+
+<p id="mwYw">In Raft, the request from a candidate to a voter includes information about the candidate's log. If its own log is more up-to-date than the candidate's log, the voter denies its vote to the candidate. This implementation ensures the State Machine Safety rule.</p>
+
+</section><section data-mw-section-id="8" id="mwZA" aria-labelledby="Follower_crashes"><div class="mw-heading mw-heading4"><h4 id="Follower_crashes">Follower crashes</h4><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=8" title="Edit section: Follower crashes"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwZQ">If a follower crashes, <i id="mwZg">AppendEntries</i> and <i id="mwZw">vote</i> requests sent by other servers will fail.  Such failures are handled by the servers trying indefinitely to reach the downed follower. If the follower restarts, the pending requests will complete. If the request has already been taken into account before the failure, the restarted follower will just ignore it.</p>
+
+</section><section data-mw-section-id="9" id="mwaA" aria-labelledby="Timing_and_availability"><div class="mw-heading mw-heading4"><h4 id="Timing_and_availability">Timing and availability</h4><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=9" title="Edit section: Timing and availability"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwaQ">Timing is critical in Raft to elect and maintain a steady leader over time, in order to have a perfect availability of the cluster. Stability is ensured by respecting the <i id="mwag">timing requirement</i> of the algorithm:</p>
+
+<blockquote id="mwaw"><p id="mwbA"><i id="mwbQ">broadcastTime &lt;&lt; electionTimeout &lt;&lt; MTBF</i></p></blockquote>
+
+<ul id="mwbg"><li id="mwbw"><i id="mwcA">broadcastTime</i> is the average time it takes a server to send a request to every server in the cluster and receive responses. It is relative to the infrastructure used.</li>
+<li id="mwcQ"><i id="mwcg">MTBF (Mean Time Between Failures)</i> is the average time between failures for a server. It is also relative to the infrastructure.</li>
+<li id="mwcw"><i id="mwdA">electionTimeout</i> is the same as described in the Leader Election section. It is something the programmer must choose.</li></ul>
+<p id="mwdQ">Typical numbers for these values can be 0.5<span typeof="mw:Entity" id="mwdg"> </span>ms to 20<span typeof="mw:Entity" id="mwdw"> </span>ms for <i id="mweA">broadcastTime</i>, which implies that the programmer sets the <i id="mweQ">electionTimeout</i> somewhere between 10<span typeof="mw:Entity" id="mweg"> </span>ms and 500<span typeof="mw:Entity" id="mwew"> </span>ms. It can take several weeks or months between single server failures, which means the values are sufficient for a stable cluster.</p>
+
+</section></section><section data-mw-section-id="10" id="mwfA" aria-labelledby="Cluster_Membership_Changes"><div class="mw-heading mw-heading3"><h3 id="Cluster_Membership_Changes">Cluster Membership Changes</h3><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=10" title="Edit section: Cluster Membership Changes"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwfQ">To address cluster membership change issues that can arise in Raft, the algorithm introduces joint consensus, a transitional configuration phase. Joint consensus works as follows:<sup about="#mwt16" class="mw-ref reference" id="cite_ref-:0_6-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":0"},"body":{"id":"mw-reference-text-cite_note-:0-6"}}'><a href="#cite_note-:0-6" id="mwfg"><span class="mw-reflink-text" id="mwfw"><span class="cite-bracket" id="mwgA">[</span>6<span class="cite-bracket" id="mwgQ">]</span></span></a></sup></p>
+
+<p id="mwgg">Given server configuration C<sub id="mwgw">old</sub>, the old server configuration, and C<sub id="mwhA">new</sub>, the new configuration:<sup about="#mwt17" class="mw-ref reference" id="cite_ref-:0_6-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":0"}}'><a href="#cite_note-:0-6" id="mwhQ"><span class="mw-reflink-text" id="mwhg"><span class="cite-bracket" id="mwhw">[</span>6<span class="cite-bracket" id="mwiA">]</span></span></a></sup></p>
+
+<ul id="mwiQ"><li id="mwig">Log entries are committed to every server in C<sub id="mwiw">old</sub> and C<sub id="mwjA">new.<sup about="#mwt18" class="mw-ref reference" id="cite_ref-:0_6-2" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":0"}}'><a href="#cite_note-:0-6" id="mwjQ"><span class="mw-reflink-text" id="mwjg"><span class="cite-bracket" id="mwjw">[</span>6<span class="cite-bracket" id="mwkA">]</span></span></a></sup></sub></li>
+<li id="mwkQ">Any server from C<sub id="mwkg">old</sub> and C<sub id="mwkw">new</sub> can be leader.<sup about="#mwt19" class="mw-ref reference" id="cite_ref-:0_6-3" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":0"}}'><a href="#cite_note-:0-6" id="mwlA"><span class="mw-reflink-text" id="mwlQ"><span class="cite-bracket" id="mwlg">[</span>6<span class="cite-bracket" id="mwlw">]</span></span></a></sup></li>
+<li id="mwmA">Agreement for elections and log entry commits requires majorities from both C<sub id="mwmQ">old</sub> and C<sub id="mwmg">new.<sup about="#mwt20" class="mw-ref reference" id="cite_ref-:0_6-4" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":0"}}'><a href="#cite_note-:0-6" id="mwmw"><span class="mw-reflink-text" id="mwnA"><span class="cite-bracket" id="mwnQ">[</span>6<span class="cite-bracket" id="mwng">]</span></span></a></sup></sub></li></ul>
+
+<p id="mwnw">Once the joint consensus is done (that is, the special C<sub id="mwoA">new</sub> configuration entry is replicated to a majority of C<sub id="mwoQ">new</sub> servers' logs), the system fully transitions to the new configuration.<sup about="#mwt21" class="mw-ref reference" id="cite_ref-:0_6-5" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":0"}}'><a href="#cite_note-:0-6" id="mwog"><span class="mw-reflink-text" id="mwow"><span class="cite-bracket" id="mwpA">[</span>6<span class="cite-bracket" id="mwpQ">]</span></span></a></sup></p>
+
+<p id="mwpg">However, there are three issues that arise with this new configuration, of which Raft addresses:<sup about="#mwt24" class="mw-ref reference" id="cite_ref-:02_7-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":02"},"body":{"id":"mw-reference-text-cite_note-:02-7"}}'><a href="#cite_note-:02-7" id="mwpw"><span class="mw-reflink-text" id="mwqA"><span class="cite-bracket" id="mwqQ">[</span>7<span class="cite-bracket" id="mwqg">]</span></span></a></sup></p>
+
+<ol id="mwqw"><li id="mwrA">New servers with no log entries. Raft introduces a phase before the configuration change where servers with no log entries are not considered part of the majority in elections, but they will have entries replicated to them. This happens until the server is fully caught up with entries.<sup about="#mwt25" class="mw-ref reference" id="cite_ref-:02_7-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":02"}}'><a href="#cite_note-:02-7" id="mwrQ"><span class="mw-reflink-text" id="mwrg"><span class="cite-bracket" id="mwrw">[</span>7<span class="cite-bracket" id="mwsA">]</span></span></a></sup></li>
+<li id="mwsQ">Cluster leader isn't in C<sub id="mwsg">new</sub>. The cluster leader will stop being leader and return to follower state. Specifically, it will continue to replicate log entries, but will not count itself as majorities.<sup about="#mwt26" class="mw-ref reference" id="cite_ref-:02_7-2" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":02"}}'><a href="#cite_note-:02-7" id="mwsw"><span class="mw-reflink-text" id="mwtA"><span class="cite-bracket" id="mwtQ">[</span>7<span class="cite-bracket" id="mwtg">]</span></span></a></sup></li>
+<li id="mwtw">Disruptions from servers in C<sub id="mwuA">old</sub>. If a server believes that a current leader exists, any RequestVote RPCs (RPCs to gather votes for a leader election) will be disregarded.<sup about="#mwt27" class="mw-ref reference" id="cite_ref-:02_7-3" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":02"}}'><a href="#cite_note-:02-7" id="mwuQ"><span class="mw-reflink-text" id="mwug"><span class="cite-bracket" id="mwuw">[</span>7<span class="cite-bracket" id="mwvA">]</span></span></a></sup></li></ol>
+
+</section><section data-mw-section-id="11" id="mwvQ" aria-labelledby="Log_Compaction"><div class="mw-heading mw-heading3"><h3 id="Log_Compaction">Log Compaction</h3><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=11" title="Edit section: Log Compaction"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwvg">An extension to Raft is log compaction, where each server takes snapshots of its committed entries and saves it to <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Stable_storage" title="Stable storage" id="mwvw">stable storage</a>, along with the index of its last entry and the term in the snapshotted log. The leader occasionally sends its snapshots to servers that are lagging behind in its log. When the server receives this snapshot, it will either discard its entire log if it's superseded by the snapshot, or only the entries up to the latest one in the snapshot.<sup about="#mwt30" class="mw-ref reference" id="cite_ref-:03_8-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":03"},"body":{"id":"mw-reference-text-cite_note-:03-8"}}'><a href="#cite_note-:03-8" id="mwwA"><span class="mw-reflink-text" id="mwwQ"><span class="cite-bracket" id="mwwg">[</span>8<span class="cite-bracket" id="mwww">]</span></span></a></sup></p>
+
+</section><section data-mw-section-id="12" id="mwxA" aria-labelledby="Issues"><div class="mw-heading mw-heading3"><h3 id="Issues">Issues</h3><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=12" title="Edit section: Issues"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwxQ">While Raft aims to be an alternative of Paxos and more understandable than Paxos, several issues arise.</p>
+
+<section data-mw-section-id="13" id="mwxg" aria-labelledby="Leader_Bottleneck"><div class="mw-heading mw-heading4"><h4 id="Leader_Bottleneck">Leader Bottleneck</h4><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=13" title="Edit section: Leader Bottleneck"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwxw">Raft uses a single leader model, where client requests, reads and writes, and log replications goes through a single leader. This means that there is a <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Single_point_of_failure" title="Single point of failure" id="mwyA">single point of failure</a> and a bottleneck in performance. Furthermore, it does not scale with increasing server workload.<sup about="#mwt33" class="mw-ref reference" id="cite_ref-9" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-9"}}'><a href="#cite_note-9" id="mwyQ"><span class="mw-reflink-text" id="mwyg"><span class="cite-bracket" id="mwyw">[</span>9<span class="cite-bracket" id="mwzA">]</span></span></a></sup></p>
+
+</section><section data-mw-section-id="14" id="mwzQ" aria-labelledby="Reconfiguration"><div class="mw-heading mw-heading4"><h4 id="Reconfiguration">Reconfiguration</h4><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=14" title="Edit section: Reconfiguration"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mwzg">Raft's membership change system has not been formally verified to be correct. This means that implementing it is very risky, as there can be many potential bugs and errors. Diego Ongaro, one of the co-authors, has tried to create a formal safety proof, but there are no plans to continue developing it due to how complicated it is.<sup about="#mwt36" class="mw-ref reference" id="cite_ref-:1_10-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":1"},"body":{"id":"mw-reference-text-cite_note-:1-10"}}'><a href="#cite_note-:1-10" id="mwzw"><span class="mw-reflink-text" id="mw0A"><span class="cite-bracket" id="mw0Q">[</span>10<span class="cite-bracket" id="mw0g">]</span></span></a></sup> In 2014, a safety bug was found relating to single server membership changes.<sup about="#mwt37" class="mw-ref reference" id="cite_ref-:1_10-1" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":1"}}'><a href="#cite_note-:1-10" id="mw0w"><span class="mw-reflink-text" id="mw1A"><span class="cite-bracket" id="mw1Q">[</span>10<span class="cite-bracket" id="mw1g">]</span></span></a></sup></p>
+
+</section><section data-mw-section-id="15" id="mw1w" aria-labelledby="Byzantine_Faults"><div class="mw-heading mw-heading4"><h4 id="Byzantine_Faults">Byzantine Faults</h4><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=15" title="Edit section: Byzantine Faults"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<p id="mw2A">Raft, like other consensus algorithms, ensures that there can never be an incorrect result under all non-Byzantine conditions.<sup about="#mwt40" class="mw-ref reference" id="cite_ref-:04_11-0" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{"name":":04"},"body":{"id":"mw-reference-text-cite_note-:04-11"}}'><a href="#cite_note-:04-11" id="mw2Q"><span class="mw-reflink-text" id="mw2g"><span class="cite-bracket" id="mw2w">[</span>11<span class="cite-bracket" id="mw3A">]</span></span></a></sup> This means that Raft is not a Byzantine fault tolerant algorithm. A 2023 study found that <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Blockchain" title="Blockchain" id="mw3Q">blockchain systems</a> based on Raft are vulnerable to Byzantine attacks because of the lack of authentication on the client side.<sup about="#mwt43" class="mw-ref reference" id="cite_ref-12" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-12"}}'><a href="#cite_note-12" id="mw3g"><span class="mw-reflink-text" id="mw3w"><span class="cite-bracket" id="mw4A">[</span>12<span class="cite-bracket" id="mw4Q">]</span></span></a></sup></p>
+
+</section></section></section><section data-mw-section-id="16" id="mw4g" aria-labelledby="Extensions"><div class="mw-heading mw-heading2"><h2 id="Extensions">Extensions</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=16" title="Edit section: Extensions"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div> 
+
+<p id="mw4w">The dissertation “Consensus: Bridging Theory and Practice” by one of the co-authors of the original paper describes extensions to the original algorithm:<sup about="#mwt46" class="mw-ref reference" id="cite_ref-13" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-13"}}'><a href="#cite_note-13" id="mw5A"><span class="mw-reflink-text" id="mw5Q"><span class="cite-bracket" id="mw5g">[</span>13<span class="cite-bracket" id="mw5w">]</span></span></a></sup></p>
+
+<ul id="mw6A"><li id="mw6Q">Pre-Vote: when a member rejoins the cluster, it can depending on timing trigger an election although there is already a leader. To avoid this, pre-vote will first check in with the other members. Avoiding the unnecessary election improves the availability of cluster, therefore this extension is usually present in production implementations.</li>
+<li id="mw6g">Leadership transfer: a leader that is shutting down orderly can explicitly transfer the leadership to another member. This can be faster than waiting for a timeout. Also, a leader can step down when another member would be a better leader, for example when that member is on a faster machine.</li></ul>
+
+</section><section data-mw-section-id="17" id="mw6w" aria-labelledby="Production_use_of_Raft"><div class="mw-heading mw-heading2"><h2 id="Production_use_of_Raft">Production use of Raft</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=17" title="Edit section: Production use of Raft"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<ul id="mw7A"><li id="mw7Q"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/CockroachDB" title="CockroachDB" id="mw7g">CockroachDB</a> uses Raft in the Replication Layer.<sup about="#mwt49" class="mw-ref reference" id="cite_ref-14" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-14"}}'><a href="#cite_note-14" id="mw7w"><span class="mw-reflink-text" id="mw8A"><span class="cite-bracket" id="mw8Q">[</span>14<span class="cite-bracket" id="mw8g">]</span></span></a></sup></li>
+<li id="mw8w"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Etcd" title="Etcd" id="mw9A">Etcd</a> uses Raft to manage a highly-available replicated log <sup about="#mwt52" class="mw-ref reference" id="cite_ref-15" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-15"}}'><a href="#cite_note-15" id="mw9Q"><span class="mw-reflink-text" id="mw9g"><span class="cite-bracket" id="mw9w">[</span>15<span class="cite-bracket" id="mw-A">]</span></span></a></sup></li>
+<li id="mw-Q"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Hazelcast" title="Hazelcast" id="mw-g">Hazelcast</a> uses Raft to provide its CP Subsystem, a strongly consistent layer for distributed data structures. <sup about="#mwt55" class="mw-ref reference" id="cite_ref-16" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-16"}}'><a href="#cite_note-16" id="mw-w"><span class="mw-reflink-text" id="mw_A"><span class="cite-bracket" id="mw_Q">[</span>16<span class="cite-bracket" id="mw_g">]</span></span></a></sup></li>
+<li id="mw_w"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/IBM_MQ" title="IBM MQ" id="mwAQA">IBM MQ</a> uses Raft to manage a highly-available replicated log. <sup about="#mwt58" class="mw-ref reference" id="cite_ref-17" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-17"}}'><a href="#cite_note-17" id="mwAQE"><span class="mw-reflink-text" id="mwAQI"><span class="cite-bracket" id="mwAQM">[</span>17<span class="cite-bracket" id="mwAQQ">]</span></span></a></sup></li>
+<li id="mwAQU"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/MongoDB" title="MongoDB" id="mwAQY">MongoDB</a> uses a variant of Raft in the replication set.</li>
+<li id="mwAQc"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Neo4j" title="Neo4j" id="mwAQg">Neo4j</a> uses Raft to ensure consistency and safety. <sup about="#mwt61" class="mw-ref reference" id="cite_ref-18" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-18"}}'><a href="#cite_note-18" id="mwAQk"><span class="mw-reflink-text" id="mwAQo"><span class="cite-bracket" id="mwAQs">[</span>18<span class="cite-bracket" id="mwAQw">]</span></span></a></sup></li>
+<li id="mwAQ0"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/RabbitMQ" title="RabbitMQ" id="mwAQ4">RabbitMQ</a> uses Raft to implement durable, replicated FIFO queues. <sup about="#mwt64" class="mw-ref reference" id="cite_ref-19" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-19"}}'><a href="#cite_note-19" id="mwAQ8"><span class="mw-reflink-text" id="mwARA"><span class="cite-bracket" id="mwARE">[</span>19<span class="cite-bracket" id="mwARI">]</span></span></a></sup></li>
+<li id="mwARM"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/ScyllaDB" title="ScyllaDB" id="mwARQ">ScyllaDB</a> uses Raft for metadata (schema and topology changes) <sup about="#mwt67" class="mw-ref reference" id="cite_ref-20" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-20"}}'><a href="#cite_note-20" id="mwARU"><span class="mw-reflink-text" id="mwARY"><span class="cite-bracket" id="mwARc">[</span>20<span class="cite-bracket" id="mwARg">]</span></span></a></sup></li>
+<li id="mwARk"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Splunk" title="Splunk" id="mwARo">Splunk</a> Enterprise uses Raft in a Search Head Cluster (SHC) <sup about="#mwt70" class="mw-ref reference" id="cite_ref-21" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-21"}}'><a href="#cite_note-21" id="mwARs"><span class="mw-reflink-text" id="mwARw"><span class="cite-bracket" id="mwAR0">[</span>21<span class="cite-bracket" id="mwAR4">]</span></span></a></sup></li>
+<li id="mwAR8"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/TiDB" title="TiDB" id="mwASA">TiDB</a> uses Raft with the storage engine TiKV.<sup about="#mwt73" class="mw-ref reference" id="cite_ref-22" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-22"}}'><a href="#cite_note-22" id="mwASE"><span class="mw-reflink-text" id="mwASI"><span class="cite-bracket" id="mwASM">[</span>22<span class="cite-bracket" id="mwASQ">]</span></span></a></sup></li>
+<li id="mwASU"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/YugabyteDB" title="YugabyteDB" id="mwASY">YugabyteDB</a> uses Raft in the DocDB Replication <sup about="#mwt76" class="mw-ref reference" id="cite_ref-23" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-23"}}'><a href="#cite_note-23" id="mwASc"><span class="mw-reflink-text" id="mwASg"><span class="cite-bracket" id="mwASk">[</span>23<span class="cite-bracket" id="mwASo">]</span></span></a></sup></li>
+<li id="mwASs"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/ClickHouse" title="ClickHouse" id="mwASw">ClickHouse</a> uses Raft for in-house implementation of <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/ZooKeeper" title="ZooKeeper" class="mw-redirect" id="mwAS0">ZooKeeper</a>-like service <sup about="#mwt79" class="mw-ref reference" id="cite_ref-24" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-24"}}'><a href="#cite_note-24" id="mwAS4"><span class="mw-reflink-text" id="mwAS8"><span class="cite-bracket" id="mwATA">[</span>24<span class="cite-bracket" id="mwATE">]</span></span></a></sup></li>
+<li id="mwATI">Redpanda uses the Raft consensus algorithm for data replication <sup about="#mwt82" class="mw-ref reference" id="cite_ref-25" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-25"}}'><a href="#cite_note-25" id="mwATM"><span class="mw-reflink-text" id="mwATQ"><span class="cite-bracket" id="mwATU">[</span>25<span class="cite-bracket" id="mwATY">]</span></span></a></sup></li>
+<li id="mwATc"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Apache_Kafka" title="Apache Kafka" id="mwATg">Apache Kafka</a> Raft (KRaft) uses Raft for metadata management.<sup about="#mwt85" class="mw-ref reference" id="cite_ref-26" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-26"}}'><a href="#cite_note-26" id="mwATk"><span class="mw-reflink-text" id="mwATo"><span class="cite-bracket" id="mwATs">[</span>26<span class="cite-bracket" id="mwATw">]</span></span></a></sup></li>
+<li id="mwAT0"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/NATS_Messaging" title="NATS Messaging" id="mwAT4">NATS Messaging</a> uses the Raft consensus algorithm for Jetstream cluster management and data replication <sup about="#mwt88" class="mw-ref reference" id="cite_ref-27" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-27"}}'><a href="#cite_note-27" id="mwAT8"><span class="mw-reflink-text" id="mwAUA"><span class="cite-bracket" id="mwAUE">[</span>27<span class="cite-bracket" id="mwAUI">]</span></span></a></sup></li>
+<li id="mwAUM"><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Camunda" title="Camunda" id="mwAUQ">Camunda</a> uses the Raft consensus algorithm for data replication <sup about="#mwt91" class="mw-ref reference" id="cite_ref-28" rel="dc:references" typeof="mw:Extension/ref" data-mw='{"name":"ref","attrs":{},"body":{"id":"mw-reference-text-cite_note-28"}}'><a href="#cite_note-28" id="mwAUU"><span class="mw-reflink-text" id="mwAUY"><span class="cite-bracket" id="mwAUc">[</span>28<span class="cite-bracket" id="mwAUg">]</span></span></a></sup></li></ul>
+
+</section><section data-mw-section-id="18" id="mwAUk" aria-labelledby="References"><div class="mw-heading mw-heading2"><h2 id="References">References</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=18" title="Edit section: References"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<span class="mw-empty-elt" about="#mwt92" typeof="mw:Transclusion" id="mwAUo" data-mw='{"parts":[{"template":{"target":{"wt":"Reflist","href":"./Template:Reflist"},"params":{"refs":{"wt":"&lt;ref name=\"paper\">{{cite web\n  | last1  = Ongaro\n  | first1 = Diego\n  | author2-link = John Ousterhout\n | last2  = Ousterhout\n  | first2 = John\n  | year  = 2013\n  | title = In Search of an Understandable Consensus Algorithm\n  | url   = https://raft.github.io/raft.pdf\n  }}&lt;/ref>\n&lt;ref name=\"website\">{{cite web\n  | year  = 2014\n  | title = Raft Consensus Algorithm\n  | url   = https://raft.github.io/\n  }}&lt;/ref>\n&lt;ref name=\"secretlives\">{{cite web\n  | title = Raft: Understandable Distributed Consensus\n  | url   = http://thesecretlivesofdata.com/raft/\n  | accessdate= August 4, 2021\n  | work= The Secret Lives of Data website\n | author = Ben B. Johnson\n  }}&lt;/ref>"}},"i":0}}]}'><style data-mw-deduplicate="TemplateStyles:r1327269900" typeof="mw:Extension/templatestyles" about="#mwt93" data-mw='{"name":"templatestyles","attrs":{"src":"Reflist/styles.css"}}'>.mw-parser-output .reflist-columns-2{column-width:30em}.mw-parser-output .reflist-columns-3{column-width:25em}body.skin-vector-2022 .mw-parser-output .reflist-columns-2{column-width:27em}body.skin-vector-2022 .mw-parser-output .reflist-columns-3{column-width:22.5em}.mw-parser-output .references[data-mw-group=upper-alpha]{list-style-type:upper-alpha}.mw-parser-output .references[data-mw-group=upper-roman]{list-style-type:upper-roman}.mw-parser-output .references[data-mw-group=lower-alpha]{list-style-type:lower-alpha}.mw-parser-output .references[data-mw-group=lower-greek]{list-style-type:lower-greek}.mw-parser-output .references[data-mw-group=lower-roman]{list-style-type:lower-roman}.mw-parser-output div.reflist-liststyle-upper-alpha .references{list-style-type:upper-alpha}.mw-parser-output div.reflist-liststyle-upper-roman .references{list-style-type:upper-roman}.mw-parser-output div.reflist-liststyle-lower-alpha .references{list-style-type:lower-alpha}.mw-parser-output div.reflist-liststyle-lower-greek .references{list-style-type:lower-greek}.mw-parser-output div.reflist-liststyle-lower-roman .references{list-style-type:lower-roman}</style></span><div about="#mwt92" id="mwAUs">
+<div class="mw-references-wrap mw-references-columns" typeof="mw:Extension/references" about="#mwt109" id="mwAUw" data-mw='{"name":"references","attrs":{"group":"","responsive":"1"},"body":{"extsrc":"{{#parsoid\u0000fragment:26}}\n{{#parsoid\u0000fragment:27}}\n{{#parsoid\u0000fragment:28}}"}}'><ol class="mw-references references" id="mwAU0"><li about="#cite_note-paper-1" id="cite_note-paper-1" data-mw-footnote-number="1"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mwAU4"><a href="#cite_ref-paper_1-0" id="mwAU8"><span class="mw-linkback-text" id="mwAVA">1</span></a> <a href="#cite_ref-paper_1-1" id="mwAVE"><span class="mw-linkback-text" id="mwAVI">2</span></a> <a href="#cite_ref-paper_1-2" id="mwAVM"><span class="mw-linkback-text" id="mwAVQ">3</span></a> <a href="#cite_ref-paper_1-3" id="mwAVU"><span class="mw-linkback-text" id="mwAVY">4</span></a> <a href="#cite_ref-paper_1-4" id="mwAVc"><span class="mw-linkback-text" id="mwAVg">5</span></a></span> <span id="mw-reference-text-cite_note-paper-1" class="mw-reference-text reference-text"><style data-mw-deduplicate="TemplateStyles:r1333433106" typeof="mw:Extension/templatestyles" about="#mwt95" id="mwAVk" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""}}'>.mw-parser-output cite.citation{font-style:inherit;word-wrap:break-word}.mw-parser-output .citation q{quotes:"\"""\"""'""'"}.mw-parser-output .citation:target{background-color:rgba(0,127,255,0.133)}.mw-parser-output .id-lock-free.id-lock-free a{background:url("//upload.wikimedia.org/wikipedia/commons/6/65/Lock-green.svg")right 0.1em center/9px no-repeat}.mw-parser-output .id-lock-limited.id-lock-limited a,.mw-parser-output .id-lock-registration.id-lock-registration a{background:url("//upload.wikimedia.org/wikipedia/commons/d/d6/Lock-gray-alt-2.svg")right 0.1em center/9px no-repeat}.mw-parser-output .id-lock-subscription.id-lock-subscription a{background:url("//upload.wikimedia.org/wikipedia/commons/a/aa/Lock-red-alt-2.svg")right 0.1em center/9px no-repeat}.mw-parser-output .cs1-ws-icon a{background:url("//upload.wikimedia.org/wikipedia/commons/4/4c/Wikisource-logo.svg")right 0.1em center/12px no-repeat}body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .id-lock-free a,body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .id-lock-limited a,body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .id-lock-registration a,body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .id-lock-subscription a,body:not(.skin-timeless):not(.skin-minerva) .mw-parser-output .cs1-ws-icon a{background-size:contain;padding:0 1em 0 0}.mw-parser-output .cs1-code{color:inherit;background:inherit;border:none;padding:inherit}.mw-parser-output .cs1-hidden-error{display:none;color:var(--color-error,#bf3c2c)}.mw-parser-output .cs1-visible-error{color:var(--color-error,#bf3c2c)}.mw-parser-output .cs1-maint{display:none;color:#085;margin-left:0.3em}.mw-parser-output .cs1-kern-left{padding-left:0.2em}.mw-parser-output .cs1-kern-right{padding-right:0.2em}.mw-parser-output .citation .mw-selflink{font-weight:inherit}@media screen{.mw-parser-output .cs1-format{font-size:95%}html.skin-theme-clientpref-night .mw-parser-output .cs1-maint{color:#18911f}}@media screen and (prefers-color-scheme:dark){html.skin-theme-clientpref-os .mw-parser-output .cs1-maint{color:#18911f}}</style><cite id="CITEREFOngaroOusterhout2013" class="citation web cs1">Ongaro, Diego; <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/John_Ousterhout" title="John Ousterhout" id="mwAVo">Ousterhout, John</a> (2013). <a rel="mw:ExtLink nofollow" href="https://raft.github.io/raft.pdf" class="external text" id="mwAVs">"In Search of an Understandable Consensus Algorithm"</a> <span class="cs1-format" id="mwAVw">(PDF)</span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=unknown&amp;rft.btitle=In+Search+of+an+Understandable+Consensus+Algorithm&amp;rft.date=2013&amp;rft.aulast=Ongaro&amp;rft.aufirst=Diego&amp;rft.au=Ousterhout%2C+John&amp;rft_id=https%3A%2F%2Fraft.github.io%2Fraft.pdf&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" id="mwAV0"></span></span></li>
+<li about="#cite_note-website-2" id="cite_note-website-2" data-mw-footnote-number="2"><span class="mw-cite-backlink" id="mwAV4"><a href="#cite_ref-website_2-0" rel="mw:referencedBy" id="mwAV8"><span class="mw-linkback-text" id="mwAWA">↑</span></a></span> <span id="mw-reference-text-cite_note-website-2" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt100" typeof="mw:Extension/templatestyles" id="mwAWE" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""}}'/><cite class="citation web cs1" id="mwAWI"><a rel="mw:ExtLink nofollow" href="https://raft.github.io/" class="external text" id="mwAWM">"Raft Consensus Algorithm"</a>. 2014.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=unknown&amp;rft.btitle=Raft+Consensus+Algorithm&amp;rft.date=2014&amp;rft_id=https%3A%2F%2Fraft.github.io%2F&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" id="mwAWQ"></span></span></li>
+<li about="#cite_note-3" id="cite_note-3" data-mw-footnote-number="3"><span class="mw-cite-backlink" id="mwAWU"><a href="#cite_ref-3" rel="mw:referencedBy" id="mwAWY"><span class="mw-linkback-text" id="mwAWc">↑</span></a></span> <span id="mw-reference-text-cite_note-3" class="mw-reference-text reference-text"><a rel="mw:ExtLink nofollow" href="https://groups.google.com/forum/#!topic/raft-dev/95rZqptGpmU" class="external text" id="mwAWg">Why the "Raft" name?</a></span></li>
+<li about="#cite_note-4" id="cite_note-4" data-mw-footnote-number="4"><span class="mw-cite-backlink" id="mwAWk"><a href="#cite_ref-4" rel="mw:referencedBy" id="mwAWo"><span class="mw-linkback-text" id="mwAWs">↑</span></a></span> <span id="mw-reference-text-cite_note-4" class="mw-reference-text reference-text"><a rel="mw:ExtLink nofollow" href="https://www.scs.stanford.edu/14au-cs244b/labs/projects/copeland_zhong.pdf" class="external text" id="mwAWw">Christopher Copeland and Hongxia Zhong (2016). Tangaroa: a Byzantine Fault Tolerant Raft</a></span></li>
+<li about="#cite_note-secretlives-5" id="cite_note-secretlives-5" data-mw-footnote-number="5"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mwAW0"><a href="#cite_ref-secretlives_5-0" id="mwAW4"><span class="mw-linkback-text" id="mwAW8">1</span></a> <a href="#cite_ref-secretlives_5-1" id="mwAXA"><span class="mw-linkback-text" id="mwAXE">2</span></a></span> <span id="mw-reference-text-cite_note-secretlives-5" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt105" typeof="mw:Extension/templatestyles" id="mwAXI" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""}}'/><cite id="CITEREFBen_B._Johnson" class="citation web cs1">Ben B. Johnson. <a rel="mw:ExtLink nofollow" href="http://thesecretlivesofdata.com/raft/" class="external text" id="mwAXM">"Raft: Understandable Distributed Consensus"</a>. <i id="mwAXQ">The Secret Lives of Data website</i><span class="reference-accessdate" id="mwAXU">. Retrieved <span class="nowrap" id="mwAXY">August 4,</span> 2021</span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=The+Secret+Lives+of+Data+website&amp;rft.atitle=Raft%3A+Understandable+Distributed+Consensus&amp;rft.au=Ben+B.+Johnson&amp;rft_id=http%3A%2F%2Fthesecretlivesofdata.com%2Fraft%2F&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" id="mwAXc"></span></span></li>
+<li about="#cite_note-:0-6" id="cite_note-:0-6" data-mw-footnote-number="6"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mwAXg"><a href="#cite_ref-:0_6-0" id="mwAXk"><span class="mw-linkback-text" id="mwAXo">1</span></a> <a href="#cite_ref-:0_6-1" id="mwAXs"><span class="mw-linkback-text" id="mwAXw">2</span></a> <a href="#cite_ref-:0_6-2" id="mwAX0"><span class="mw-linkback-text" id="mwAX4">3</span></a> <a href="#cite_ref-:0_6-3" id="mwAX8"><span class="mw-linkback-text" id="mwAYA">4</span></a> <a href="#cite_ref-:0_6-4" id="mwAYE"><span class="mw-linkback-text" id="mwAYI">5</span></a> <a href="#cite_ref-:0_6-5" id="mwAYM"><span class="mw-linkback-text" id="mwAYQ">6</span></a></span> <span id="mw-reference-text-cite_note-:0-6" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt14" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAYU" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"In Search of an Understandable Consensus Algorithm (Extended Version)"},"url":{"wt":"https://raft.github.io/raft.pdf"},"access-date":{"wt":"2025-10-01"},"website":{"wt":"raft.github.io"},"language":{"wt":"en"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt14" id="mwAYY"><a rel="mw:ExtLink nofollow" href="https://raft.github.io/raft.pdf" class="external text" id="mwAYc">"In Search of an Understandable Consensus Algorithm (Extended Version)"</a> <span class="cs1-format" id="mwAYg">(PDF)</span>. <i id="mwAYk">raft.github.io</i><span class="reference-accessdate" id="mwAYo">. Retrieved <span class="nowrap" id="mwAYs">2025-10-01</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=raft.github.io&amp;rft.atitle=In+Search+of+an+Understandable+Consensus+Algorithm+%28Extended+Version%29&amp;rft_id=https%3A%2F%2Fraft.github.io%2Fraft.pdf&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt14" id="mwAYw"></span></span></li>
+<li about="#cite_note-:02-7" id="cite_note-:02-7" data-mw-footnote-number="7"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mwAY0"><a href="#cite_ref-:02_7-0" id="mwAY4"><span class="mw-linkback-text" id="mwAY8">1</span></a> <a href="#cite_ref-:02_7-1" id="mwAZA"><span class="mw-linkback-text" id="mwAZE">2</span></a> <a href="#cite_ref-:02_7-2" id="mwAZI"><span class="mw-linkback-text" id="mwAZM">3</span></a> <a href="#cite_ref-:02_7-3" id="mwAZQ"><span class="mw-linkback-text" id="mwAZU">4</span></a></span> <span id="mw-reference-text-cite_note-:02-7" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt22" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAZY" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"In Search of an Understandable Consensus Algorithm (Extended Version)"},"url":{"wt":"https://raft.github.io/raft.pdf"},"access-date":{"wt":"2025-10-01"},"website":{"wt":"raft.github.io"},"language":{"wt":"en"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt22" id="mwAZc"><a rel="mw:ExtLink nofollow" href="https://raft.github.io/raft.pdf" class="external text" id="mwAZg">"In Search of an Understandable Consensus Algorithm (Extended Version)"</a> <span class="cs1-format" id="mwAZk">(PDF)</span>. <i id="mwAZo">raft.github.io</i><span class="reference-accessdate" id="mwAZs">. Retrieved <span class="nowrap" id="mwAZw">2025-10-01</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=raft.github.io&amp;rft.atitle=In+Search+of+an+Understandable+Consensus+Algorithm+%28Extended+Version%29&amp;rft_id=https%3A%2F%2Fraft.github.io%2Fraft.pdf&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt22" id="mwAZ0"></span></span></li>
+<li about="#cite_note-:03-8" id="cite_note-:03-8" data-mw-footnote-number="8"><span class="mw-cite-backlink" id="mwAZ4"><a href="#cite_ref-:03_8-0" rel="mw:referencedBy" id="mwAZ8"><span class="mw-linkback-text" id="mwAaA">↑</span></a></span> <span id="mw-reference-text-cite_note-:03-8" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt28" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAaE" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"In Search of an Understandable Consensus Algorithm (Extended Version)"},"url":{"wt":"https://raft.github.io/raft.pdf"},"access-date":{"wt":"2025-10-01"},"website":{"wt":"raft.github.io"},"language":{"wt":"en"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt28" id="mwAaI"><a rel="mw:ExtLink nofollow" href="https://raft.github.io/raft.pdf" class="external text" id="mwAaM">"In Search of an Understandable Consensus Algorithm (Extended Version)"</a> <span class="cs1-format" id="mwAaQ">(PDF)</span>. <i id="mwAaU">raft.github.io</i><span class="reference-accessdate" id="mwAaY">. Retrieved <span class="nowrap" id="mwAac">2025-10-01</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=raft.github.io&amp;rft.atitle=In+Search+of+an+Understandable+Consensus+Algorithm+%28Extended+Version%29&amp;rft_id=https%3A%2F%2Fraft.github.io%2Fraft.pdf&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt28" id="mwAag"></span></span></li>
+<li about="#cite_note-9" id="cite_note-9" data-mw-footnote-number="9"><span class="mw-cite-backlink" id="mwAak"><a href="#cite_ref-9" rel="mw:referencedBy" id="mwAao"><span class="mw-linkback-text" id="mwAas">↑</span></a></span> <span id="mw-reference-text-cite_note-9" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt31" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAaw" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite book ","href":"./Template:Cite_book"},"params":{"last1":{"wt":"Deyerl"},"first1":{"wt":"Christian"},"last2":{"wt":"Distler"},"first2":{"wt":"Tobias"},"chapter":{"wt":"In Search of a Scalable Raft-based Replication Architecture"},"date":{"wt":"2019-03-25"},"title":{"wt":"Proceedings of the 6th Workshop on Principles and Practice of Consistency for Distributed Data"},"chapter-url":{"wt":"https://doi.org/10.1145/3301419.3323968"},"series":{"wt":"PaPoC &apos;19"},"location":{"wt":"New York, NY, USA"},"publisher":{"wt":"Association for Computing Machinery"},"pages":{"wt":"1–7"},"doi":{"wt":"10.1145/3301419.3323968"},"isbn":{"wt":"978-1-4503-6276-4"},"chapter-url-access":{"wt":"subscription"}},"i":0}}]}'/><cite id="CITEREFDeyerlDistler2019" class="citation book cs1" about="#mwt31">Deyerl, Christian; Distler, Tobias (2019-03-25). <span class="id-lock-subscription" title="Paid subscription required" id="mwAa0"><a rel="mw:ExtLink nofollow" href="https://doi.org/10.1145/3301419.3323968" class="external text" id="mwAa4">"In Search of a Scalable Raft-based Replication Architecture"</a></span>. <i id="mwAa8">Proceedings of the 6th Workshop on Principles and Practice of Consistency for Distributed Data</i>. PaPoC '19. New York, NY, USA: Association for Computing Machinery. pp.<span typeof="mw:Entity" id="mwAbA"> </span><span class="nowrap" id="mwAbE">1–</span>7. <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Doi_(identifier)" title="Doi (identifier)" class="mw-redirect" id="mwAbI">doi</a>:<a rel="mw:ExtLink nofollow" href="https://doi.org/10.1145%2F3301419.3323968" class="external text" id="mwAbM">10.1145/3301419.3323968</a>. <a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/ISBN_(identifier)" title="ISBN (identifier)" class="mw-redirect" id="mwAbQ">ISBN</a><span typeof="mw:Entity" id="mwAbU"> </span><a rel="mw:WikiLink" href="https://en.wikipedia.org/wiki/Special:BookSources/978-1-4503-6276-4" title="Special:BookSources/978-1-4503-6276-4" id="mwAbY"><bdi id="mwAbc">978-1-4503-6276-4</bdi></a>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=bookitem&amp;rft.atitle=In+Search+of+a+Scalable+Raft-based+Replication+Architecture&amp;rft.btitle=Proceedings+of+the+6th+Workshop+on+Principles+and+Practice+of+Consistency+for+Distributed+Data&amp;rft.place=New+York%2C+NY%2C+USA&amp;rft.series=PaPoC+%2719&amp;rft.pages=1-7&amp;rft.pub=Association+for+Computing+Machinery&amp;rft.date=2019-03-25&amp;rft_id=info%3Adoi%2F10.1145%2F3301419.3323968&amp;rft.isbn=978-1-4503-6276-4&amp;rft.aulast=Deyerl&amp;rft.aufirst=Christian&amp;rft.au=Distler%2C+Tobias&amp;rft_id=https%3A%2F%2Fdoi.org%2F10.1145%2F3301419.3323968&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt31" id="mwAbg"></span></span></li>
+<li about="#cite_note-:1-10" id="cite_note-:1-10" data-mw-footnote-number="10"><span rel="mw:referencedBy" class="mw-cite-backlink" id="mwAbk"><a href="#cite_ref-:1_10-0" id="mwAbo"><span class="mw-linkback-text" id="mwAbs">1</span></a> <a href="#cite_ref-:1_10-1" id="mwAbw"><span class="mw-linkback-text" id="mwAb0">2</span></a></span> <span id="mw-reference-text-cite_note-:1-10" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt34" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAb4" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"bug in single-server membership changes"},"url":{"wt":"https://groups.google.com/g/raft-dev/c/t4xj6dJTP6E/m/d2D9LrWRza8J?pli=1"},"access-date":{"wt":"2025-10-06"},"website":{"wt":"groups.google.com"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt34" id="mwAb8"><a rel="mw:ExtLink nofollow" href="https://groups.google.com/g/raft-dev/c/t4xj6dJTP6E/m/d2D9LrWRza8J?pli=1" class="external text" id="mwAcA">"bug in single-server membership changes"</a>. <i id="mwAcE">groups.google.com</i><span class="reference-accessdate" id="mwAcI">. Retrieved <span class="nowrap" id="mwAcM">2025-10-06</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=groups.google.com&amp;rft.atitle=bug+in+single-server+membership+changes&amp;rft_id=https%3A%2F%2Fgroups.google.com%2Fg%2Fraft-dev%2Fc%2Ft4xj6dJTP6E%2Fm%2Fd2D9LrWRza8J%3Fpli%3D1&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt34" id="mwAcQ"></span></span></li>
+<li about="#cite_note-:04-11" id="cite_note-:04-11" data-mw-footnote-number="11"><span class="mw-cite-backlink" id="mwAcU"><a href="#cite_ref-:04_11-0" rel="mw:referencedBy" id="mwAcY"><span class="mw-linkback-text" id="mwAcc">↑</span></a></span> <span id="mw-reference-text-cite_note-:04-11" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt38" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAcg" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"In Search of an Understandable Consensus Algorithm (Extended Version)"},"url":{"wt":"https://raft.github.io/raft.pdf"},"access-date":{"wt":"2025-10-01"},"website":{"wt":"raft.github.io"},"language":{"wt":"en"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt38" id="mwAck"><a rel="mw:ExtLink nofollow" href="https://raft.github.io/raft.pdf" class="external text" id="mwAco">"In Search of an Understandable Consensus Algorithm (Extended Version)"</a> <span class="cs1-format" id="mwAcs">(PDF)</span>. <i id="mwAcw">raft.github.io</i><span class="reference-accessdate" id="mwAc0">. Retrieved <span class="nowrap" id="mwAc4">2025-10-01</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=raft.github.io&amp;rft.atitle=In+Search+of+an+Understandable+Consensus+Algorithm+%28Extended+Version%29&amp;rft_id=https%3A%2F%2Fraft.github.io%2Fraft.pdf&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt38" id="mwAc8"></span></span></li>
+<li about="#cite_note-12" id="cite_note-12" data-mw-footnote-number="12"><span class="mw-cite-backlink" id="mwAdA"><a href="#cite_ref-12" rel="mw:referencedBy" id="mwAdE"><span class="mw-linkback-text" id="mwAdI">↑</span></a></span> <span id="mw-reference-text-cite_note-12" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt41" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAdM" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"Poster: Client-Side Byzantine Attacks on Raft Algorithm in Blockchain"},"url":{"wt":"https://www.ndss-symposium.org/wp-content/uploads/2023/02/NDSS2023Poster_paper_9949.pdf"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt41" id="mwAdQ"><a rel="mw:ExtLink nofollow" href="https://www.ndss-symposium.org/wp-content/uploads/2023/02/NDSS2023Poster_paper_9949.pdf" class="external text" id="mwAdU">"Poster: Client-Side Byzantine Attacks on Raft Algorithm in Blockchain"</a> <span class="cs1-format" id="mwAdY">(PDF)</span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=unknown&amp;rft.btitle=Poster%3A+Client-Side+Byzantine+Attacks+on+Raft+Algorithm+in+Blockchain&amp;rft_id=https%3A%2F%2Fwww.ndss-symposium.org%2Fwp-content%2Fuploads%2F2023%2F02%2FNDSS2023Poster_paper_9949.pdf&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt41" id="mwAdc"></span></span></li>
+<li about="#cite_note-13" id="cite_note-13" data-mw-footnote-number="13"><span class="mw-cite-backlink" id="mwAdg"><a href="#cite_ref-13" rel="mw:referencedBy" id="mwAdk"><span class="mw-linkback-text" id="mwAdo">↑</span></a></span> <span id="mw-reference-text-cite_note-13" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt44" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAds" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"CONSENSUS: BRIDGING THEORY AND PRACTICE"},"url":{"wt":"https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt44" id="mwAdw"><a rel="mw:ExtLink nofollow" href="https://web.stanford.edu/~ouster/cgi-bin/papers/OngaroPhD.pdf" class="external text" id="mwAd0">"CONSENSUS: BRIDGING THEORY AND PRACTICE"</a> <span class="cs1-format" id="mwAd4">(PDF)</span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=unknown&amp;rft.btitle=CONSENSUS%3A+BRIDGING+THEORY+AND+PRACTICE&amp;rft_id=https%3A%2F%2Fweb.stanford.edu%2F~ouster%2Fcgi-bin%2Fpapers%2FOngaroPhD.pdf&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt44" id="mwAd8"></span></span></li>
+<li about="#cite_note-14" id="cite_note-14" data-mw-footnote-number="14"><span class="mw-cite-backlink" id="mwAeA"><a href="#cite_ref-14" rel="mw:referencedBy" id="mwAeE"><span class="mw-linkback-text" id="mwAeI">↑</span></a></span> <span id="mw-reference-text-cite_note-14" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt47" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAeM" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"Replication Layer {{!}} CockroachDB Docs"},"url":{"wt":"https://www.cockroachlabs.com/docs/stable/architecture/replication-layer.html"},"access-date":{"wt":"2022-06-21"},"website":{"wt":"www.cockroachlabs.com"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt47" id="mwAeQ"><a rel="mw:ExtLink nofollow" href="https://www.cockroachlabs.com/docs/stable/architecture/replication-layer.html" class="external text" id="mwAeU">"Replication Layer | CockroachDB Docs"</a>. <i id="mwAeY">www.cockroachlabs.com</i><span class="reference-accessdate" id="mwAec">. Retrieved <span class="nowrap" id="mwAeg">2022-06-21</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=www.cockroachlabs.com&amp;rft.atitle=Replication+Layer+%7C+CockroachDB+Docs&amp;rft_id=https%3A%2F%2Fwww.cockroachlabs.com%2Fdocs%2Fstable%2Farchitecture%2Freplication-layer.html&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt47" id="mwAek"></span></span></li>
+<li about="#cite_note-15" id="cite_note-15" data-mw-footnote-number="15"><span class="mw-cite-backlink" id="mwAeo"><a href="#cite_ref-15" rel="mw:referencedBy" id="mwAes"><span class="mw-linkback-text" id="mwAew">↑</span></a></span> <span id="mw-reference-text-cite_note-15" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt50" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAe0" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"Raft README"},"url":{"wt":"https://github.com/etcd-io/raft/blob/main/README.md"},"access-date":{"wt":"2022-08-25"},"website":{"wt":"github.com"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt50" id="mwAe4"><a rel="mw:ExtLink nofollow" href="https://github.com/etcd-io/raft/blob/main/README.md" class="external text" id="mwAe8">"Raft README"</a>. <i id="mwAfA">github.com</i><span class="reference-accessdate" id="mwAfE">. Retrieved <span class="nowrap" id="mwAfI">2022-08-25</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=github.com&amp;rft.atitle=Raft+README&amp;rft_id=https%3A%2F%2Fgithub.com%2Fetcd-io%2Fraft%2Fblob%2Fmain%2FREADME.md&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt50" id="mwAfM"></span></span></li>
+<li about="#cite_note-16" id="cite_note-16" data-mw-footnote-number="16"><span class="mw-cite-backlink" id="mwAfQ"><a href="#cite_ref-16" rel="mw:referencedBy" id="mwAfU"><span class="mw-linkback-text" id="mwAfY">↑</span></a></span> <span id="mw-reference-text-cite_note-16" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt53" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAfc" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"CP Subsystem"},"url":{"wt":"https://docs.hazelcast.com/imdg/4.2/cp-subsystem/cp-subsystem"},"access-date":{"wt":"2022-12-24"},"website":{"wt":"docs.hazelcast.com"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt53" id="mwAfg"><a rel="mw:ExtLink nofollow" href="https://docs.hazelcast.com/imdg/4.2/cp-subsystem/cp-subsystem" class="external text" id="mwAfk">"CP Subsystem"</a>. <i id="mwAfo">docs.hazelcast.com</i><span class="reference-accessdate" id="mwAfs">. Retrieved <span class="nowrap" id="mwAfw">2022-12-24</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=docs.hazelcast.com&amp;rft.atitle=CP+Subsystem&amp;rft_id=https%3A%2F%2Fdocs.hazelcast.com%2Fimdg%2F4.2%2Fcp-subsystem%2Fcp-subsystem&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt53" id="mwAf0"></span></span></li>
+<li about="#cite_note-17" id="cite_note-17" data-mw-footnote-number="17"><span class="mw-cite-backlink" id="mwAf4"><a href="#cite_ref-17" rel="mw:referencedBy" id="mwAf8"><span class="mw-linkback-text" id="mwAgA">↑</span></a></span> <span id="mw-reference-text-cite_note-17" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt56" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAgE" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"Cloud native high availability with IBM MQ"},"url":{"wt":"https://community.ibm.com/community/user/blogs/david-ware1/2021/03/23/native-ha-cloud-native-high-availability"},"access-date":{"wt":"2021-05-25"},"website":{"wt":"community.ibm.com"},"date":{"wt":"25 March 2021"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt56" id="mwAgI"><a rel="mw:ExtLink nofollow" href="https://community.ibm.com/community/user/blogs/david-ware1/2021/03/23/native-ha-cloud-native-high-availability" class="external text" id="mwAgM">"Cloud native high availability with IBM MQ"</a>. <i id="mwAgQ">community.ibm.com</i>. 25 March 2021<span class="reference-accessdate" id="mwAgU">. Retrieved <span class="nowrap" id="mwAgY">2021-05-25</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=community.ibm.com&amp;rft.atitle=Cloud+native+high+availability+with+IBM+MQ&amp;rft.date=2021-03-25&amp;rft_id=https%3A%2F%2Fcommunity.ibm.com%2Fcommunity%2Fuser%2Fblogs%2Fdavid-ware1%2F2021%2F03%2F23%2Fnative-ha-cloud-native-high-availability&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt56" id="mwAgc"></span></span></li>
+<li about="#cite_note-18" id="cite_note-18" data-mw-footnote-number="18"><span class="mw-cite-backlink" id="mwAgg"><a href="#cite_ref-18" rel="mw:referencedBy" id="mwAgk"><span class="mw-linkback-text" id="mwAgo">↑</span></a></span> <span id="mw-reference-text-cite_note-18" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt59" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAgs" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"Leadership, routing and load balancing - Operations Manual"},"url":{"wt":"https://neo4j.com/docs/operations-manual/5/clustering/setup/routing/"},"access-date":{"wt":"2022-11-30"},"website":{"wt":"Neo4j Graph Data Platform"},"language":{"wt":"en"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt59" id="mwAgw"><a rel="mw:ExtLink nofollow" href="https://neo4j.com/docs/operations-manual/5/clustering/setup/routing/" class="external text" id="mwAg0">"Leadership, routing and load balancing - Operations Manual"</a>. <i id="mwAg4">Neo4j Graph Data Platform</i><span class="reference-accessdate" id="mwAg8">. Retrieved <span class="nowrap" id="mwAhA">2022-11-30</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=Neo4j+Graph+Data+Platform&amp;rft.atitle=Leadership%2C+routing+and+load+balancing+-+Operations+Manual&amp;rft_id=https%3A%2F%2Fneo4j.com%2Fdocs%2Foperations-manual%2F5%2Fclustering%2Fsetup%2Frouting%2F&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt59" id="mwAhE"></span></span></li>
+<li about="#cite_note-19" id="cite_note-19" data-mw-footnote-number="19"><span class="mw-cite-backlink" id="mwAhI"><a href="#cite_ref-19" rel="mw:referencedBy" id="mwAhM"><span class="mw-linkback-text" id="mwAhQ">↑</span></a></span> <span id="mw-reference-text-cite_note-19" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt62" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAhU" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"Quorum Queues"},"url":{"wt":"https://www.rabbitmq.com/quorum-queues.html"},"access-date":{"wt":"2022-12-14"},"website":{"wt":"RabbitMQ"},"language":{"wt":"en"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt62" id="mwAhY"><a rel="mw:ExtLink nofollow" href="https://www.rabbitmq.com/quorum-queues.html" class="external text" id="mwAhc">"Quorum Queues"</a>. <i id="mwAhg">RabbitMQ</i><span class="reference-accessdate" id="mwAhk">. Retrieved <span class="nowrap" id="mwAho">2022-12-14</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=RabbitMQ&amp;rft.atitle=Quorum+Queues&amp;rft_id=https%3A%2F%2Fwww.rabbitmq.com%2Fquorum-queues.html&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt62" id="mwAhs"></span></span></li>
+<li about="#cite_note-20" id="cite_note-20" data-mw-footnote-number="20"><span class="mw-cite-backlink" id="mwAhw"><a href="#cite_ref-20" rel="mw:referencedBy" id="mwAh0"><span class="mw-linkback-text" id="mwAh4">↑</span></a></span> <span id="mw-reference-text-cite_note-20" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt65" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAh8" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"ScyllaDB&apos;s Path to Strong Consistency: A New Milestone"},"date":{"wt":"4 May 2023"},"url":{"wt":"https://www.scylladb.com/2023/05/04/scylladbs-path-to-strong-consistency-a-new-milestone/"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt65" id="mwAiA"><a rel="mw:ExtLink nofollow" href="https://www.scylladb.com/2023/05/04/scylladbs-path-to-strong-consistency-a-new-milestone/" class="external text" id="mwAiE">"ScyllaDB's Path to Strong Consistency: A New Milestone"</a>. 4 May 2023.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=unknown&amp;rft.btitle=ScyllaDB%27s+Path+to+Strong+Consistency%3A+A+New+Milestone&amp;rft.date=2023-05-04&amp;rft_id=https%3A%2F%2Fwww.scylladb.com%2F2023%2F05%2F04%2Fscylladbs-path-to-strong-consistency-a-new-milestone%2F&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt65" id="mwAiI"></span></span></li>
+<li about="#cite_note-21" id="cite_note-21" data-mw-footnote-number="21"><span class="mw-cite-backlink" id="mwAiM"><a href="#cite_ref-21" rel="mw:referencedBy" id="mwAiQ"><span class="mw-linkback-text" id="mwAiU">↑</span></a></span> <span id="mw-reference-text-cite_note-21" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt68" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAiY" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"date":{"wt":"2022-08-24"},"title":{"wt":"Handle Raft issues"},"url":{"wt":"https://docs.splunk.com/Documentation/Splunk/9.0.0/DistSearch/Handleraftissues"},"access-date":{"wt":"2022-08-24"},"website":{"wt":"Splunk"},"language":{"wt":"en-US"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt68" id="mwAic"><a rel="mw:ExtLink nofollow" href="https://docs.splunk.com/Documentation/Splunk/9.0.0/DistSearch/Handleraftissues" class="external text" id="mwAig">"Handle Raft issues"</a>. <i id="mwAik">Splunk</i>. 2022-08-24<span class="reference-accessdate" id="mwAio">. Retrieved <span class="nowrap" id="mwAis">2022-08-24</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=Splunk&amp;rft.atitle=Handle+Raft+issues&amp;rft.date=2022-08-24&amp;rft_id=https%3A%2F%2Fdocs.splunk.com%2FDocumentation%2FSplunk%2F9.0.0%2FDistSearch%2FHandleraftissues&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt68" id="mwAiw"></span></span></li>
+<li about="#cite_note-22" id="cite_note-22" data-mw-footnote-number="22"><span class="mw-cite-backlink" id="mwAi0"><a href="#cite_ref-22" rel="mw:referencedBy" id="mwAi4"><span class="mw-linkback-text" id="mwAi8">↑</span></a></span> <span id="mw-reference-text-cite_note-22" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt71" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAjA" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"date":{"wt":"2021-09-01"},"title":{"wt":"Raft and High Availability"},"url":{"wt":"https://en.pingcap.com/blog/raft-and-high-availability/"},"access-date":{"wt":"2022-06-21"},"website":{"wt":"PingCAP"},"language":{"wt":"en-US"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt71" id="mwAjE"><a rel="mw:ExtLink nofollow" href="https://en.pingcap.com/blog/raft-and-high-availability/" class="external text" id="mwAjI">"Raft and High Availability"</a>. <i id="mwAjM">PingCAP</i>. 2021-09-01<span class="reference-accessdate" id="mwAjQ">. Retrieved <span class="nowrap" id="mwAjU">2022-06-21</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=PingCAP&amp;rft.atitle=Raft+and+High+Availability&amp;rft.date=2021-09-01&amp;rft_id=https%3A%2F%2Fen.pingcap.com%2Fblog%2Fraft-and-high-availability%2F&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt71" id="mwAjY"></span></span></li>
+<li about="#cite_note-23" id="cite_note-23" data-mw-footnote-number="23"><span class="mw-cite-backlink" id="mwAjc"><a href="#cite_ref-23" rel="mw:referencedBy" id="mwAjg"><span class="mw-linkback-text" id="mwAjk">↑</span></a></span> <span id="mw-reference-text-cite_note-23" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt74" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAjo" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"Replication {{!}} YugabyteDB Docs"},"url":{"wt":"https://docs.yugabyte.com/preview/architecture/docdb-replication/replication/"},"access-date":{"wt":"2022-08-19"},"website":{"wt":"www.yugabyte.com"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt74" id="mwAjs"><a rel="mw:ExtLink nofollow" href="https://docs.yugabyte.com/preview/architecture/docdb-replication/replication/" class="external text" id="mwAjw">"Replication | YugabyteDB Docs"</a>. <i id="mwAj0">www.yugabyte.com</i><span class="reference-accessdate" id="mwAj4">. Retrieved <span class="nowrap" id="mwAj8">2022-08-19</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=www.yugabyte.com&amp;rft.atitle=Replication+%7C+YugabyteDB+Docs&amp;rft_id=https%3A%2F%2Fdocs.yugabyte.com%2Fpreview%2Farchitecture%2Fdocdb-replication%2Freplication%2F&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt74" id="mwAkA"></span></span></li>
+<li about="#cite_note-24" id="cite_note-24" data-mw-footnote-number="24"><span class="mw-cite-backlink" id="mwAkE"><a href="#cite_ref-24" rel="mw:referencedBy" id="mwAkI"><span class="mw-linkback-text" id="mwAkM">↑</span></a></span> <span id="mw-reference-text-cite_note-24" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt77" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAkQ" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"ClickHouse Keeper"},"url":{"wt":"https://clickhouse.com/docs/en/guides/sre/keeper/clickhouse-keeper"},"access-date":{"wt":"2023-04-26"},"website":{"wt":"clickhouse.com"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt77" id="mwAkU"><a rel="mw:ExtLink nofollow" href="https://clickhouse.com/docs/en/guides/sre/keeper/clickhouse-keeper" class="external text" id="mwAkY">"ClickHouse Keeper"</a>. <i id="mwAkc">clickhouse.com</i><span class="reference-accessdate" id="mwAkg">. Retrieved <span class="nowrap" id="mwAkk">2023-04-26</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=clickhouse.com&amp;rft.atitle=ClickHouse+Keeper&amp;rft_id=https%3A%2F%2Fclickhouse.com%2Fdocs%2Fen%2Fguides%2Fsre%2Fkeeper%2Fclickhouse-keeper&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt77" id="mwAko"></span></span></li>
+<li about="#cite_note-25" id="cite_note-25" data-mw-footnote-number="25"><span class="mw-cite-backlink" id="mwAks"><a href="#cite_ref-25" rel="mw:referencedBy" id="mwAkw"><span class="mw-linkback-text" id="mwAk0">↑</span></a></span> <span id="mw-reference-text-cite_note-25" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt80" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAk4" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"Raft consensus algorithm"},"url":{"wt":"https://docs.redpanda.com/docs/get-started/architecture/#raft-consensus-algorithm"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt80" id="mwAk8"><a rel="mw:ExtLink nofollow" href="https://docs.redpanda.com/docs/get-started/architecture/#raft-consensus-algorithm" class="external text" id="mwAlA">"Raft consensus algorithm"</a>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=unknown&amp;rft.btitle=Raft+consensus+algorithm&amp;rft_id=https%3A%2F%2Fdocs.redpanda.com%2Fdocs%2Fget-started%2Farchitecture%2F%23raft-consensus-algorithm&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt80" id="mwAlE"></span></span></li>
+<li about="#cite_note-26" id="cite_note-26" data-mw-footnote-number="26"><span class="mw-cite-backlink" id="mwAlI"><a href="#cite_ref-26" rel="mw:referencedBy" id="mwAlM"><span class="mw-linkback-text" id="mwAlQ">↑</span></a></span> <span id="mw-reference-text-cite_note-26" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt83" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAlU" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"KRaft Overview {{!}} Confluent Documentation"},"url":{"wt":"https://docs.confluent.io/platform/current/kafka-metadata/kraft.html"},"access-date":{"wt":"2024-04-13"},"website":{"wt":"docs.confluent.io"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt83" id="mwAlY"><a rel="mw:ExtLink nofollow" href="https://docs.confluent.io/platform/current/kafka-metadata/kraft.html" class="external text" id="mwAlc">"KRaft Overview | Confluent Documentation"</a>. <i id="mwAlg">docs.confluent.io</i><span class="reference-accessdate" id="mwAlk">. Retrieved <span class="nowrap" id="mwAlo">2024-04-13</span></span>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Ajournal&amp;rft.genre=unknown&amp;rft.jtitle=docs.confluent.io&amp;rft.atitle=KRaft+Overview+%7C+Confluent+Documentation&amp;rft_id=https%3A%2F%2Fdocs.confluent.io%2Fplatform%2Fcurrent%2Fkafka-metadata%2Fkraft.html&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt83" id="mwAls"></span></span></li>
+<li about="#cite_note-27" id="cite_note-27" data-mw-footnote-number="27"><span class="mw-cite-backlink" id="mwAlw"><a href="#cite_ref-27" rel="mw:referencedBy" id="mwAl0"><span class="mw-linkback-text" id="mwAl4">↑</span></a></span> <span id="mw-reference-text-cite_note-27" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt86" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAl8" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"JetStream Clustering"},"url":{"wt":"https://docs.nats.io/running-a-nats-service/configuration/clustering/jetstream_clustering"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt86" id="mwAmA"><a rel="mw:ExtLink nofollow" href="https://docs.nats.io/running-a-nats-service/configuration/clustering/jetstream_clustering" class="external text" id="mwAmE">"JetStream Clustering"</a>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=unknown&amp;rft.btitle=JetStream+Clustering&amp;rft_id=https%3A%2F%2Fdocs.nats.io%2Frunning-a-nats-service%2Fconfiguration%2Fclustering%2Fjetstream_clustering&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt86" id="mwAmI"></span></span></li>
+<li about="#cite_note-28" id="cite_note-28" data-mw-footnote-number="28"><span class="mw-cite-backlink" id="mwAmM"><a href="#cite_ref-28" rel="mw:referencedBy" id="mwAmQ"><span class="mw-linkback-text" id="mwAmU">↑</span></a></span> <span id="mw-reference-text-cite_note-28" class="mw-reference-text reference-text"><link rel="mw-deduplicated-inline-style" href="mw-data:TemplateStyles:r1333433106" about="#mwt89" typeof="mw:Extension/templatestyles mw:Transclusion" id="mwAmY" data-mw='{"name":"templatestyles","attrs":{"src":"Module:Citation/CS1/styles.css"},"body":{"extsrc":""},"parts":[{"template":{"target":{"wt":"Cite web ","href":"./Template:Cite_web"},"params":{"title":{"wt":"Raft consensus and replication protocol"},"url":{"wt":"https://docs.camunda.io/docs/components/zeebe/technical-concepts/clustering/#raft-consensus-and-replication-protocol"}},"i":0}}]}'/><cite class="citation web cs1" about="#mwt89" id="mwAmc"><a rel="mw:ExtLink nofollow" href="https://docs.camunda.io/docs/components/zeebe/technical-concepts/clustering/#raft-consensus-and-replication-protocol" class="external text" id="mwAmg">"Raft consensus and replication protocol"</a>.</cite><span title="ctx_ver=Z39.88-2004&amp;rft_val_fmt=info%3Aofi%2Ffmt%3Akev%3Amtx%3Abook&amp;rft.genre=unknown&amp;rft.btitle=Raft+consensus+and+replication+protocol&amp;rft_id=https%3A%2F%2Fdocs.camunda.io%2Fdocs%2Fcomponents%2Fzeebe%2Ftechnical-concepts%2Fclustering%2F%23raft-consensus-and-replication-protocol&amp;rfr_id=info%3Asid%2Fen.wikipedia.org%3ARaft+%28algorithm%29" class="Z3988" about="#mwt89" id="mwAmk"></span></span></li>
+</ol></div></div>
+
+</section><section data-mw-section-id="19" id="mwAmo" aria-labelledby="External_links"><div class="mw-heading mw-heading2"><h2 id="External_links">External links</h2><span class="mw-editsection"><span class="mw-editsection-bracket">[</span><a href="/w/index.php?title=Raft_(algorithm)&amp;action=edit&amp;section=19" title="Edit section: External links"><span>edit</span></a><span class="mw-editsection-bracket">]</span></span></div>
+<ul id="mwAms"><li id="mwAmw"><span class="official-website" about="#mwt110" typeof="mw:Transclusion" id="mwAm0" data-mw='{"parts":[{"template":{"target":{"wt":"Official website","href":"./Template:Official_website"},"params":{},"i":0}}]}'><span class="url"><a rel="mw:ExtLink nofollow" href="https://raft.github.io/" class="external text">Official website</a></span></span><span about="#mwt110"> </span><span class="mw-valign-text-top" typeof="mw:File/Frameless" about="#mwt110" data-mw='{"caption":"Edit this at Wikidata"}'><a href="https://www.wikidata.org/wiki/Q17100313#P856" title="Edit this at Wikidata"><img resource="https://en.wikipedia.org/wiki/File:OOjs_UI_icon_edit-ltr-progressive.svg" src="//thumb.wikimedia.org/wikipedia/en/thumb/8/8a/OOjs_UI_icon_edit-ltr-progressive.svg/20px-OOjs_UI_icon_edit-ltr-progressive.svg.png?utm_source=en.wikipedia.org&amp;utm_campaign=parser&amp;utm_content=thumbnail" decoding="async" loading="lazy" alt="Edit this at Wikidata" data-file-width="20" data-file-height="20" data-file-type="drawing" height="10" width="10" class="mw-file-element"/></a></span></li></ul>
+
+<span about="#mwt111" typeof="mw:Transclusion" id="mwAm4" data-mw='{"parts":[{"template":{"target":{"wt":"DEFAULTSORT:Raft Algorithm","function":"defaultsort"},"params":{},"i":0}}]}'></span>
+<link rel="mw:PageProp/Category" href="./Category:Distributed_algorithms" id="mwAm8"/>
+<link rel="mw:PageProp/Category" href="./Category:Fault-tolerant_computer_systems" id="mwAnA"/></section>
+<!-- 
+NewPP limit report
+Parsed by mw‐api‐int.eqiad.main‐865b8b8977‐qc6ws
+Cached time: 20260929194050
+Cache expiry: 2592000
+Cache expiry source: Module:Citation/CS1 (os.date(%Y))
+Reduced expiry: false
+Complications: [vary‐revision‐sha1, show‐toc, use‐parsoid]
+CPU time usage: 0.757 seconds
+Real time usage: 0.991 seconds
+Preprocessor visited node count: 1058/1000000
+Revision size: 20935/2097152 bytes
+Post‐expand include size: 38095/2097152 bytes
+Template argument size: 674/2097152 bytes
+Highest expansion depth: 8/100
+Expensive parser function count: 1/500
+Unstrip recursion depth: 0/20
+Unstrip post‐expand size: 62770/5000000 bytes
+Lua time usage: 0.208/10.000 seconds
+Lua memory usage: 5608787/52428800 bytes
+Number of Wikibase entities loaded: 1/500
+-->
+<!--
+Transclusion expansion time report (%,ms,calls,template)
+100.00%  765.754      1 -total
+ 24.94%  191.003     25 Template:Cite_web
+ 20.55%  157.340      1 Template:Short_description
+ 12.57%   96.289      2 Template:Pagetype
+  5.29%   40.502      5 Template:Main_other
+  4.87%   37.271      1 Template:Infobox_algorithm
+  4.59%   35.120      1 Template:Official_website
+  4.58%   35.055      1 Template:SDcat
+  4.21%   32.225      1 Template:Infobox
+  3.31%   25.378      1 Template:Cite_book
+-->
+
+<!-- Render ID ac9a0e2e-bc3d-11f1-9ce2-89cad9c3e978 -->
+
+<!-- Saved in parser cache with key enwiki:parsoid-pcache:40226710:|#|:idhash:useParsoid=1 and timestamp 20260929194050 and revision id 1369179570. Rendering was triggered because: MediaWiki\Rest\Handler\Helper\HtmlOutputRendererHelper::getParserOutput
+ -->
+
+<!-- Parsoid 0.24.0.0-alpha24 -->
+</div><!--
+Post‐processing cache key enwiki:postproc‐parsoid‐pcache:40226710:|#|:idhash:injectTOC=0!postproc=1!skin=vector‐2022!useParsoid=1!visibleLinks=single, generated at 20260929194408
+--><noscript><img src="https://en.wikipedia.org/wiki/Special:CentralAutoLogin/start?useformat=desktop&amp;type=1x1&amp;usesul3=1" alt="" width="1" height="1" style="border: none; position: absolute;"></noscript>
+<div class="printfooter" data-nosnippet="">Retrieved from "<a dir="ltr" href="https://en.wikipedia.org/w/index.php?title=Raft_(algorithm)&amp;oldid=1369179570">https://en.wikipedia.org/w/index.php?title=Raft_(algorithm)&amp;oldid=1369179570</a>"</div></div>
+					<div id="catlinks" class="catlinks" data-mw-interface=""><div id="mw-normal-catlinks" class="mw-normal-catlinks"><a href="/wiki/Help:Category" title="Help:Category">Categories</a>: <ul><li><a href="/wiki/Category:Distributed_algorithms" title="Category:Distributed algorithms">Distributed algorithms</a></li><li><a href="/wiki/Category:Fault-tolerant_computer_systems" title="Category:Fault-tolerant computer systems">Fault-tolerant computer systems</a></li></ul></div><div id="mw-hidden-catlinks" class="mw-hidden-catlinks mw-hidden-cats-hidden">Hidden categories: <ul><li><a href="/wiki/Category:Articles_with_short_description" title="Category:Articles with short description">Articles with short description</a></li><li><a href="/wiki/Category:Short_description_matches_Wikidata" title="Category:Short description matches Wikidata">Short description matches Wikidata</a></li></ul></div></div>
+				</div>
+			</main>
+			
+		</div>
+		<div class="mw-footer-container">
+			<footer id="footer" class="mw-footer" >
+				<ul id="footer-info" class="mw-portlet mw-portlet-footer-info">
+	<li id="footer-info-lastmod"> This page was last edited on 13 August 2026, at 09:54<span class="anonymous-show">&#160;(UTC)</span>.</li>
+	<li id="footer-info-renderedwith">Page was rendered with <a href="https://www.mediawiki.org/wiki/Special:MyLanguage/Parsoid" class="extiw" title="mw:Special:MyLanguage/Parsoid">Parsoid</a>.</li>
+	<li id="footer-info-copyright">Text is available under the <a href="/wiki/Wikipedia:Text_of_the_Creative_Commons_Attribution-ShareAlike_4.0_International_License" title="Wikipedia:Text of the Creative Commons Attribution-ShareAlike 4.0 International License">Creative Commons Attribution-ShareAlike 4.0 License</a>;
+additional terms may apply. By using this site, you agree to the <a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Terms_of_Use" class="extiw" title="foundation:Special:MyLanguage/Policy:Terms of Use">Terms of Use</a> and <a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Privacy_policy" class="extiw" title="foundation:Special:MyLanguage/Policy:Privacy policy">Privacy Policy</a>. Wikipedia® is a registered trademark of the <a rel="nofollow" class="external text" href="https://wikimediafoundation.org/">Wikimedia Foundation, Inc.</a>, a non-profit organization.</li>
+</ul>
+
+				<ul id="footer-places" class="mw-portlet mw-portlet-footer-places">
+	<li id="footer-places-privacy"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Privacy_policy">Privacy policy</a></li>
+	<li id="footer-places-about"><a href="/wiki/Wikipedia:About">About Wikipedia</a></li>
+	<li id="footer-places-disclaimers"><a href="/wiki/Wikipedia:General_disclaimer">Disclaimers</a></li>
+	<li id="footer-places-contact"><a href="//en.wikipedia.org/wiki/Wikipedia:Contact_us">Contact Wikipedia</a></li>
+	<li id="footer-places-legal-safety-contacts"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Legal:Wikimedia_Foundation_Legal_and_Safety_Contact_Information">Legal &amp; safety contacts</a></li>
+	<li id="footer-places-wm-codeofconduct"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Universal_Code_of_Conduct">Code of Conduct</a></li>
+	<li id="footer-places-developers"><a href="https://developer.wikimedia.org">Developers</a></li>
+	<li id="footer-places-statslink"><a href="https://stats.wikimedia.org/#/en.wikipedia.org">Statistics</a></li>
+	<li id="footer-places-cookiestatement"><a href="https://foundation.wikimedia.org/wiki/Special:MyLanguage/Policy:Cookie_statement">Cookie statement</a></li>
+	<li id="footer-places-mobileview"><a href="//en.wikipedia.org/w/index.php?title=Raft_(algorithm)&amp;mobileaction=toggle_view_mobile" class="noprint stopMobileRedirectToggle">Mobile view</a></li>
+</ul>
+
+				<ul id="footer-icons" class="mw-portlet mw-portlet-footer-icons noprint">
+	<li id="footer-copyrightico"><a href="https://www.wikimedia.org/" class="cdx-button cdx-button--fake-button cdx-button--size-large cdx-button--fake-button--enabled"><picture><source media="(min-width: 500px)" srcset="/static/images/footer/wikimedia-button.svg" width="84" height="29"><img src="/static/images/footer/wikimedia.svg" width="25" height="25" alt="Wikimedia Foundation" lang="en" loading="lazy"></picture></a></li>
+	<li id="footer-poweredbyico"><a href="https://www.mediawiki.org/" class="cdx-button cdx-button--fake-button cdx-button--size-large cdx-button--fake-button--enabled"><picture><source media="(min-width: 500px)" srcset="/w/resources/assets/poweredby_mediawiki.svg" width="88" height="31"><img src="/w/resources/assets/mediawiki_compact.svg" alt="Powered by MediaWiki" lang="en" width="25" height="25" loading="lazy"></picture></a></li>
+</ul>
+
+			</footer>
+		</div>
+	</div> 
+</div> 
+<div class="vector-header-container vector-sticky-header-container no-font-mode-scale">
+	<div id="vector-sticky-header" class="vector-sticky-header">
+		<div class="vector-sticky-header-start">
+			<div class="vector-sticky-header-icon-start vector-button-flush-left" aria-hidden="true">
+				<button class="cdx-button cdx-button--weight-quiet cdx-button--icon-only vector-sticky-header-search-toggle" tabindex="-1" data-event-name="ui.vector-sticky-search-form.icon"><span class="vector-icon mw-ui-icon-search mw-ui-icon-wikimedia-search cdx-button__icon"></span>
+
+<span>Search</span>
+			</button>
+		</div>
+			
+		<div role="search" class="vector-search-box-vue  vector-search-box-show-thumbnail vector-search-box">
+			<div class="vector-typeahead-search-container">
+				<div class="cdx-typeahead-search cdx-typeahead-search--show-thumbnail">
+					<form action="/w/index.php" id="vector-sticky-search-form" class="cdx-search-input cdx-search-input--has-end-button">
+						<div  class="cdx-search-input__input-wrapper"  data-search-loc="header-moved">
+							<div class="cdx-text-input cdx-text-input--has-start-icon">
+								<input
+									class="cdx-text-input__input mw-searchInput" autocomplete="off"
+									
+									type="search" name="search" placeholder="Search Wikipedia">
+								<span class="cdx-text-input__icon cdx-text-input__start-icon"></span>
+							</div>
+							<input type="hidden" name="title" value="Special:Search">
+						</div>
+						<button class="cdx-button cdx-search-input__end-button">Search</button>
+					</form>
+				</div>
+			</div>
+		</div>
+		<div class="vector-sticky-header-context-bar">
+				<nav aria-label="Contents" class="vector-toc-landmark">
+						
+					<div id="vector-sticky-header-toc" class="vector-dropdown mw-portlet mw-portlet-sticky-header-toc vector-sticky-header-toc vector-button-flush-left"  >
+						<input type="checkbox" id="vector-sticky-header-toc-checkbox" role="button" aria-haspopup="true" data-event-name="ui.dropdown-vector-sticky-header-toc" class="vector-dropdown-checkbox "  aria-label="Toggle the table of contents"   >
+						<label id="vector-sticky-header-toc-label" for="vector-sticky-header-toc-checkbox" class="vector-dropdown-label cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only " aria-hidden="true"  ><span class="vector-icon mw-ui-icon-listBullet mw-ui-icon-wikimedia-listBullet cdx-button__icon"></span>
+
+<span class="vector-dropdown-label-text">Toggle the table of contents</span>
+						</label>
+						<div class="vector-dropdown-content">
+					
+						<div id="vector-sticky-header-toc-unpinned-container" class="vector-unpinned-container">
+						</div>
+					
+						</div>
+					</div>
+			</nav>
+				<div class="vector-sticky-header-context-bar-primary" aria-hidden="true" ><span lang="en" dir="ltr"><span class="mw-page-title-main">Raft (algorithm)</span></span></div>
+			</div>
+		</div>
+		<div class="vector-sticky-header-end" aria-hidden="true">
+			<div class="vector-sticky-header-icons">
+				<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-talk-sticky-header" tabindex="-1" data-event-name="talk-sticky-header"><span class="vector-icon mw-ui-icon-speechBubbles mw-ui-icon-wikimedia-speechBubbles cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-subject-sticky-header" tabindex="-1" data-event-name="subject-sticky-header"><span class="vector-icon mw-ui-icon-article mw-ui-icon-wikimedia-article cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-history-sticky-header" tabindex="-1" data-event-name="history-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-history mw-ui-icon-wikimedia-wikimedia-history cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only mw-watchlink" id="ca-watchstar-sticky-header" tabindex="-1" data-event-name="watch-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-star mw-ui-icon-wikimedia-wikimedia-star cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-edit-sticky-header" tabindex="-1" data-event-name="wikitext-edit-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-wikiText mw-ui-icon-wikimedia-wikimedia-wikiText cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-ve-edit-sticky-header" tabindex="-1" data-event-name="ve-edit-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-edit mw-ui-icon-wikimedia-wikimedia-edit cdx-button__icon"></span>
+
+<span></span>
+			</a>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--icon-only" id="ca-viewsource-sticky-header" tabindex="-1" data-event-name="ve-edit-protected-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-editLock mw-ui-icon-wikimedia-wikimedia-editLock cdx-button__icon"></span>
+
+<span></span>
+			</a>
+		</div>
+			<div class="vector-sticky-header-buttons">
+				<button class="cdx-button cdx-button--weight-quiet mw-interlanguage-selector" id="p-lang-btn-sticky-header" tabindex="-1" data-event-name="ui.dropdown-p-lang-btn-sticky-header"><span class="vector-icon mw-ui-icon-wikimedia-language mw-ui-icon-wikimedia-wikimedia-language cdx-button__icon"></span>
+
+<span>5 languages</span>
+			</button>
+			<a href="#" class="cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--action-progressive" id="ca-addsection-sticky-header" tabindex="-1" data-event-name="addsection-sticky-header"><span class="vector-icon mw-ui-icon-speechBubbleAdd-progressive mw-ui-icon-wikimedia-speechBubbleAdd-progressive cdx-button__icon"></span>
+
+<span>Add topic</span>
+			</a>
+		</div>
+			<div class="vector-sticky-header-icon-end">
+				<div class="vector-user-links">
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+<div class="mw-portlet mw-portlet-dock-bottom emptyPortlet" id="p-dock-bottom">
+	<ul>
+		
+	</ul>
+</div>
+<script>(RLQ=window.RLQ||[]).push(function(){mw.log.warn("This page is using the deprecated ResourceLoader module \"mediawiki.skinning.content.parsoid\".\n[1.47] Skins already provide these styles. Do not add this module.");mw.config.set({"wgHostname":"mw-web.codfw.main-7c756fc7c9-fp5mh","wgBackendResponseTime":123,"wgPageParseReport":{"limitreport":{"cputime":"0.757","walltime":"0.991","ppvisitednodes":{"value":1058,"limit":1000000},"revisionsize":{"value":20935,"limit":2097152},"postexpandincludesize":{"value":38095,"limit":2097152},"templateargumentsize":{"value":674,"limit":2097152},"expansiondepth":{"value":8,"limit":100},"expensivefunctioncount":{"value":1,"limit":500},"unstrip-depth":{"value":0,"limit":20},"unstrip-size":{"value":62770,"limit":5000000},"entityaccesscount":{"value":1,"limit":500},"timingprofile":["100.00%  765.754      1 -total"," 24.94%  191.003     25 Template:Cite_web"," 20.55%  157.340      1 Template:Short_description"," 12.57%   96.289      2 Template:Pagetype","  5.29%   40.502      5 Template:Main_other","  4.87%   37.271      1 Template:Infobox_algorithm","  4.59%   35.120      1 Template:Official_website","  4.58%   35.055      1 Template:SDcat","  4.21%   32.225      1 Template:Infobox","  3.31%   25.378      1 Template:Cite_book"]},"scribunto":{"limitreport-timeusage":{"value":"0.208","limit":"10.000"},"limitreport-memusage":{"value":5608787,"limit":52428800}},"cachereport":{"origin":"mw-api-int.eqiad.main-865b8b8977-qc6ws","timestamp":"20260929194050","ttl":2592000,"transientcontent":false,"expiry-source":"Module:Citation/CS1 (os.date(%Y))"}}});});</script>
+<script type="application/ld+json">{"@context":"https:\/\/schema.org","@type":"Article","name":"Raft (algorithm)","url":"https:\/\/en.wikipedia.org\/wiki\/Raft_(algorithm)","sameAs":"http:\/\/www.wikidata.org\/entity\/Q17100313","mainEntity":"http:\/\/www.wikidata.org\/entity\/Q17100313","author":{"@type":"Organization","name":"Contributors to Wikimedia projects"},"publisher":{"@type":"Organization","name":"Wikimedia Foundation, Inc.","logo":{"@type":"ImageObject","url":"https:\/\/www.wikimedia.org\/static\/images\/wmf-hor-googpub.png"}},"datePublished":"2013-08-13T05:32:30Z","dateModified":"2026-08-13T09:54:41Z","image":"https:\/\/upload.wikimedia.org\/wikipedia\/commons\/1\/1b\/Raft_Consensus_Algorithm_Mascot_on_transparent_background.svg?utm_source=en.wikipedia.org&utm_campaign=index&utm_content=original","headline":"consensus algorithm"}</script>
+</body></html>
