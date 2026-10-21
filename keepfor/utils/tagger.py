@@ -7,13 +7,18 @@ Two halves (hybrid tagging):
 - match_existing_tags: conservative lexical match of the user's own tags
   against title/excerpt/URL-slug/body. Auto-apply only on a title, excerpt
   or slug hit, or 2+ body hits; a lone body mention is suggest-only.
-- suggest_new_tags: RAKE-style keyphrase extraction over title + excerpt +
-  body with title/slug/entity bonuses. Returns top phrases not already in
-  the user's tag vocabulary.
+- suggest_new_tags: keyphrase extraction over title + excerpt + body. Only
+  significant words (repeated, or named by the title, the URL slug or a
+  Title Case entity) form candidates, and a candidate is cut at sentence,
+  stopword and rare-word boundaries and trimmed to its noun core, so the
+  result is a noun phrase and never a fragment of a clause. A word that
+  only ever shows up inside a collocation ("parallel" in "parallel
+  vacuum") is not a tag of its own, and a phrase the user's vocabulary
+  already covers is left to match_existing_tags.
 
-Only `re`, `math` and `collections` are used so this module never grows
-the Worker cold-start import graph (same rule as the lazy parser imports
-in keepfor/consumer/extractor.py).
+Only `re`, `collections` and `urllib.parse` are used so this module never
+grows the Worker cold-start import graph (same rule as the lazy parser
+imports in keepfor/consumer/extractor.py).
 """
 
 import re
@@ -21,8 +26,9 @@ from collections import Counter
 from typing import NamedTuple
 from urllib.parse import urlparse
 
-# Compact stopword list (~150 words). Embedded so there is no data file to
-# bundle and no NLTK download at runtime.
+# Compact stopword list (~240 words). Embedded so there is no data file to
+# bundle and no NLTK download at runtime. It also carries the URL noise words
+# that leak out of links in extracted prose.
 STOPWORDS = frozenset(
     """
     a about above after again against all am an and any are as at be because
@@ -36,14 +42,43 @@ STOPWORDS = frozenset(
     why with would you your yours yourself yourselves will just can also
     into over per via per using use used one two new may many much like get
     got make made still even ever never always often well within without
+    us let lets now around among onto upon across behind beyond near toward
+    towards along despite except plus since versus regarding concerning
+    including yet another either neither whether although though because
+    unless https http www com org net html htm php aspx url href amp nbsp
+    isn't aren't wasn't weren't don't doesn't didn't can't couldn't won't
+    wouldn't shouldn't mustn't hasn't haven't hadn't it's that's there's
+    here's what's let's i'm i've i'd i'll he's she's you're we're they're
+    we've they've we'll you'll they'll
+    """.split()
+)
+
+# Verbs that never head a tag. A candidate phrase is trimmed back to its
+# noun-phrase core by dropping these from either end. Only unambiguous
+# verbs are listed: a word that is also a common noun ("research", "work",
+# "show") stays, because it may legitimately head a tag.
+_VERBISH = frozenset(
+    """
+    allow appear arrive avoid become believe borrow breathe choose come
+    create decide define delete deny depend describe develop disappear
+    discuss eat emerge enable encourage ensure enter establish examine
+    expect explain fail feel fly follow forget forgive gather generate hate
+    hurt imagine improve indicate involve join jump kill laugh lend lose
+    mention miss notice organize prefer protect prove provide pull push
+    read refuse reject rethink seek seem sell send sleep solve suffer
+    suppose survive throw understand visit warn write
     """.split()
 )
 
 MAX_TAG_LENGTH = 64
 MIN_TAG_LENGTH = 2
+# Cap on the number of tag suggestions handed to the user.
+MAX_SUGGESTIONS = 5
 _VALID_TAG_RE = re.compile(r"^[a-z0-9]+(?:[ _-][a-z0-9]+)*$")
 _WORD_RE = re.compile(r"[a-z0-9]+(?:[-'][a-z0-9]+)?")
 _ENTITY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b")
+# Sentence and line boundaries: a phrase never spans one.
+_SEGMENT_RE = re.compile(r"[^.!?\n]+")
 
 
 class MatchResult(NamedTuple):
@@ -153,23 +188,62 @@ def match_existing_tags(
     return MatchResult(auto_apply=auto, suggest_only=suggest)
 
 
-def _rake_candidates(words: list[str]) -> list[list[str]]:
-    """Split a word stream into stopword-delimited phrases (max 3 words)."""
-    phrases: list[list[str]] = []
+def _segments(text: str) -> list[str]:
+    """Lowercased sentence-ish chunks; a phrase never spans a boundary."""
+    return [s.lower() for s in _SEGMENT_RE.findall(text or "")]
+
+
+def _is_content(word: str) -> bool:
+    """True for a word that may carry meaning (not a stopword, not a number)."""
+    return word not in STOPWORDS and len(word) >= 2 and not word.isdigit()
+
+
+def _trim(run: list[str], head_ok: set[str]) -> list[str]:
+    """Drops the words that cannot head a tag, keeping the noun core.
+
+    A head is a word the document repeats, or one the URL slug or a Title
+    Case entity names; a verb is never a head. A one-off word at either end
+    ("... vacuum changed") is the tail of a clause, not a tag.
+    """
+    while len(run) > 1 and not _can_head(run[-1], head_ok):
+        run = run[:-1]
+    while len(run) > 1 and not _can_head(run[0], head_ok):
+        run = run[1:]
+    return run
+
+
+def _can_head(word: str, head_ok: set[str]) -> bool:
+    """True when the word may end (or start) a tag."""
+    return word not in _VERBISH and word in head_ok
+
+
+def _runs(tokens: list[str], significant: set[str]) -> list[list[str]]:
+    """Maximal runs of significant content words inside one segment."""
+    runs: list[list[str]] = []
     current: list[str] = []
-    for word in words:
-        if word in STOPWORDS or len(word) < 2 or word.isdigit():
+    for word in tokens:
+        if not _is_content(word) or word not in significant:
             if current:
-                phrases.append(current)
+                runs.append(current)
                 current = []
             continue
         current.append(word)
-        if len(current) >= 3:
-            phrases.append(current)
-            current = []
     if current:
-        phrases.append(current)
-    return phrases
+        runs.append(current)
+    return runs
+
+
+def _ngrams(run: list[str], max_words: int = 3):
+    """Every contiguous 1..max_words slice of a run."""
+    for i in range(len(run)):
+        for n in range(1, min(max_words, len(run) - i) + 1):
+            yield tuple(run[i : i + n])
+
+
+def _is_subsequence(small: tuple[str, ...], big: tuple[str, ...]) -> bool:
+    """True when `small` appears contiguously inside `big`."""
+    n = len(small)
+    return any(big[i : i + n] == small for i in range(len(big) - n + 1))
 
 
 def suggest_new_tags(
@@ -178,59 +252,108 @@ def suggest_new_tags(
     url: str,
     body: str,
     user_tags: list[str],
-    limit: int = 5,
+    limit: int = MAX_SUGGESTIONS,
 ) -> list[Suggestion]:
-    """RAKE-style keyphrase extraction; stdlib only.
+    """Keyphrase extraction; stdlib only.
 
-    Scores candidate phrases by sum of member-word degree/frequency, with
-    bonuses for title phrases (x2), URL-slug overlap (x1.5) and Title Case
-    entities (x1.25). Phrases already in the user's vocabulary are
-    excluded (those go through match_existing_tags instead).
+    Candidates are runs of *significant* words: words that repeat in the
+    document, or that appear in the URL slug, a Title Case entity or the
+    title. Runs are cut at sentence, stopword and rare-word boundaries and
+    trimmed back to their noun core, so a suggestion is a noun phrase and
+    never a fragment of a clause. A multi-word suggestion must be a repeated
+    collocation or be anchored in the title/slug, a single word must stand on
+    its own somewhere, and a phrase the user's vocabulary already covers is
+    left to match_existing_tags.
     """
     title = title or ""
     excerpt = excerpt or ""
     body = body or ""
     if not (title.strip() or excerpt.strip() or body.strip()):
         return []
+
     existing = {normalize_tag(t) for t in user_tags}
-
-    combined = f"{title} {excerpt} {body}"
-    lowered = combined.lower()
-    words = _WORD_RE.findall(lowered)
-    phrases = _rake_candidates(words)
-    if not phrases:
-        return []
-
-    # Word degree/frequency over candidate phrases.
-    freq: Counter[str] = Counter()
-    degree: Counter[str] = Counter()
-    for phrase in phrases:
-        uniq = set(phrase)
-        for word in uniq:
-            freq[word] += 1
-            degree[word] += len(phrase)
-    word_score = {
-        word: (degree[word] / freq[word]) if freq[word] else 0.0 for word in freq
-    }
-
-    title_lower = title.lower()
+    existing = {t for t in existing if t}
+    existing_grams = {tuple(_fold(w) for w in _WORD_RE.findall(t)) for t in existing}
+    existing_grams.discard(())
     slugs = slug_tokens(url or "")
     entities = {m.group(1).lower() for m in _ENTITY_RE.finditer(f"{title} {body}")}
+    entity_words = {w for e in entities for w in e.split()}
+
+    segments = _segments(f"{title}\n{excerpt}\n{body}")
+    tokens = [_WORD_RE.findall(s) for s in segments]
+    freq: Counter[str] = Counter()
+    for seg in tokens:
+        for word in seg:
+            if _is_content(word):
+                freq[word] += 1
+    title_words = {w for w in _WORD_RE.findall(title.lower()) if _is_content(w)}
+    repeated = {w for w, c in freq.items() if c >= 2}
+    significant = repeated | slugs | entity_words | title_words
+    # Words allowed to head a tag: the document repeats them, or the URL
+    # slug / a Title Case entity names them.
+    head_ok = repeated | slugs | entity_words
+
+    runs: list[list[str]] = []
+    for seg in tokens:
+        for run in _runs(seg, significant):
+            trimmed = _trim(run, head_ok)
+            if trimmed:
+                runs.append(trimmed)
+
+    # How often a word stands on its own: "parallel" in "parallel vacuum" is
+    # part of a collocation, not a tag of its own.
+    alone: Counter[str] = Counter(run[0] for run in runs if len(run) == 1)
+    occurrences: Counter[tuple[str, ...]] = Counter()
+    for run in runs:
+        for gram in _ngrams(run):
+            occurrences[gram] += 1
 
     scored: dict[str, float] = {}
-    for phrase in phrases:
-        text = " ".join(phrase)
-        if len(text) < 3 or text in existing:
+    for gram, count in occurrences.items():
+        text = " ".join(gram)
+        folded = tuple(_fold(w) for w in gram)
+        if any(a == b for a, b in zip(gram, gram[1:])):
+            # A repeated word ("postgres postgres") is not a phrase.
             continue
-        score = sum(word_score.get(w, 0.0) for w in phrase)
-        if text in title_lower:
+        if any(
+            _is_subsequence(tag, folded) or _is_subsequence(folded, tag)
+            for tag in existing_grams
+        ):
+            # The user's own vocabulary wins over a novel phrase near it.
+            continue
+        if len(gram) == 1:
+            if gram[0] in _VERBISH or gram[0] not in head_ok or alone[gram[0]] < 1:
+                continue
+            base = alone[gram[0]]
+        else:
+            base = count
+            anchored = any(w in title_words or w in slugs for w in gram)
+            if count < 2 and not anchored:
+                continue
+        score = float(base)
+        if all(w in title_words for w in gram):
             score *= 2.0
-        if any(w in slugs or _fold(w) in slugs for w in phrase):
+        if any(w in slugs or _fold(w) in slugs for w in gram):
             score *= 1.5
         if text in entities:
             score *= 1.25
+        if len(gram) > 1:
+            # A collocation says more than the words it is made of.
+            score *= 1.5
         if text not in scored or score > scored[text]:
             scored[text] = score
 
-    ranked = sorted(scored.items(), key=lambda kv: kv[1], reverse=True)
-    return [Suggestion(phrase=p, score=round(s, 4)) for p, s in ranked[:limit]]
+    ranked = sorted(scored.items(), key=lambda kv: (-kv[1], -len(kv[0].split())))
+    kept: list[Suggestion] = []
+    kept_grams: list[tuple[str, ...]] = []
+    for text, score in ranked:
+        folded = tuple(_fold(w) for w in text.split())
+        if any(_is_subsequence(folded, other) for other in kept_grams):
+            # Already covered by a longer suggestion ("vacuum" under
+            # "parallel vacuum").
+            continue
+        kept.append(Suggestion(phrase=text, score=round(score, 4)))
+        kept_grams.append(folded)
+        if len(kept) >= limit:
+            break
+    return kept
