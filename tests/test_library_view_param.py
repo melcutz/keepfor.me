@@ -83,6 +83,20 @@ def _status_pills(html: str) -> str:
     return match.group(0)
 
 
+def _function_body(scripts: str, name: str) -> str:
+    """The body of one JS function of the page's scripts."""
+    start = scripts.index("{", scripts.index(f"function {name}("))
+    depth = 0
+    for i in range(start, len(scripts)):
+        if scripts[i] == "{":
+            depth += 1
+        elif scripts[i] == "}":
+            depth -= 1
+            if not depth:
+                return scripts[start : i + 1]
+    raise AssertionError(f"{name} has no body")
+
+
 def _switcher(html: str) -> dict[str, str]:
     """The layout switcher: button name -> its rendered aria-pressed."""
     buttons = re.findall(
@@ -135,6 +149,35 @@ async def test_no_view_parameter_keeps_the_links_view_free(client, db, library):
         assert "view=" not in url, f"{url} pins a layout"
     assert 'name="view" value=""' in res.text
     assert 'data-view="list"' in res.text
+
+
+async def test_clear_search_keeps_the_layout(client, db, library):
+    """Clear search returns to the library, in the layout the page is in."""
+    client.cookies["kfm_session"] = library["session"]
+    res = client.get("/", params={"q": "example", "view": "compact"})
+    assert res.status_code == 200
+    clear = re.search(r'<a id="clear-search".*?</a>', res.text, re.S)
+    assert clear, "the clear-search control is not rendered"
+    assert 'href="/?view=compact"' in clear.group(0)
+
+    # Without an explicit layout the control stays layout-free.
+    plain = client.get("/", params={"q": "example"})
+    clear = re.search(r'<a id="clear-search".*?</a>', plain.text, re.S)
+    assert clear and 'href="/"' in clear.group(0)
+
+
+async def test_client_search_sync_keeps_the_layout(client, db, library):
+    """The live search mirrors ?q= into the URL without dropping ?view=."""
+    client.cookies["kfm_session"] = library["session"]
+    res = client.get("/", params={"view": "compact"})
+    body = _function_body(script_bodies(res.text), "syncSearchUrl")
+    # The URL is rewritten in place, so the layout it carries survives.
+    assert "new URL(window.location.href)" in body
+    # The query is the only parameter it writes: the layout is never dropped.
+    written = set(re.findall(r"searchParams\.(?:set|delete)\('([^']+)'", body))
+    assert written == {"q"}
+    # The clear-search control is only shown or hidden, its href is kept.
+    assert "setAttribute" not in body
 
 
 async def test_search_endpoint_keeps_the_layout(client, db, library):
