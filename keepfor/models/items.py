@@ -519,19 +519,74 @@ async def list_trash(
     return [dict(r) for r in rows]
 
 
+# Cap on the items a single purge call may destroy. A host cron that has
+# more trash runs the purge again.
+PURGE_LIMIT = 1000
+
+
+async def list_purgeable_items(
+    db: Database,
+    user_id: str,
+    older_than_days: int = 30,
+    limit: int = PURGE_LIMIT,
+) -> list[str]:
+    """The ids of the trashed items older than the window, oldest first.
+
+    The selection lives here so a host never copies the SQL: it can ask
+    what the purge would take before it takes it.
+    """
+    rows = await db.query_all(
+        "SELECT id FROM items WHERE user_id = ? AND deleted_at IS NOT NULL"
+        " AND datetime(deleted_at) < datetime('now', ?)"
+        " ORDER BY deleted_at ASC LIMIT ?;",
+        (user_id, f"-{int(older_than_days)} days", int(limit)),
+    )
+    return [r["id"] for r in rows]
+
+
 async def purge_trash(
     db: Database,
     env: Any,
     user_id: str | None = None,
     *,
     older_than_days: int = 30,
+    scope: TenantScope | None = None,
+    limit: int = PURGE_LIMIT,
 ) -> int:
     """Hard-deletes trashed items older than `older_than_days`.
 
     `user_id` limits the purge to one user; None purges every user in the
-    database, which is the shape a host cron wants. The data goes through
-    the same hard delete as before: row, R2 snapshots and vectors.
+    database, which is the shape a single-tenant host cron wants. The data
+    goes through the same hard delete as before: row, R2 snapshots,
+    vectors, highlights and collection links.
+
+    `scope` is the tenant scope: it carries the R2 prefix and the
+    Vectorize namespace of the tenant whose data is destroyed. A
+    multi-tenant host MUST pass it: without it the snapshots and the
+    vectors of the tenant are orphaned (or the wrong prefix is hit), so
+    such a call is refused. The purge is then limited to the scope's own
+    user, because a shared database holds the rows of every tenant. A
+    single-tenant self-host may omit it: the default scope is used.
+
+    `limit` caps how many items one call destroys.
     """
+    from keepfor.runtime import is_multi_tenant
+
+    if scope is None:
+        if is_multi_tenant():
+            raise ValueError(
+                "purge_trash() needs a tenant scope in multi-tenant mode: "
+                "the R2 prefix and the Vectorize namespace are per tenant."
+            )
+    else:
+        scope_user = scope.user_id
+        if user_id is None:
+            user_id = scope_user
+        elif scope_user and user_id != scope_user:
+            raise ValueError(
+                "purge_trash(): the user_id does not match the tenant scope."
+            )
+
     if user_id is None:
         users = await db.query_all("SELECT id FROM users;")
         targets = [r["id"] for r in users]
@@ -540,14 +595,14 @@ async def purge_trash(
 
     purged = 0
     for uid in targets:
-        rows = await db.query_all(
-            "SELECT id FROM items WHERE user_id = ? AND deleted_at IS NOT NULL"
-            " AND datetime(deleted_at) < datetime('now', ?);",
-            (uid, f"-{int(older_than_days)} days"),
-        )
-        for row in rows:
-            if await delete_item(db, env, uid, row["id"]):
+        if purged >= limit:
+            break
+        item_ids = await list_purgeable_items(db, uid, older_than_days, limit - purged)
+        for item_id in item_ids:
+            if await delete_item(db, env, uid, item_id, scope=scope):
                 purged += 1
+                if purged >= limit:
+                    break
     return purged
 
 

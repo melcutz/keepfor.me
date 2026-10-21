@@ -25,6 +25,7 @@ from keepfor.models.items import (
     delete_item,
     get_item,
     get_item_tags,
+    list_purgeable_items,
     list_trash,
     purge_trash,
     record_open,
@@ -55,6 +56,7 @@ from keepfor.search.engine import (
     related_items,
     search_fts,
 )
+from keepfor.spi import TenantScope
 from keepfor.utils.importer import export_library_json
 
 
@@ -126,6 +128,53 @@ async def _seed_snapshots(db, env, user_id, item_id):
         ]
     )
     return chunk_id
+
+
+async def _seed_tenant_snapshots(db, env, scope, user_id, item_id):
+    """The same, but under the tenant prefix and in the tenant namespace."""
+    blobs = scope.blobs(env)
+    await blobs.put_html(
+        blobs.key("items", item_id, "clean.html"), "<html><body>hi</body></html>"
+    )
+    chunk_id = f"item_{item_id}_chunk_0"
+    await db.execute(
+        "INSERT INTO chunks (id, item_id, user_id, chunk_index, token_count)"
+        " VALUES (?, ?, ?, 0, 100);",
+        (chunk_id, item_id, user_id),
+    )
+    await scope.vectors(env).upsert(
+        [
+            {
+                "id": chunk_id,
+                "values": [0.42] * 768,
+                "metadata": {"item_id": item_id, "user_id": user_id},
+            }
+        ]
+    )
+    return chunk_id
+
+
+def _tenant_scope(db, env, user_id, prefix="t/user_a/", namespace="user_a"):
+    """A hosted-style scope: a tenant prefix and a tenant namespace."""
+    return TenantScope(
+        tenant_id=user_id,
+        user_id=user_id,
+        db=db,
+        bucket=env.BUCKET,
+        index=env.VECTORIZE,
+        blob_prefix=prefix,
+        vector_namespace=namespace,
+    )
+
+
+async def _backdate_trash(db, user_id, item_id, days=40):
+    """Trashes an item and moves it out of the 30-day window."""
+    await trash_item(db, user_id, item_id)
+    await db.execute(
+        "UPDATE items SET deleted_at = datetime('now', ?)"
+        " WHERE id = ? AND user_id = ?;",
+        (f"-{days} days", item_id, user_id),
+    )
 
 
 async def _call_mcp(db, env, user, tool, arguments):
@@ -617,6 +666,192 @@ async def test_purge_trash_without_a_user_purges_every_user(db, fake_env, user):
     )
 
     assert await purge_trash(db, fake_env) == 2
+
+
+@pytest.mark.asyncio
+async def test_purge_trash_with_a_scope_destroys_the_tenant_files_and_vectors(
+    db, fake_env, user
+):
+    """A scoped purge takes the tenant's snapshots, vectors and annotations.
+
+    Without the scope the R2 prefix is "" and the Vectorize namespace is
+    None, so the tenant's files (`t/<tenant_id>/...`) and its vectors are
+    orphaned. The scope carries both.
+    """
+    scope = _tenant_scope(db, fake_env, user["id"])
+    old = await _seed_item(db, fake_env, user["id"], "https://example.com/old-scoped")
+    recent = await _seed_item(
+        db, fake_env, user["id"], "https://example.com/recent-scoped"
+    )
+    live = await _seed_item(db, fake_env, user["id"], "https://example.com/live-scoped")
+
+    await create_highlight(db, user["id"], old["id"], "Trash content", 0, 13)
+    await db.execute(
+        "INSERT INTO collections (id, user_id, name)"
+        " VALUES ('col-scoped', ?, 'Reading');",
+        (user["id"],),
+    )
+    await add_items_to_collection(db, user["id"], "Reading", [old["id"]])
+
+    await _backdate_trash(db, user["id"], old["id"])
+    await trash_item(db, user["id"], recent["id"])
+    chunk_id = await _seed_tenant_snapshots(db, fake_env, scope, user["id"], old["id"])
+
+    purged = await purge_trash(db, fake_env, user["id"], scope=scope)
+
+    assert purged == 1
+    # The row is gone.
+    assert (
+        await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (old["id"], user["id"]),
+        )
+        is None
+    )
+    # The snapshot under the tenant prefix is gone.
+    assert await fake_env.BUCKET.get(f"t/user_a/items/{old['id']}/clean.html") is None
+    # The vector in the tenant namespace is gone.
+    assert ("user_a", chunk_id) not in fake_env.VECTORIZE.store
+    # The annotations went with it.
+    assert (
+        await db.query_all("SELECT id FROM highlights WHERE item_id = ?;", (old["id"],))
+        == []
+    )
+    assert (
+        await db.query_all(
+            "SELECT collection_id FROM collection_items WHERE item_id = ?;",
+            (old["id"],),
+        )
+        == []
+    )
+    # The item inside the window and the live one stay.
+    assert (
+        await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (recent["id"], user["id"]),
+        )
+        is not None
+    )
+    assert (
+        await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (live["id"], user["id"]),
+        )
+        is not None
+    )
+
+
+@pytest.mark.asyncio
+async def test_purge_trash_with_a_scope_never_touches_another_user(db, fake_env, user):
+    """The scope is the tenant boundary: only its own user is purged."""
+    other = await register_user(db, "other5@example.com", "password123", True)
+    scope = _tenant_scope(db, fake_env, user["id"])
+    mine = await _seed_item(db, fake_env, user["id"], "https://example.com/mine-scoped")
+    theirs = await _seed_item(
+        db, fake_env, other["id"], "https://example.com/theirs-scoped"
+    )
+    await _backdate_trash(db, user["id"], mine["id"])
+    await _backdate_trash(db, other["id"], theirs["id"])
+
+    purged = await purge_trash(db, fake_env, scope=scope)
+
+    assert purged == 1
+    assert (
+        await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (mine["id"], user["id"]),
+        )
+        is None
+    )
+    assert (
+        await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (theirs["id"], other["id"]),
+        )
+        is not None
+    )
+
+
+@pytest.mark.asyncio
+async def test_purge_trash_refuses_an_unscoped_call_in_multi_tenant_mode(
+    db, fake_env, user
+):
+    """A multi-tenant host must name the tenant it purges."""
+    from keepfor.runtime import set_providers
+    from keepfor.spi import Providers
+
+    class _MultiTenantScopeProvider:
+        """Any provider but the single-tenant default is multi-tenant."""
+
+        async def scope_for_principal(self, principal, env):
+            raise NotImplementedError
+
+        async def scope_for_tenant(self, tenant_id, env):
+            raise NotImplementedError
+
+    set_providers(Providers(scope=_MultiTenantScopeProvider()))
+
+    item = await _seed_item(db, fake_env, user["id"], "https://example.com/unscoped")
+    await _backdate_trash(db, user["id"], item["id"])
+
+    with pytest.raises(ValueError):
+        await purge_trash(db, fake_env, user["id"])
+
+    # Nothing was destroyed.
+    assert (
+        await db.query_first(
+            "SELECT id FROM items WHERE id = ? AND user_id = ?;",
+            (item["id"], user["id"]),
+        )
+        is not None
+    )
+
+
+@pytest.mark.asyncio
+async def test_purge_trash_refuses_a_user_that_is_not_the_scope(db, fake_env, user):
+    """A user_id that is not the scope's user would orphan its files."""
+    other = await register_user(db, "other6@example.com", "password123", True)
+    scope = _tenant_scope(db, fake_env, user["id"])
+
+    with pytest.raises(ValueError):
+        await purge_trash(db, fake_env, other["id"], scope=scope)
+
+
+@pytest.mark.asyncio
+async def test_purge_trash_respects_the_item_limit(db, fake_env, user):
+    """One call destroys at most `limit` items."""
+    for i in range(3):
+        item = await _seed_item(
+            db, fake_env, user["id"], f"https://example.com/limit-{i}"
+        )
+        await _backdate_trash(db, user["id"], item["id"])
+
+    assert await purge_trash(db, fake_env, user["id"], limit=2) == 2
+    assert len(await list_trash(db, user["id"])) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_purgeable_items_selects_the_old_trashed_items(db, fake_env, user):
+    """The helper is the 30-day selection a host would otherwise copy."""
+    old = await _seed_item(db, fake_env, user["id"], "https://example.com/helper-old")
+    recent = await _seed_item(
+        db, fake_env, user["id"], "https://example.com/helper-recent"
+    )
+    live = await _seed_item(db, fake_env, user["id"], "https://example.com/helper-live")
+    await _backdate_trash(db, user["id"], old["id"], days=40)
+    await _backdate_trash(db, user["id"], recent["id"], days=5)
+
+    # The 30-day window keeps the item that is still inside it out.
+    assert await list_purgeable_items(db, user["id"], 30, 10) == [old["id"]]
+    # A shorter window takes both.
+    assert set(await list_purgeable_items(db, user["id"], 3, 10)) == {
+        old["id"],
+        recent["id"],
+    }
+    # The limit caps the selection.
+    assert await list_purgeable_items(db, user["id"], 30, 0) == []
+    # A live item is never purgeable.
+    assert live["id"] not in await list_purgeable_items(db, user["id"], 3, 10)
 
 
 @pytest.mark.asyncio

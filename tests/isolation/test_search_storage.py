@@ -12,7 +12,12 @@ from __future__ import annotations
 
 import pytest
 
-from keepfor.models.items import delete_item, get_item_clean_html
+from keepfor.models.items import (
+    delete_item,
+    get_item_clean_html,
+    purge_trash,
+    trash_item,
+)
 from keepfor.search.engine import hybrid_search, search_vectorize
 from keepfor.spi import TenantScope
 from tests.isolation.conftest import IsolationHarness, snapshot
@@ -181,6 +186,49 @@ async def test_blob_isolation(harness: IsolationHarness):
     # Assert Snapshot A is completely unchanged
     snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
     assert snap_a_after == snap_a_before
+
+
+@pytest.mark.asyncio
+async def test_scoped_purge_is_tenant_isolated(harness: IsolationHarness):
+    """A scoped purge of tenant A never touches tenant B's items or files.
+
+    The scope carries the R2 prefix and the Vectorize namespace of the
+    tenant: without it the purge would hit the wrong keys and orphan the
+    tenant's own files.
+    """
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    # Both tenants have an old trashed item with a snapshot.
+    await trash_item(a.db, a.user["id"], a.html_item_id)
+    await trash_item(b.db, b.user["id"], b.html_item_id)
+    for db, item_id in ((a.db, a.html_item_id), (b.db, b.html_item_id)):
+        await db.execute(
+            "UPDATE items SET deleted_at = datetime('now', '-40 days') WHERE id = ?;",
+            (item_id,),
+        )
+
+    # An unscoped purge is refused in multi-tenant mode.
+    with pytest.raises(ValueError):
+        await purge_trash(a.db, harness.env, a.user["id"])
+
+    purged = await purge_trash(a.db, harness.env, scope=a.scope)
+
+    assert purged == 1
+    # A's item is gone, with its snapshot under A's prefix.
+    assert (
+        await a.db.query_first("SELECT id FROM items WHERE id = ?;", (a.html_item_id,))
+        is None
+    )
+    a_blob = a.scope.blobs(harness.env).key("items", a.html_item_id, "clean.html")
+    assert await harness.env.BUCKET.get(a_blob) is None
+    # B's item and its snapshot are untouched.
+    assert (
+        await b.db.query_first("SELECT id FROM items WHERE id = ?;", (b.html_item_id,))
+        is not None
+    )
+    b_blob = b.scope.blobs(harness.env).key("items", b.html_item_id, "clean.html")
+    assert await harness.env.BUCKET.get(b_blob) is not None
 
 
 @pytest.mark.asyncio
