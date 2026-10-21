@@ -26,6 +26,20 @@ DEFAULT_MAX_TOKENS = 2000  # Standard RRF constant
 # responsive even when Workers AI or Vectorize is slow; both fall back to
 # keyword-only results on timeout.
 VECTOR_SEARCH_TIMEOUT = 5.0
+# Similarity floor for semantic hits. Vectorize is queried with
+# metric=cosine, so `score` is the cosine SIMILARITY of the two
+# embeddings (1.0 = identical), not a distance. Measured Oct 2026 on the
+# QA tenant's 7-item library with the production embedding model
+# @cf/baai/bge-base-en-v1.5: nonsense and off-topic queries score
+# 0.54-0.61 ("zxqvbnm" 0.587, "asdfgh qwerty" 0.609, "stock market"
+# 0.537), real topical matches 0.73-0.83 ("example domain" 0.832, "how
+# to do great work" 0.742). bge-base has a high baseline, so the floor
+# sits above the whole noise band, not in the middle of it.
+SEMANTIC_MIN_SIMILARITY = 0.62
+# In hybrid mode a keyword (FTS) hit is proof of relevance and is always
+# kept; a semantic-only hit is a guess and has to clear this higher bar.
+# Short real queries ("work" 0.637) still come back through FTS.
+HYBRID_SEMANTIC_ONLY_MIN_SIMILARITY = 0.68
 
 # UI status groups: the items table stores raw statuses ('queued', 'fetching',
 # 'ok', 'failed'); the library pills group them for humans. 'fetching' is
@@ -430,6 +444,24 @@ async def hybrid_search(
             await _drop_trashed(db, user_id, [r["item_id"] for r in vec_results])
         )
         vec_results = [r for r in vec_results if r["item_id"] in live]
+
+    # Floor the vector scores only (the FTS/RRF scores are untouched): a
+    # semantic hit under the floor is noise, not a match. Without it a
+    # nonsense query ("zxqvbnm") still returns the closest vectors.
+    if vec_results:
+        vec_results = [
+            r for r in vec_results if r.get("score", 0.0) >= SEMANTIC_MIN_SIMILARITY
+        ]
+        if mode == "hybrid":
+            # A keyword hit proves relevance, so it is always kept; a
+            # semantic-only hit has to clear the higher hybrid bar.
+            fts_ids = {r["item_id"] for r in fts_results}
+            vec_results = [
+                r
+                for r in vec_results
+                if r["item_id"] in fts_ids
+                or r.get("score", 0.0) >= HYBRID_SEMANTIC_ONLY_MIN_SIMILARITY
+            ]
 
     # Reciprocal Rank Fusion
     rrf_scores: dict[str, float] = {}

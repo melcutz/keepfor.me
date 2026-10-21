@@ -197,6 +197,18 @@ async def service_worker():
 # ==========================================
 
 
+def _without_pinned(items: list[dict]) -> list[dict]:
+    """Drops pinned items from the grid.
+
+    Pinned items are rendered on the pinned shelf, so keeping them in the
+    grid would show the same card twice (shelf + grid) - 7 saves read as 9
+    cards. The shelf is not re-rendered by the htmx search swap (it only
+    replaces #items-list), so the filter has to happen here, on both the
+    full page and the search response.
+    """
+    return [it for it in items if not it.get("is_pinned")]
+
+
 @router.get("/", response_class=HTMLResponse)
 async def library_page(
     request: Request,
@@ -269,6 +281,7 @@ async def library_page(
             scope=scope,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
+    items = _without_pinned(items)
     tags, status_counts, pinned_items, import_status = await asyncio.gather(
         list_user_tags(db, user["id"]),
         get_status_counts(
@@ -386,6 +399,7 @@ async def search_htmx(
             scope=scope,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
+    items = _without_pinned(items)
     tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
 
     pager_qs = urlencode(
@@ -421,10 +435,14 @@ async def search_htmx(
             status_counts=scoped_counts, active_status=clean_status
         )
         + "</div>"
+        # The header count follows the search results; the "All Items"
+        # counts (sidebar + mobile chip) stay on the library total, so a
+        # search does not shrink the library.
         + f'<span id="library-total" hx-swap-oob="true">{total}</span>'
         + f'<span id="sidebar-total" hx-swap-oob="true"'
         ' class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">'
-        f"{total}</span>" + f'<span id="mobile-total" hx-swap-oob="true">{total}</span>'
+        f"{scoped_counts['all']}</span>"
+        + f'<span id="mobile-total" hx-swap-oob="true">{scoped_counts["all"]}</span>'
     )
     template = jinja_env.get_template("partials/item_card.html")
     if not items:

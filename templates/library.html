@@ -17,7 +17,7 @@
           <a href="/" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium {% if not active_tags and not active_untagged %}bg-slate-200 text-slate-900{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
             <span class="w-2 h-2 rounded-full bg-blue-600 shrink-0"></span>
             <span>All Items</span>
-            <span id="sidebar-total" class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">{{ total_count or items|length }}</span>
+            <span id="sidebar-total" class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">{{ status_counts["all"] or items|length }}</span>
           </a>
           {% for t in tags %}
           {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
@@ -149,7 +149,7 @@
       <!-- Mobile tag strip: horizontal chips instead of the sidebar -->
       <div id="mobile-tags" class="md:hidden -mx-4 px-4 overflow-x-auto">
         <div class="flex gap-1.5 w-max py-1">
-          <a href="/" class="shrink-0 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if not active_tags and not active_untagged %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · <span id="mobile-total">{{ total_count or items|length }}</span></a>
+          <a href="/" class="shrink-0 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if not active_tags and not active_untagged %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · <span id="mobile-total">{{ status_counts["all"] or items|length }}</span></a>
           {% for t in tags %}
           {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
           {% if t.name in active_tags %}
@@ -333,6 +333,9 @@
               Try removing a tag or <a href="/" class="underline font-medium text-slate-700">clear all filters</a>.
             </p>
           </div>
+        {% elif pinned_items %}
+          {# Everything is on the pinned shelf: the grid is empty, the
+             library is not. #}
         {% else %}
           <div class="col-span-all text-center py-16 bg-white border border-slate-200 rounded-xl">
             <div class="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
