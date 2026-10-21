@@ -240,7 +240,12 @@ async def library_page(
     scope = deps.get_scope(request)
     clean_status = status.strip() if status and status.strip() else None
     clean_category = category.strip() if category and category.strip() else None
-    clean_view = view if view in LIBRARY_VIEWS else "list"
+    # An explicit ?view= is carried into every URL the page builds, so a
+    # filter, a search or the pager never falls back to another layout.
+    # Without one the links stay view-free and the client applies the
+    # saved preference (localStorage).
+    view_param = view if view in LIBRARY_VIEWS else None
+    clean_view = view_param or "list"
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
     items, total = await hybrid_search(
@@ -296,6 +301,7 @@ async def library_page(
                 "tag": tag or "",
                 "status": clean_status or "",
                 "category": clean_category or "",
+                "view": view_param or "",
             }.items()
             if v
         }
@@ -323,6 +329,12 @@ async def library_page(
         import_summary=import_summary,
         import_status=import_status,
         view=clean_view,
+        view_param=view_param,
+        # Query fragments that carry the layout into the page's links: the
+        # first for a bare path, the second to append to a URL that already
+        # carries parameters.
+        view_q=f"?view={view_param}" if view_param else "",
+        view_a=f"&view={view_param}" if view_param else "",
         **pager,
     )
     response = HTMLResponse(content=html)
@@ -342,6 +354,7 @@ async def search_htmx(
     per_page: int = Form(20),
     category: str = Form(""),
     quick: str = Form(""),
+    view: str = Form(""),
 ):
     user = await deps.get_current_user(request)
     if not user:
@@ -354,6 +367,11 @@ async def search_htmx(
     clean_status = status.strip() if status.strip() else None
     clean_category = category.strip() if category.strip() else None
     quick_flag = str(quick).strip().lower() in ("1", "true", "on", "yes")
+    # The layout travels with the search so the re-rendered pager and the
+    # cards keep the view the page is in.
+    view_param = view if view in LIBRARY_VIEWS else None
+    view_q = f"?view={view_param}" if view_param else ""
+    view_a = f"&view={view_param}" if view_param else ""
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
     tag_list, untagged_only = parse_tag_filter(clean_tag)
@@ -400,6 +418,7 @@ async def search_htmx(
                 "tag": clean_tag or "",
                 "status": clean_status or "",
                 "category": clean_category or "",
+                "view": view_param or "",
             }.items()
             if v
         }
@@ -439,10 +458,10 @@ async def search_htmx(
         term = query.strip()
         if term:
             msg = f"No results for “{escape(term)}”"
-            clear = ' <a href="/" class="underline">Clear search</a>'
+            clear = f' <a href="/{view_q}" class="underline">Clear search</a>'
         elif tag_list or untagged_only:
             msg = "No saves match these tags."
-            clear = ' <a href="/" class="underline">Clear filters</a>'
+            clear = f' <a href="/{view_q}" class="underline">Clear filters</a>'
         else:
             msg = "No matching articles found."
             clear = ""
@@ -455,7 +474,9 @@ async def search_htmx(
             + pills_html
         )
 
-    cards = [template.render(item=it, tag_styles=tag_styles) for it in items]
+    cards = [
+        template.render(item=it, tag_styles=tag_styles, view_a=view_a) for it in items
+    ]
     return HTMLResponse(content="".join(cards) + pager_html + pills_html)
 
 
