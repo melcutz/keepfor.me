@@ -199,7 +199,7 @@
         </div>
 
         <div class="flex items-center gap-1.5 shrink-0">
-          <a id="clear-search" href="/"
+          <a id="clear-search" href="/{{ view_q }}"
              class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300 shadow-sm transition {% if not query %}hidden{% endif %}">{{ icon("x", class="w-3.5 h-3.5") }}<span>Clear search</span></a>
           <button id="tag-mode-toggle" aria-pressed="false"
                   class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300 shadow-sm transition">{{ icon("tag", class="w-3.5 h-3.5") }}<span>Tag</span></button>

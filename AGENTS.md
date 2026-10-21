@@ -170,14 +170,14 @@ Cards, List and Compact are **one list of items in three layouts** (issue #39). 
 - **No view may hide an item.** The feed shows every item the category/status/tag filters match — pinned and archived ones included — so the counts and the list always agree. A CSS rule that hides a card (`display: none`) breaks that silently; `tests/test_library_views.py` pins it.
 - **There is no pinned shelf.** Pinned items are ordinary feed items, marked in the card (amber border + "Pinned" badge). A second copy of an item (the old cards-only shelf) breaks the count, and an unscoped shelf shows items the current filter excludes.
 - **Pinned items lead the feed.** The browse feed is ordered by `is_pinned DESC, created_at DESC` — in all three branches of `get_recent_items` — so a pinned save opens page 1 in every view. Search stays relevance-ordered; `tests/test_library_pinned_order.py` pins both.
-- **The layout travels with the URL.** An explicit `?view=` is carried into every URL the library page builds (pager, category tabs, status chips, tag filters, search form), so the layout survives a filter, a search or a page change; without one the links stay layout-free and the client applies `localStorage`. The switcher marks the rendered layout server-side (`aria-pressed`), and picking one rewrites the page's links and the hidden `view` field the htmx requests send; `tests/test_library_view_param.py` pins both.
+- **The layout travels with the URL.** An explicit `?view=` is carried into every URL the library page builds (pager, category tabs, status chips, tag filters, search form, clear search), so the layout survives a filter, a search or a page change; without one the links stay layout-free and the client applies `localStorage`. The switcher marks the rendered layout server-side (`aria-pressed`), and picking one rewrites the page's links and the hidden `view` field the htmx requests send; `tests/test_library_view_param.py` pins both.
 
 ## The search state lives in the URL, not in the box
 
 The library search is a URL parameter (`?q=`), like the view (issue #56). The server renders the query it is given; the client mirrors a live search into the URL and drops a value the browser restored on its own when the URL asks for no search.
 
 - **Plain `/` is always the unfiltered library** with an empty search box. Nothing persists the last query: no cookie, no `localStorage`, no session. `tests/test_search_results.py` pins it.
-- **A page with an active search shows a "Clear search" control** that returns to `/` (`#clear-search` in `templates/library.html`).
+- **A page with an active search shows a "Clear search" control** that returns to `/` without the query — keeping the layout, so `?view=cards` stays in Cards (`#clear-search` in `templates/library.html`).
 - The live search posts to `/search` (htmx) but does **not** change the URL by itself — the `input` listener mirrors the query into `?q=` (debounced: the browser throttles `history.replaceState`). Without that, the URL says nothing about the search and the browser brings the last query back on the next navigation.
 
 ## Performance: cold starts dominate latency
