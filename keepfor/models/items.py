@@ -556,21 +556,28 @@ async def purge_trash(
     """Hard-deletes trashed items older than `older_than_days`.
 
     `user_id` limits the purge to one user; None purges every user in the
-    database, which is the shape a single-tenant host cron wants. The data
-    goes through the same hard delete as before: row, R2 snapshots,
-    vectors, highlights and collection links.
+    database, which is the shape a single-tenant host cron wants. It must
+    name a user: an empty string is refused. The data goes through the
+    same hard delete as before: row, R2 snapshots, vectors, highlights
+    and collection links.
 
     `scope` is the tenant scope: it carries the R2 prefix and the
     Vectorize namespace of the tenant whose data is destroyed. A
     multi-tenant host MUST pass it: without it the snapshots and the
     vectors of the tenant are orphaned (or the wrong prefix is hit), so
     such a call is refused. The purge is then limited to the scope's own
-    user, because a shared database holds the rows of every tenant. A
-    single-tenant self-host may omit it: the default scope is used.
+    user, because a shared database holds the rows of every tenant: a
+    scope that names no user is refused too. A single-tenant self-host
+    may omit it: the default scope is used.
+
+    A bad argument raises ValueError before anything is destroyed.
 
     `limit` caps how many items one call destroys.
     """
     from keepfor.runtime import is_multi_tenant
+
+    if user_id is not None and not user_id:
+        raise ValueError("purge_trash(): the user_id must not be empty.")
 
     if scope is None:
         if is_multi_tenant():
@@ -580,9 +587,14 @@ async def purge_trash(
             )
     else:
         scope_user = scope.user_id
+        if not scope_user:
+            raise ValueError(
+                "purge_trash(): the tenant scope must name a user: "
+                "the purge would take the rows of every user."
+            )
         if user_id is None:
             user_id = scope_user
-        elif scope_user and user_id != scope_user:
+        elif user_id != scope_user:
             raise ValueError(
                 "purge_trash(): the user_id does not match the tenant scope."
             )
