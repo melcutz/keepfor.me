@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Claudiu Branzan
 
-"""Rate limiting for the authentication endpoints.
+"""Rate limiting: the auth endpoints and the favicon cache misses.
 
 Why this exists: `/auth/login` had no attempt counter, lockout, or delay, so a
 publicly reachable deployment gave an attacker unlimited password guesses.
@@ -50,13 +50,24 @@ def client_ip(headers: Any) -> str:
     We deliberately do NOT trust `X-Forwarded-For` (client-controllable) as a
     limiter key -- it would let an attacker mint a fresh limit per request.
     """
-    value = headers.get("cf-connecting-ip") or ""
+    value = headers.get("cf-connecting-ip") if headers else ""
     value = (value or "").strip()
     return value or _UNKNOWN_IP
 
 
-def _window_start(now: float) -> int:
-    return int(now - (now % WINDOW_SECONDS))
+def client_ip_key(headers: Any) -> str | None:
+    """The client IP as a limiter key, or None when it is unknown.
+
+    A missing `CF-Connecting-IP` must not collapse every visitor into one
+    shared bucket: a limiter that throttles the whole world is worse than no
+    limiter at all.
+    """
+    ip = client_ip(headers)
+    return None if ip == _UNKNOWN_IP else ip
+
+
+def _window_start(now: float, window_seconds: int = WINDOW_SECONDS) -> int:
+    return int(now - (now % window_seconds))
 
 
 def _keys(ip: str, account: str) -> list[str]:
@@ -96,28 +107,27 @@ async def _current_failures(db: Database, key: str, window: int) -> int:
         return 0
 
 
-async def check_allowed(db: Database, headers: Any, account: str) -> RateLimitVerdict:
-    """Return whether an auth attempt may proceed, without mutating state.
+async def check_limit(
+    db: Database, limits: dict[str, int], *, window_seconds: int = WINDOW_SECONDS
+) -> RateLimitVerdict:
+    """Whether the request may proceed, given a cap per counter key.
 
-    Called *before* the expensive password hashing so a blocked client cannot
-    burn CPU on PBKDF2.
+    `limits` maps a counter key to the number of hits allowed in the current
+    window. Fails open: a limiter defect must never lock a user out.
     """
     now = time.time()
-    window = _window_start(now)
+    window = _window_start(now, window_seconds)
     try:
-        for key in _keys(client_ip(headers), account):
-            scope, value = _split(key)
-            limit = _KEY_LIMITS.get(scope)
-            if limit is None or not value:
+        for key, limit in limits.items():
+            if not key or limit <= 0:
                 continue
             hits = await _current_failures(db, key, window)
             if hits >= limit:
-                logger.warning(
-                    f"Auth rate limit hit: scope={scope} failures={hits}/{limit}"
-                )
+                scope, _ = _split(key)
+                logger.warning(f"Rate limit hit: scope={scope} hits={hits}/{limit}")
                 return RateLimitVerdict(
                     allowed=False,
-                    retry_after=max(1, int(window + WINDOW_SECONDS - now)),
+                    retry_after=max(1, int(window + window_seconds - now)),
                     scope=scope,
                 )
     except Exception as exc:  # pragma: no cover - defensive
@@ -127,21 +137,50 @@ async def check_allowed(db: Database, headers: Any, account: str) -> RateLimitVe
     return RateLimitVerdict(allowed=True, retry_after=0)
 
 
-async def record_failure(db: Database, headers: Any, account: str) -> None:
-    """Increment the IP and account failure counters for the current window."""
+async def check_allowed(db: Database, headers: Any, account: str) -> RateLimitVerdict:
+    """Return whether an auth attempt may proceed, without mutating state.
+
+    Called *before* the expensive password hashing so a blocked client cannot
+    burn CPU on PBKDF2.
+    """
+    limits: dict[str, int] = {}
+    for key in _keys(client_ip(headers), account):
+        scope, value = _split(key)
+        limit = _KEY_LIMITS.get(scope)
+        if limit is None or not value:
+            continue
+        limits[key] = limit
+    return await check_limit(db, limits, window_seconds=WINDOW_SECONDS)
+
+
+async def record_hits(
+    db: Database, keys: list[str], *, window_seconds: int = WINDOW_SECONDS
+) -> None:
+    """Increment the counters of the given keys in the current window."""
     now = time.time()
-    window = _window_start(now)
+    window = _window_start(now, window_seconds)
     try:
-        for key in _keys(client_ip(headers), account):
+        for key in keys:
             await db.execute(
                 "INSERT INTO rate_limits (key, window_start, hits) VALUES (?, ?, 1) "
                 "ON CONFLICT(key, window_start) DO UPDATE SET hits = hits + 1;",
                 (key, window),
             )
-        # Keep the table bounded: drop windows older than the current one.
-        await db.execute("DELETE FROM rate_limits WHERE window_start < ?;", (window,))
+        # Keep the table bounded: drop the windows that can no longer be
+        # current for ANY limiter (the longest window is the safe horizon).
+        await db.execute(
+            "DELETE FROM rate_limits WHERE window_start < ?;",
+            (now - max(window_seconds, WINDOW_SECONDS),),
+        )
     except Exception as exc:  # pragma: no cover - defensive
         logger.error(f"Rate limit record failed: {exc}")
+
+
+async def record_failure(db: Database, headers: Any, account: str) -> None:
+    """Increment the IP and account failure counters for the current window."""
+    await record_hits(
+        db, _keys(client_ip(headers), account), window_seconds=WINDOW_SECONDS
+    )
 
 
 async def clear_account(db: Database, account: str) -> None:

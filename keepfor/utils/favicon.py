@@ -9,9 +9,14 @@ instead: /favicons/<domain> always answers 200 -- with the site's icon when it
 has one, otherwise with a transparent fallback that leaves the card's letter
 tile visible.
 
-The route is public, so only a signed-in request may make us fetch a site's
-icon or write it to the cache. An anonymous request gets the cached icon when
-there is one and the fallback otherwise: no outbound request, no cache write.
+The route is public, so only a signed-in request may read the cache or make
+us fetch a site's icon. An anonymous request gets the transparent fallback,
+always: the cache is global, so serving a cached icon would tell an anonymous
+visitor whether some user's library holds that domain.
+
+A cache miss is rate limited per user and per IP: a miss makes us fetch an
+arbitrary domain and write an R2 object for it. Over the limit the fallback is
+served, with no upstream fetch and no cache write.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from urllib.parse import urlparse
 
 from keepfor.utils.egress import EgressPolicy, fetch_limited
 from keepfor.utils.logging import logger
+from keepfor.utils.rate_limit import check_limit, client_ip_key, record_hits
 
 # A 1x1 transparent PNG: the browser loads it without a console error and the
 # card's letter tile shows through it.
@@ -73,6 +79,14 @@ ICON_MAX_AGE = 30 * 86400  # a cached icon is refreshed after a month
 # The fallback is never stored: this is only how long the browser keeps it
 # before asking again (the next ask may come from a signed-in visitor).
 FALLBACK_MAX_AGE = 3600
+
+# Cache-miss rate limit. Every miss makes the Worker fetch an arbitrary
+# domain and write an R2 object for it, so the misses are capped per user and
+# per IP. 60 misses per 10 minutes is far more than a human browsing a
+# library needs.
+FAVICON_MISS_WINDOW_SECONDS = 600
+FAVICON_MAX_MISSES_PER_USER = 60
+FAVICON_MAX_MISSES_PER_IP = 60
 
 # Same browser agent the article fetcher uses: plenty of sites answer 403 to
 # an unknown agent.
@@ -206,28 +220,67 @@ async def _cache_put(bucket: Any, key: str, body: bytes, content_type: str) -> N
         logger.warning("favicon cache write failed for %s", key, exc_info=True)
 
 
+def _miss_limits(headers: Any, user_id: str | None) -> dict[str, int]:
+    """The miss counters of this caller: one per user, one per IP."""
+    limits: dict[str, int] = {}
+    if user_id:
+        limits[f"fav-user:{user_id}"] = FAVICON_MAX_MISSES_PER_USER
+    ip = client_ip_key(headers)
+    if ip:
+        limits[f"fav-ip:{ip}"] = FAVICON_MAX_MISSES_PER_IP
+    return limits
+
+
+async def _consume_miss(db: Any, headers: Any, user_id: str | None) -> bool:
+    """Count this cache miss against the per-user and per-IP caps.
+
+    False means the caller is over the limit: serve the fallback, fetch
+    nothing and write nothing.
+    """
+    if db is None:
+        return True
+    limits = _miss_limits(headers, user_id)
+    verdict = await check_limit(db, limits, window_seconds=FAVICON_MISS_WINDOW_SECONDS)
+    if not verdict.allowed:
+        logger.warning("Favicon miss limit hit: scope=%s", verdict.scope)
+        return False
+    await record_hits(db, list(limits), window_seconds=FAVICON_MISS_WINDOW_SECONDS)
+    return True
+
+
 async def resolve_favicon(
-    domain: str, env: Any = None, *, may_fetch: bool = False
+    domain: str,
+    env: Any = None,
+    *,
+    may_fetch: bool = False,
+    db: Any = None,
+    headers: Any = None,
+    user_id: str | None = None,
 ) -> tuple[bytes, str]:
     """Return (bytes, content_type) for /favicons/<domain>. Never raises.
 
     An unknown, private or unreachable domain yields the transparent fallback,
     so the browser never sees a 404 for an icon.
 
-    `may_fetch` is the abuse guard: only a signed-in request may make us fetch
-    the site's icon and write it to the cache. An anonymous request gets the
-    cached icon when there is one and the fallback otherwise -- no outbound
-    request, no cache write.
+    `may_fetch` is the abuse guard: only a signed-in request may read the
+    cache or make us fetch the site's icon. An anonymous request gets the
+    fallback, always -- the cache is global, so a cached icon would tell the
+    visitor whether some user's library holds that domain.
+
+    A cache miss is counted against the per-user and per-IP caps: over the
+    limit the fallback is served, with no outbound request and no cache write.
     """
     host = normalize_host(domain)
     if host is None:
+        return FALLBACK_ICON, "image/png"
+    if not may_fetch:
         return FALLBACK_ICON, "image/png"
     bucket = _bucket(env)
     key = f"favicons/{host}"
     cached = await _cache_get(bucket, key)
     if cached is not None:
         return cached
-    if not may_fetch:
+    if not await _consume_miss(db, headers, user_id):
         return FALLBACK_ICON, "image/png"
     fetched = await _fetch_upstream(host)
     if fetched is None:
