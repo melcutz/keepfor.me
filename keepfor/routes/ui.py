@@ -73,6 +73,12 @@ from keepfor.search.engine import (
     parse_tag_filter,
 )
 from keepfor.templating import jinja_env
+from keepfor.utils.favicon import (
+    FALLBACK_ICON,
+    FALLBACK_MAX_AGE,
+    FAVICON_MAX_AGE,
+    resolve_favicon,
+)
 from keepfor.utils.logging import logger
 from keepfor.utils.url import extract_url
 
@@ -108,6 +114,30 @@ async def favicon():
         content=FAVICON_SVG,
         media_type="image/svg+xml",
         headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/favicons/{domain}")
+async def favicon_proxy(request: Request, domain: str):
+    """Serve a site's favicon from our own origin, never as a 404.
+
+    The cards point here instead of at a third-party favicon service, so a
+    domain without an icon no longer puts a failed request in the console.
+
+    The route stays public (an expired session must not turn the images into
+    401s), but only a signed-in request may make us fetch the site's icon or
+    write it to the cache: an anonymous request gets the cached icon when
+    there is one and the fallback otherwise.
+    """
+    user = await deps.get_current_user(request)
+    body, content_type = await resolve_favicon(
+        domain, deps.get_env_from_request(request), may_fetch=user is not None
+    )
+    max_age = FALLBACK_MAX_AGE if body == FALLBACK_ICON else FAVICON_MAX_AGE
+    return Response(
+        content=body,
+        media_type=content_type,
+        headers={"Cache-Control": f"public, max-age={max_age}"},
     )
 
 

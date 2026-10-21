@@ -28,6 +28,7 @@ PUBLIC_ROUTES: set[tuple[str, str]] = {
     ("GET", "/redoc"),
     ("HEAD", "/redoc"),
     ("GET", "/favicon.ico"),
+    ("GET", "/favicons/{domain}"),
     ("GET", "/icon-192.png"),
     ("GET", "/icon-512.png"),
     ("GET", "/icon-maskable.png"),

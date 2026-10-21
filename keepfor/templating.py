@@ -12,12 +12,15 @@ from jinja2 import ChoiceLoader, Environment, FileSystemLoader
 
 from keepfor.paths import templates_dir
 from keepfor.utils.dates import normalize_published_date
+from keepfor.utils.favicon import favicon_url
 
 _core_loader = FileSystemLoader(str(templates_dir()))
 jinja_env = Environment(loader=ChoiceLoader([_core_loader]), autoescape=True)
 # Templates show the published date through the same normaliser the
 # extractors use, so a raw timestamp never reaches the page.
 jinja_env.filters["published_date"] = normalize_published_date
+# Cards ask us for the favicon of a saved link: same-origin, never a 404.
+jinja_env.globals["favicon_url"] = favicon_url
 
 
 def configure_templates(
