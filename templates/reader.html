@@ -8,10 +8,10 @@
 <div id="reader-container" class="min-h-full py-8 transition-colors duration-200">
   {% if read_flash %}
   <div class="max-w-[72ch] sm:max-w-[68ch] mx-auto px-4 sm:px-6 mb-4">
-    <div id="read-flash-toast" aria-live="polite" class="px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center justify-between gap-2">
+    <div id="read-flash-toast" aria-live="polite" class="px-4 py-2.5 bg-[var(--brand-50)] border border-[var(--brand-200)] rounded-lg text-xs text-[var(--brand-800)] flex items-center justify-between gap-2">
       <span class="font-medium">{% if read_flash == 'read' %}Marked as read.{% else %}Marked as unread.{% endif %}</span>
       <form action="/items/{{ item.id }}/{{ 'unread' if read_flash == 'read' else 'read' }}" method="POST" class="inline">
-        <button type="submit" class="font-semibold underline hover:text-emerald-900">Undo</button>
+        <button type="submit" class="font-semibold underline hover:text-[var(--brand-900)]">Undo</button>
       </form>
     </div>
   </div>
