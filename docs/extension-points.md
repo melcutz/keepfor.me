@@ -2,7 +2,7 @@
 
 Keepfor.me 1.1.0 exposes a clean Service Provider Interface (SPI) allowing hosted, enterprise, or multi-tenant deployments to extend and customize core behavior while preserving full compatibility with upstream updates.
 
-Core defines and exports all SPI abstractions in [`keepfor.spi`](file:///home/melcutz/work/keepfor.me/keepfor/spi.py). Default single-tenant implementations live in [`keepfor.defaults`](file:///home/melcutz/work/keepfor.me/keepfor/defaults.py).
+Core defines and exports all SPI abstractions in [`keepfor.spi`](../keepfor/spi.py). Default single-tenant implementations live in [`keepfor.defaults`](../keepfor/defaults.py).
 
 ---
 
