@@ -199,6 +199,8 @@
         </div>
 
         <div class="flex items-center gap-1.5 shrink-0">
+          <a id="clear-search" href="/"
+             class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300 shadow-sm transition {% if not query %}hidden{% endif %}">{{ icon("x", class="w-3.5 h-3.5") }}<span>Clear search</span></a>
           <button id="tag-mode-toggle" aria-pressed="false"
                   class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-slate-300 shadow-sm transition">{{ icon("tag", class="w-3.5 h-3.5") }}<span>Tag</span></button>
           <button id="bulk-toggle" aria-pressed="false" type="button"
@@ -438,11 +440,43 @@
     htmx.ajax('POST', '/items/' + card.getAttribute('data-item-id') + '/tags',
       { target: '#' + card.id, swap: 'outerHTML', values: vals });
   });
-  // New searches start on page 1.
+  // The URL is the source of truth for the search (#56): it says which
+  // query is active, so plain / is always the unfiltered library.
   var searchInput = document.getElementById('search-input');
-  if (searchInput) searchInput.addEventListener('input', function () {
-    document.getElementById('active-page-input').value = '1';
-  });
+  var clearSearch = document.getElementById('clear-search');
+  var syncTimer = null;
+  var typed = false;
+  function syncSearchUrl() {
+    if (!searchInput) return;
+    var q = searchInput.value.trim();
+    var url = new URL(window.location.href);
+    if (q) url.searchParams.set('q', q); else url.searchParams.delete('q');
+    window.history.replaceState(null, '', url.toString());
+    if (clearSearch) clearSearch.classList.toggle('hidden', !q);
+  }
+  function scheduleSearchUrl() {
+    // Debounced: the browser throttles history.replaceState.
+    if (syncTimer) clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncSearchUrl, 400);
+  }
+  function dropRestoredSearch() {
+    if (!searchInput) return;
+    var q = '';
+    try { q = new URLSearchParams(window.location.search).get('q') || ''; } catch (_) {}
+    // A browser restores the last input value on a reload: keep it only
+    // when the URL asks for that search, or the stale query comes back.
+    if (!q && searchInput.value && !typed) searchInput.value = '';
+  }
+  if (searchInput) {
+    // New searches start on page 1.
+    searchInput.addEventListener('input', function () {
+      typed = true;
+      document.getElementById('active-page-input').value = '1';
+      scheduleSearchUrl();
+    });
+    dropRestoredSearch();
+    window.addEventListener('load', dropRestoredSearch);
+  }
   // 3-way layout switcher, persisted in localStorage and mirrored in the
   // URL (?view=). Cards bleeds full-width; list/compact use a capped
   // column. Every view lists the same items. The layout goes into URLs,

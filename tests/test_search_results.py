@@ -105,6 +105,25 @@ def _card_count(html, item_id):
     return html.count(f'id="item-card-{item_id}"')
 
 
+def _search_input_value(html):
+    """The query the search box is filled with."""
+    match = re.search(r'id="search-input"[^>]*?value="([^"]*)"', html, re.S)
+    assert match, "search-input missing"
+    return match.group(1)
+
+
+def _clear_search_tag(html):
+    """The 'Clear search' control of the library toolbar."""
+    match = re.search(r'<a id="clear-search".*?</a>', html, re.S)
+    assert match, "clear-search control missing"
+    return match.group(0)
+
+
+def _clear_search_is_hidden(html):
+    """True when the 'Clear search' control is not shown."""
+    return bool(re.search(r'class="[^"]*\bhidden\b', _clear_search_tag(html)))
+
+
 def _library_total(html):
     match = re.search(r'<span id="library-total"[^>]*>(\d+)</span>', html)
     assert match, "library-total span missing"
@@ -170,6 +189,36 @@ async def test_library_query_zero_results_empty_state(client, db, search_setup):
     assert _library_total(res.text) == 0
     assert "No results for" in res.text
     assert "Clear search" in res.text
+
+
+async def test_plain_library_does_not_restore_the_last_search(client, db, search_setup):
+    """Plain / is the unfiltered library, whatever the last search was (#56)."""
+    _login(client, search_setup["session"])
+    searched = client.get("/", params={"q": "alpha"})
+    assert searched.status_code == 200
+    assert _search_input_value(searched.text) == "alpha"
+    assert len(_rendered_ids(searched.text)) == 3
+
+    plain = client.get("/")
+    assert plain.status_code == 200
+    assert _search_input_value(plain.text) == ""
+    # every save is back, not only the three matches
+    assert len(_rendered_ids(plain.text)) == 8
+    assert _library_total(plain.text) == 8
+
+
+async def test_search_page_shows_a_clear_search_control(client, db, search_setup):
+    """A live search can be cleared from the library toolbar (#56)."""
+    _login(client, search_setup["session"])
+    res = client.get("/", params={"q": "alpha"})
+    assert res.status_code == 200
+    tag = _clear_search_tag(res.text)
+    assert 'href="/"' in tag
+    assert not _clear_search_is_hidden(res.text)
+
+    # nothing to clear on the unfiltered library
+    plain = client.get("/")
+    assert _clear_search_is_hidden(plain.text)
 
 
 # Measured Oct 2026 on the QA tenant with the production embedding model
