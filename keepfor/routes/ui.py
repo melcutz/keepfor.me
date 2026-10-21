@@ -22,6 +22,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from markupsafe import escape
 
 from keepfor import deps
+from keepfor.models.highlights import (
+    MAX_HIGHLIGHT_NOTE,
+    MAX_HIGHLIGHT_TEXT,
+    create_highlight,
+    delete_highlight,
+    item_content_length,
+    list_highlights,
+)
 from keepfor.models.items import (
     accept_suggestion,
     add_tags_to_item,
@@ -564,6 +572,7 @@ async def reader_page(
     )
     tag_styles = tag_styles_for(item.get("tags") or [])
     suggestions = await list_pending_suggestions(db, user["id"], item_id=item_id)
+    highlights = await list_highlights(db, user["id"], item_id)
     template = jinja_env.get_template("reader.html")
     html = template.render(
         current_user=user,
@@ -571,6 +580,7 @@ async def reader_page(
         clean_html=clean_html,
         tag_styles=tag_styles,
         suggestions=suggestions,
+        highlights=highlights,
         read_flash=read_flash,
         hide_mobile_nav=True,
     )
@@ -1232,3 +1242,110 @@ async def delete_forever_route(request: Request, item_id: str):
     ):
         raise HTTPException(status_code=404, detail="Item not found")
     return RedirectResponse(url="/trash", status_code=303)
+
+
+# ==========================================
+# Highlights: create, list (in reader), delete
+# ==========================================
+
+
+@router.post("/items/{item_id}/highlights", response_class=HTMLResponse)
+async def create_highlight_route(
+    request: Request,
+    item_id: str,
+    text: str = Form(...),
+    note: str = Form(""),
+    start_offset: int = Form(0),
+    end_offset: int = Form(0),
+):
+    """Create a highlight on an item. Returns the highlight list fragment for htmx,
+    or redirects for no-JS fallback."""
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+
+    # Validate quote length
+    if not text or len(text) > MAX_HIGHLIGHT_TEXT:
+        raise HTTPException(
+            status_code=422, detail=f"Quote must be 1-{MAX_HIGHLIGHT_TEXT} characters"
+        )
+
+    # Validate note length
+    if note and len(note) > MAX_HIGHLIGHT_NOTE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Note must be at most {MAX_HIGHLIGHT_NOTE} characters",
+        )
+
+    # Validate the item exists and get content length
+    content_len = await item_content_length(db, user["id"], item_id)
+    if content_len is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Validate offsets
+    if start_offset < 0 or start_offset > content_len:
+        raise HTTPException(status_code=422, detail="Invalid start offset")
+    if end_offset < start_offset or end_offset > content_len:
+        raise HTTPException(status_code=422, detail="Invalid end offset")
+
+    # Verify the quoted text exists at the given offsets in content_text
+    # (matches create_highlight model behavior for MCP tools)
+    row = await db.query_first(
+        "SELECT content_text FROM items"
+        " WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        (item_id, user["id"]),
+    )
+    if row and row["content_text"]:
+        content_text = row["content_text"]
+        if content_text[start_offset:end_offset] != text:
+            raise HTTPException(
+                status_code=422,
+                detail="Quote does not match content at given offsets",
+            )
+
+    highlight = await create_highlight(
+        db,
+        user["id"],
+        item_id,
+        text,
+        start_offset,
+        end_offset if end_offset else start_offset + len(text),
+        note=note if note else None,
+        color=None,  # Single color for now
+    )
+    if not highlight:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    if request.headers.get("hx-request"):
+        # Return the updated highlights list fragment
+        highlights = await list_highlights(db, user["id"], item_id)
+        template = jinja_env.get_template("partials/highlights_list.html")
+        return HTMLResponse(
+            content=template.render(highlights=highlights, item_id=item_id)
+        )
+
+    # No-JS fallback: redirect back to reader
+    return RedirectResponse(url=f"/items/{item_id}", status_code=303)
+
+
+@router.post(
+    "/items/{item_id}/highlights/{highlight_id}/delete",
+    response_class=HTMLResponse,
+)
+async def delete_highlight_route(request: Request, item_id: str, highlight_id: str):
+    """Delete a highlight. Returns the updated highlights list fragment for htmx,
+    or redirects for no-JS fallback."""
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+
+    ok = await delete_highlight(db, user["id"], highlight_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Highlight not found")
+
+    if request.headers.get("hx-request"):
+        highlights = await list_highlights(db, user["id"], item_id)
+        template = jinja_env.get_template("partials/highlights_list.html")
+        return HTMLResponse(
+            content=template.render(highlights=highlights, item_id=item_id)
+        )
+
+    return RedirectResponse(url=f"/items/{item_id}", status_code=303)
