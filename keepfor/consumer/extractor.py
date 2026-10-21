@@ -201,6 +201,22 @@ def _clean_plain_text(text: str) -> str:
     return cleaned.strip()
 
 
+# The page's own language, when it declares one (<html lang="de">). Cheap
+# regex over the head of the document: the tagger needs it to cut German
+# pages at German stopwords (issue #58), and a full parse is not worth it.
+_HTML_LANG_RE = re.compile(
+    r"<html[^>]*\blang\s*=\s*[\"']?([a-zA-Z]{2,3})", re.IGNORECASE
+)
+
+
+def detect_html_language(html: str) -> str | None:
+    """The page language code ("de") from <html lang="...">, else None."""
+    match = _HTML_LANG_RE.search(html or "", 0, 20000)
+    if not match:
+        return None
+    return match.group(1).lower()
+
+
 # Pages that return HTTP 200 but carry no article. Seen across the library:
 # SSO redirects ("Redirecting", "SSO_login"), soft 404s, and consent walls.
 # They extract to a 1-word stub and get saved as if they were articles, so
@@ -440,6 +456,7 @@ def extract_youtube_article(html: str, url: str) -> dict[str, Any]:
         "is_fallback": 0,
         "word_count": word_count,
         "image_url": image_url,
+        "language": detect_html_language(html),
         "blocked_reason": detect_blocked_page(title, plain_text, None),
         "redirect_url": None,
     }
@@ -507,6 +524,7 @@ def extract_github_article(html: str, url: str) -> dict[str, Any]:
         "is_fallback": 0 if len(plain_text) >= 50 else 1,
         "word_count": word_count,
         "image_url": None,
+        "language": detect_html_language(html),
         "blocked_reason": detect_blocked_page(title, plain_text, None),
         "redirect_url": None,
     }
@@ -706,6 +724,7 @@ def extract_wikipedia_article(html: str, url: str) -> dict[str, Any]:
         "is_fallback": 0 if word_count >= 50 else 1,
         "word_count": word_count,
         "image_url": image_url,
+        "language": detect_html_language(html),
         "blocked_reason": detect_blocked_page(title, plain_text, None),
         "redirect_url": detect_redirect_url(html, url),
     }
@@ -918,6 +937,7 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
         "is_fallback": 1 if is_fallback else 0,
         "word_count": word_count,
         "image_url": image_url,
+        "language": detect_html_language(html),
         "blocked_reason": blocked_reason,
         "redirect_url": redirect_url,
     }
@@ -975,6 +995,8 @@ def article_from_reader_markdown(url: str, reader_text: str) -> dict[str, Any]:
         "is_fallback": 0,
         "word_count": word_count,
         "image_url": None,
+        # Reader-proxy markdown carries no <html lang>: the tagger guesses.
+        "language": None,
         # Reader-proxy text is genuine article content: never a wall.
         "blocked_reason": detect_blocked_page(title, plain_text, None),
         "redirect_url": None,
