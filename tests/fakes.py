@@ -52,6 +52,7 @@ class FakeR2Bucket:
         self.metadata: dict[str, dict[str, Any]] = {}
         self.puts: list[str] = []
         self.deletes: list[str] = []
+        self.lists: list[dict[str, Any]] = []
 
     async def get(self, key: str) -> FakeR2Object | None:
         if key not in self.store:
@@ -96,6 +97,7 @@ class FakeR2Bucket:
 
     async def list(self, options: dict[str, Any] | None = None) -> Any:
         options = options or {}
+        self.lists.append(options)
         prefix = options.get("prefix", "")
         limit = options.get("limit", 1000)
         cursor = options.get("cursor", None)
