@@ -1,7 +1,7 @@
 {# Import summary toast: counts only, never note content (privacy invariant). #}
 {% macro import_summary_toast(summary) %}
 {% if summary %}
-<div class="mb-4 p-3 rounded-lg text-xs flex flex-wrap gap-2 {% if summary.error %}bg-red-50 border border-red-200 text-red-800{% else %}bg-emerald-50 border border-emerald-200 text-emerald-800{% endif %}">
+<div class="mb-4 p-3 rounded-lg text-xs flex flex-wrap gap-2 {% if summary.error %}bg-red-50 border border-red-200 text-red-800{% else %}bg-[var(--brand-50)] border border-[var(--brand-200)] text-[var(--brand-800)]{% endif %}">
   {% if summary.error %}
   <span class="font-semibold">Import failed:</span>
   <span>{{ summary.error }}</span>

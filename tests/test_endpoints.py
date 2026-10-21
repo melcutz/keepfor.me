@@ -189,7 +189,7 @@ async def test_settings_mobile_nav_highlights_settings(client, db, auth_headers)
     response = client.get("/settings")
     assert response.status_code == 200
     assert 'id="mobile-nav"' in response.text
-    assert response.text.count("text-blue-600") >= 1
+    assert response.text.count("text-[var(--brand-accent)]") >= 1
 
 
 @pytest.mark.asyncio
@@ -1261,7 +1261,7 @@ def test_auth_pages_share_identical_lockup(client):
         page = client.get(path)
         assert page.status_code == 200
         assert "Keepfor<span" in page.text
-        assert "text-blue-600" in page.text
+        assert "text-[var(--brand-accent)]" in page.text
         assert "linearGradient" in page.text
 
 

@@ -7,6 +7,7 @@ import asyncio
 import datetime
 import json
 import sys
+from html import escape
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse
 
@@ -39,6 +40,8 @@ from keepfor.models.items import (
     list_rules,
     list_trash,
     list_user_tags,
+    mark_item_read,
+    mark_item_unread,
     merge_tags,
     prune_unused_tags,
     record_open,
@@ -78,6 +81,9 @@ if TYPE_CHECKING:
     from keepfor.models.db import Database
 
 router = APIRouter()
+
+# An archived item is left alone by Mark as Read / Mark as Unread.
+ARCHIVED_READ_CONFLICT = "Archived items cannot be marked read or unread"
 
 # Brand mark served as a file so browsers persist it onto bookmarks
 # (inline data: favicons are not). Dynamic route: zero bundle impact.
@@ -232,6 +238,11 @@ async def library_page(
     clean_category = category.strip() if category and category.strip() else None
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
+    # The pinned shelf shows the pinned items, so the browse grid leaves
+    # them out (in the query, so the total and the pager match it). A
+    # search keeps them: the shelf is not filtered by the query, so
+    # hiding a pinned match would be a silent loss.
+    exclude_pinned = not (q or "").strip()
     items, total = await hybrid_search(
         db,
         env,
@@ -245,6 +256,7 @@ async def library_page(
         category=clean_category,
         quick=bool(quick),
         scope=scope,
+        exclude_pinned=exclude_pinned,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -261,6 +273,7 @@ async def library_page(
             category=clean_category,
             quick=bool(quick),
             scope=scope,
+            exclude_pinned=exclude_pinned,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
     tags, status_counts, pinned_items, import_status = await asyncio.gather(
@@ -277,7 +290,6 @@ async def library_page(
         user_import_status(db, user["id"], limit=1),
     )
     tag_styles = tag_styles_for([t["name"] for t in tags])
-    total_count = status_counts.get("all", 0)
 
     pager_qs = urlencode(
         {
@@ -302,7 +314,7 @@ async def library_page(
         active_untagged=untagged_only,
         query=q or "",
         tag_styles=tag_styles,
-        total_count=total_count,
+        total_count=total,
         active_status=clean_status,
         status_counts=status_counts,
         active_nav="library",
@@ -348,6 +360,10 @@ async def search_htmx(
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
     tag_list, untagged_only = parse_tag_filter(clean_tag)
+    # An empty query is the browse grid: the pinned shelf shows the
+    # pinned items, so the grid leaves them out. A real search keeps
+    # them, the shelf is not filtered by the query.
+    exclude_pinned = not query.strip()
     items, total = await hybrid_search(
         db,
         env,
@@ -362,6 +378,7 @@ async def search_htmx(
         category=clean_category,
         quick=quick_flag,
         scope=scope,
+        exclude_pinned=exclude_pinned,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -379,6 +396,7 @@ async def search_htmx(
             category=clean_category,
             quick=quick_flag,
             scope=scope,
+            exclude_pinned=exclude_pinned,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
     tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
@@ -416,20 +434,27 @@ async def search_htmx(
             status_counts=scoped_counts, active_status=clean_status
         )
         + "</div>"
-        + f'<span id="library-total" hx-swap-oob="true">{scoped_counts["all"]}</span>'
+        # The header count follows the search results; the "All Items"
+        # counts (sidebar + mobile chip) stay on the library total, so a
+        # search does not shrink the library.
+        + f'<span id="library-total" hx-swap-oob="true">{total}</span>'
+        + f'<span id="sidebar-total" hx-swap-oob="true"'
+        ' class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">'
+        f"{scoped_counts['all']}</span>"
+        + f'<span id="mobile-total" hx-swap-oob="true">{scoped_counts["all"]}</span>'
     )
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
-        msg = (
-            "No saves match these tags."
-            if (tag_list or untagged_only)
-            else "No matching articles found."
-        )
-        clear = (
-            ' <a href="/" class="underline">Clear filters</a>'
-            if (tag_list or untagged_only)
-            else ""
-        )
+        term = query.strip()
+        if term:
+            msg = f"No results for “{escape(term)}”"
+            clear = ' <a href="/" class="underline">Clear search</a>'
+        elif tag_list or untagged_only:
+            msg = "No saves match these tags."
+            clear = ' <a href="/" class="underline">Clear filters</a>'
+        else:
+            msg = "No matching articles found."
+            clear = ""
         return HTMLResponse(
             '<div class="col-span-all text-center py-12 text-slate-400 text-xs">'
             + msg
@@ -482,6 +507,12 @@ async def reader_page(
 
     background_tasks.add_task(_log_open_safely, db, user["id"], item_id)
 
+    # One-shot confirmation after Mark as Read / Unread (see /items/{id}/read).
+    read_flash = None
+    flash_cookie = request.cookies.get("read_flash")
+    if flash_cookie in ("read", "unread"):
+        read_flash = flash_cookie
+
     clean_html = await get_item_clean_html(
         db, env, user["id"], item_id, scope=deps.get_scope(request)
     )
@@ -494,9 +525,15 @@ async def reader_page(
         clean_html=clean_html,
         tag_styles=tag_styles,
         suggestions=suggestions,
+        read_flash=read_flash,
         hide_mobile_nav=True,
     )
-    return HTMLResponse(content=html)
+    response = HTMLResponse(content=html)
+    if flash_cookie:
+        response.delete_cookie(
+            "read_flash", path="/", secure=True, httponly=True, samesite="lax"
+        )
+    return response
 
 
 @router.get("/items/{item_id}/card", response_class=HTMLResponse)
@@ -609,6 +646,88 @@ async def unarchive_route(request: Request, item_id: str):
         template = jinja_env.get_template("partials/item_card.html")
         return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
     return RedirectResponse(url="/", status_code=303)
+
+
+def _referer_redirect(
+    request: Request, fallback: str, flash: str | None = None
+) -> RedirectResponse:
+    """No-JS fallback for card/reader POSTs: back to the same-origin referer.
+
+    `flash` is stored in a one-shot cookie the reader turns into an inline
+    confirmation (with undo) on the next render.
+    """
+    dest = fallback
+    referer = request.headers.get("referer")
+    if referer:
+        parsed_ref = urlparse(referer)
+        req_host = (request.url.netloc or "").lower()
+        ref_host = (parsed_ref.netloc or "").lower()
+        if not ref_host or ref_host == req_host:
+            candidate = parsed_ref.path + (
+                "?" + parsed_ref.query if parsed_ref.query else ""
+            )
+            if _is_safe_path(candidate):
+                dest = candidate
+    response = RedirectResponse(url=dest, status_code=303)
+    if flash:
+        # One-shot flash: the reader renders it server side, so no JS reads
+        # this cookie (HttpOnly is safe).
+        response.set_cookie(
+            "read_flash",
+            flash,
+            max_age=60,
+            path="/",
+            secure=True,
+            httponly=True,
+            samesite="lax",
+        )
+    return response
+
+
+@router.post("/items/{item_id}/read", response_class=HTMLResponse)
+async def mark_read_route(request: Request, item_id: str):
+    """Mark as Read sets the read state only: archive stays a separate action."""
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+    ok = await mark_item_read(db, user["id"], item_id)
+    if not ok:
+        # False means "missing" or "archived": an archived item stays archived.
+        item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=409, detail=ARCHIVED_READ_CONFLICT)
+    if request.headers.get("hx-request"):
+        item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        tag_styles = tag_styles_for(item.get("tags") or [])
+        template = jinja_env.get_template("partials/item_card.html")
+        return HTMLResponse(
+            content=template.render(item=item, tag_styles=tag_styles, just_read="read")
+        )
+    return _referer_redirect(request, "/", flash="read")
+
+
+@router.post("/items/{item_id}/unread", response_class=HTMLResponse)
+async def mark_unread_route(request: Request, item_id: str):
+    """Mark as Unread reverts the read state."""
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+    ok = await mark_item_unread(db, user["id"], item_id)
+    if not ok:
+        # False means "missing" or "archived": an archived item stays archived.
+        item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=409, detail=ARCHIVED_READ_CONFLICT)
+    if request.headers.get("hx-request"):
+        item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        tag_styles = tag_styles_for(item.get("tags") or [])
+        template = jinja_env.get_template("partials/item_card.html")
+        return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
+    return _referer_redirect(request, "/", flash="unread")
 
 
 @router.get("/items/{item_id}/markdown")

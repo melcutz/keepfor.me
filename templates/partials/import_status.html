@@ -13,7 +13,7 @@
     {% if r.error %}<p class="mt-1">{{ r.error }}</p>{% endif %}
     {% if r.status == 'running' and r.notes_total %}
     <div class="mt-2 h-1.5 w-full rounded bg-slate-200 overflow-hidden">
-      <div class="h-full bg-blue-600" style="width: {{ r.progress }}%"></div>
+      <div class="h-full bg-[var(--brand-600)]" style="width: {{ r.progress }}%"></div>
     </div>
     <p class="mt-1 text-slate-500">{{ r.notes_processed }} of {{ r.notes_total }} notes processed</p>
     {% endif %}

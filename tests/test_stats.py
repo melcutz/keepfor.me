@@ -392,8 +392,8 @@ async def test_stats_rhythm_renders_grouped_bars(client, db, test_user_data):
     # One hover title per week group, all 12 weeks present.
     assert response.text.count(' archived"') == 12
     # Three distinct per-action bars in every group.
-    assert response.text.count('rounded-t bg-blue-600" style=') == 12
-    assert response.text.count('rounded-t bg-emerald-600" style=') == 12
+    assert response.text.count('rounded-t bg-[var(--brand-600)]" style=') == 12
+    assert response.text.count('rounded-t bg-[var(--brand-300)]" style=') == 12
     assert response.text.count('rounded-t bg-amber-600" style=') == 12
 
 
