@@ -32,6 +32,15 @@ argument away in the first two cases.
   snapshots and the vectors stay until the user deletes the item for good.
 
 ### Added
+- **Indexer hooks for textless items** (keepfor-cloud#120): the new public
+  predicates in `keepfor.search.indexable` let an indexer skip an item that
+  holds no text instead of writing it to the index and deleting it after
+  extraction. `should_index_text(item)` returns `False` for a failed
+  extraction, a binary URL, a mostly unprintable body, an empty body, a bare
+  URL and a URL-only body. `should_index_title(item)` exposes title-only
+  indexing separately, so an excluded item stays title-indexable (the title
+  row of keepfor-cloud#119). The extraction processor consults the hook
+  before chunking and embedding. See `docs/extension-points.md`, section 8.
 - **Scoped Trash purge** (GitHub issue #37): `purge_trash()` takes the tenant
   `scope` now, so a multi-tenant host destroys the R2 snapshots under the
   tenant prefix (`t/<tenant_id>/...`) and the vectors in the tenant
