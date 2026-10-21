@@ -197,18 +197,6 @@ async def service_worker():
 # ==========================================
 
 
-def _without_pinned(items: list[dict]) -> list[dict]:
-    """Drops pinned items from the grid.
-
-    Pinned items are rendered on the pinned shelf, so keeping them in the
-    grid would show the same card twice (shelf + grid) - 7 saves read as 9
-    cards. The shelf is not re-rendered by the htmx search swap (it only
-    replaces #items-list), so the filter has to happen here, on both the
-    full page and the search response.
-    """
-    return [it for it in items if not it.get("is_pinned")]
-
-
 @router.get("/", response_class=HTMLResponse)
 async def library_page(
     request: Request,
@@ -250,6 +238,11 @@ async def library_page(
     clean_category = category.strip() if category and category.strip() else None
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
+    # The pinned shelf shows the pinned items, so the browse grid leaves
+    # them out (in the query, so the total and the pager match it). A
+    # search keeps them: the shelf is not filtered by the query, so
+    # hiding a pinned match would be a silent loss.
+    exclude_pinned = not (q or "").strip()
     items, total = await hybrid_search(
         db,
         env,
@@ -263,6 +256,7 @@ async def library_page(
         category=clean_category,
         quick=bool(quick),
         scope=scope,
+        exclude_pinned=exclude_pinned,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -279,9 +273,9 @@ async def library_page(
             category=clean_category,
             quick=bool(quick),
             scope=scope,
+            exclude_pinned=exclude_pinned,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
-    items = _without_pinned(items)
     tags, status_counts, pinned_items, import_status = await asyncio.gather(
         list_user_tags(db, user["id"]),
         get_status_counts(
@@ -366,6 +360,10 @@ async def search_htmx(
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
     tag_list, untagged_only = parse_tag_filter(clean_tag)
+    # An empty query is the browse grid: the pinned shelf shows the
+    # pinned items, so the grid leaves them out. A real search keeps
+    # them, the shelf is not filtered by the query.
+    exclude_pinned = not query.strip()
     items, total = await hybrid_search(
         db,
         env,
@@ -380,6 +378,7 @@ async def search_htmx(
         category=clean_category,
         quick=quick_flag,
         scope=scope,
+        exclude_pinned=exclude_pinned,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -397,9 +396,9 @@ async def search_htmx(
             category=clean_category,
             quick=quick_flag,
             scope=scope,
+            exclude_pinned=exclude_pinned,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
-    items = _without_pinned(items)
     tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
 
     pager_qs = urlencode(

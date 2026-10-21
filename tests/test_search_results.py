@@ -94,6 +94,12 @@ def _rendered_ids(html):
     return re.findall(r'id="item-card-([^"]+)"', html)
 
 
+def _grid_ids(html):
+    """The cards of the grid only: the pinned shelf sits above it."""
+    grid = html.split('id="items-list"', 1)[-1]
+    return re.findall(r'id="item-card-([^"]+)"', grid)
+
+
 def _card_count(html, item_id):
     """How many times a card is rendered (the pinned shelf + the grid)."""
     return html.count(f'id="item-card-{item_id}"')
@@ -203,28 +209,33 @@ async def test_nonsense_query_drops_semantic_hits(
 async def test_real_semantic_scores_survive_in_both_modes(
     db, search_setup, monkeypatch
 ):
-    """Measured real-match scores (0.742, 0.832) are results in either mode."""
+    """Only a strong hit survives without a keyword match.
+
+    Measured Oct 2026 on a real prod library: the real hits score
+    0.63-0.67, the nonsense query 0.727. A semantic-only hit therefore
+    has to be strong (>= 0.80) to count on its own.
+    """
+    strong = search_setup["other_ids"][1]
     _mock_vector_scores(
         monkeypatch,
         {
             search_setup["other_ids"][0]: 0.742,
-            search_setup["other_ids"][1]: 0.832,
+            strong: 0.832,
         },
     )
     env = MockEnv()
-    hits = {search_setup["other_ids"][0], search_setup["other_ids"][1]}
 
     semantic, semantic_total = await hybrid_search(
         db, env, search_setup["user"]["id"], "example domain", mode="semantic"
     )
-    assert {i["id"] for i in semantic} == hits
-    assert semantic_total == 2
+    assert {i["id"] for i in semantic} == {strong}
+    assert semantic_total == 1
 
     hybrid, hybrid_total = await hybrid_search(
         db, env, search_setup["user"]["id"], "example domain", mode="hybrid"
     )
-    assert {i["id"] for i in hybrid} == hits
-    assert hybrid_total == 2
+    assert {i["id"] for i in hybrid} == {strong}
+    assert hybrid_total == 1
 
 
 async def test_keyword_hit_at_measured_score_is_kept_in_hybrid(
@@ -243,15 +254,16 @@ async def test_keyword_hit_at_measured_score_is_kept_in_hybrid(
 async def test_semantic_only_hit_at_measured_score_is_dropped_in_hybrid(
     db, search_setup, monkeypatch
 ):
-    """Without a keyword hit, 0.637 clears the floor but not the hybrid bar."""
+    """Without a keyword hit, 0.637 is neither strong nor near the top."""
     other = search_setup["other_ids"][0]
     _mock_vector_scores(monkeypatch, {other: 0.637})
     env = MockEnv()
 
-    semantic, _ = await hybrid_search(
+    semantic, semantic_total = await hybrid_search(
         db, env, search_setup["user"]["id"], "alpha", mode="semantic"
     )
-    assert other in {i["id"] for i in semantic}
+    assert other not in {i["id"] for i in semantic}
+    assert semantic_total == 0
 
     hybrid, total = await hybrid_search(
         db, env, search_setup["user"]["id"], "alpha", mode="hybrid"
@@ -275,7 +287,7 @@ async def test_keyword_match_survives_a_low_semantic_score(
 async def test_strong_semantic_hit_without_keyword_match_is_kept(
     client, db, search_setup, monkeypatch
 ):
-    """Above the hybrid bar a semantic-only hit is still a result."""
+    """A strong hit is a result even without a keyword match."""
     _login(client, search_setup["session"])
     _mock_vector_scores(monkeypatch, dict.fromkeys(search_setup["other_ids"], 0.742))
     res = client.post("/search", data={"query": "alpha", "tag": ""})
@@ -284,8 +296,107 @@ async def test_strong_semantic_hit_without_keyword_match_is_kept(
     assert _library_total(res.text) == 8
 
 
+async def test_nonsense_query_at_prod_score_returns_nothing(
+    client, db, search_setup, monkeypatch
+):
+    """The prod score of a nonsense query is above every real hit.
+
+    Measured Oct 2026 on a real prod library: "zxqvbnm" scores 0.727
+    while the real hits score 0.63-0.67. No absolute floor separates
+    them, so a nonsense query without a keyword hit must return nothing
+    in either mode.
+    """
+    _login(client, search_setup["session"])
+    _mock_vector_scores(monkeypatch, dict.fromkeys(search_setup["other_ids"], 0.727))
+
+    res = client.post("/search", data={"query": "zxqvbnm", "tag": ""})
+    assert res.status_code == 200
+    assert _rendered_ids(res.text) == []
+    assert _library_total(res.text) == 0
+    assert "No results for" in res.text
+    assert "zxqvbnm" in res.text
+
+    semantic, semantic_total = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "zxqvbnm", mode="semantic"
+    )
+    assert semantic == []
+    assert semantic_total == 0
+
+
+async def test_real_hits_with_keyword_match_are_returned(
+    client, db, search_setup, monkeypatch
+):
+    """The prod scores of the real hits (0.63-0.67) with a keyword hit."""
+    _login(client, search_setup["session"])
+    user_id = search_setup["user"]["id"]
+    scores = (0.63, 0.65, 0.67)
+    ids = []
+    for n, score in enumerate(scores):
+        item_id = str(uuid.uuid4())
+        ids.append(item_id)
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, title, status)"
+            " VALUES (?, ?, ?, ?, ?, 'saved');",
+            (
+                item_id,
+                user_id,
+                f"https://example.com/llm{n}",
+                f"https://example.com/llm{n}",
+                "Running a local LLM",
+            ),
+        )
+        await db.execute(
+            "INSERT INTO items_fts (item_id, user_id, title, content_text)"
+            " VALUES (?, ?, ?, ?);",
+            (item_id, user_id, "Running a local LLM", "a local llm on my machine"),
+        )
+    _mock_vector_scores(monkeypatch, dict(zip(ids, scores)))
+
+    res = client.post("/search", data={"query": "local LLM", "tag": ""})
+    assert res.status_code == 200
+    assert set(_rendered_ids(res.text)) == set(ids)
+    assert _library_total(res.text) == 3
+
+
+async def test_hybrid_bar_boundary(db, search_setup, monkeypatch):
+    """0.68 is kept (>=), 0.679 is dropped, at the hybrid bar."""
+    other = search_setup["other_ids"][0]
+    top = search_setup["alpha_ids"][0]
+    for score, kept in ((0.68, True), (0.679, False)):
+        _mock_vector_scores(monkeypatch, {top: 0.73, other: score})
+        results, _ = await hybrid_search(
+            db, MockEnv(), search_setup["user"]["id"], "alpha", mode="hybrid"
+        )
+        assert (other in {i["id"] for i in results}) is kept
+
+
+async def test_semantic_floor_boundary(db, search_setup, monkeypatch):
+    """0.62 is kept (>=), 0.619 is dropped, at the semantic floor."""
+    alpha = search_setup["alpha_ids"][0]
+    for score, kept in ((0.62, True), (0.619, False)):
+        _mock_vector_scores(monkeypatch, {alpha: score})
+        results, _ = await hybrid_search(
+            db, MockEnv(), search_setup["user"]["id"], "alpha", mode="semantic"
+        )
+        assert (alpha in {i["id"] for i in results}) is kept
+
+
+async def test_strong_bar_boundary(db, search_setup, monkeypatch):
+    """0.80 is kept (>=), 0.799 is dropped, at the strong bar."""
+    strong = search_setup["other_ids"][0]
+    weak = search_setup["other_ids"][1]
+    _mock_vector_scores(monkeypatch, {strong: 0.80, weak: 0.799})
+    results, total = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "zxqvbnm", mode="hybrid"
+    )
+    ids = {i["id"] for i in results}
+    assert strong in ids
+    assert weak not in ids
+    assert total == 1
+
+
 async def test_pinned_item_is_rendered_once(client, db, search_setup):
-    """Pinned items live on the shelf: they must not show up in the grid too."""
+    """Pinned items live on the shelf: the browse grid must not repeat them."""
     _login(client, search_setup["session"])
     pinned_id = search_setup["alpha_ids"][0]
     await db.execute("UPDATE items SET is_pinned = 1 WHERE id = ?;", (pinned_id,))
@@ -293,17 +404,66 @@ async def test_pinned_item_is_rendered_once(client, db, search_setup):
     res = client.get("/")
     assert res.status_code == 200
     assert _card_count(res.text, pinned_id) == 1
+    assert pinned_id not in _grid_ids(res.text)
 
+    # A search keeps the pinned match: the shelf is not filtered by the
+    # query, so dropping the match would lose it.
     res = client.get("/", params={"q": "alpha"})
     assert res.status_code == 200
-    assert _card_count(res.text, pinned_id) == 1
+    assert _card_count(res.text, pinned_id) == 2
+    assert pinned_id in _grid_ids(res.text)
 
-    # The htmx search only swaps the grid: the pinned card must be gone
-    # from it, the shelf keeps showing it.
     res = client.post("/search", data={"query": "alpha", "tag": ""})
     assert res.status_code == 200
-    assert _card_count(res.text, pinned_id) == 0
-    assert len(_rendered_ids(res.text)) == 2
+    assert _card_count(res.text, pinned_id) == 1
+    assert len(_rendered_ids(res.text)) == 3
+
+
+async def test_browse_count_matches_rendered_items_with_pinned(
+    client, db, search_setup
+):
+    """The pinned items leave the grid, so the count must leave them too."""
+    _login(client, search_setup["session"])
+    user_id = search_setup["user"]["id"]
+    for n in range(20):
+        await db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, title, status)"
+            " VALUES (?, ?, ?, ?, ?, 'saved');",
+            (
+                str(uuid.uuid4()),
+                user_id,
+                f"https://example.com/bulk{n}",
+                f"https://example.com/bulk{n}",
+                f"Bulk save {n}",
+            ),
+        )
+    await db.execute(
+        "UPDATE items SET is_pinned = 1 WHERE id = ?;", (search_setup["other_ids"][0],)
+    )
+
+    res = client.get("/")
+    assert res.status_code == 200
+    # 28 saves, 1 of them pinned: the grid shows 27, in full pages.
+    assert _library_total(res.text) == 27
+    assert len(_grid_ids(res.text)) == 20
+    assert "of 27 saves" in res.text
+
+    res = client.get("/", params={"page": 2})
+    assert res.status_code == 200
+    assert _library_total(res.text) == 27
+    assert len(_grid_ids(res.text)) == 7
+
+
+async def test_search_returns_a_pinned_match(client, db, search_setup):
+    """A query that only matches a pinned item still finds it."""
+    _login(client, search_setup["session"])
+    pinned_id = search_setup["alpha_ids"][0]
+    await db.execute("UPDATE items SET is_pinned = 1 WHERE id = ?;", (pinned_id,))
+
+    res = client.post("/search", data={"query": "Alpha guide 0", "tag": ""})
+    assert res.status_code == 200
+    assert _rendered_ids(res.text) == [pinned_id]
+    assert "No results" not in res.text
 
 
 async def test_sidebar_all_items_count_stays_the_library_total(
