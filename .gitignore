@@ -20,3 +20,6 @@ dist/
 .wrangler/
 wrangler.local.jsonc
 .dev.vars
+
+# coverage artifacts
+.coverage

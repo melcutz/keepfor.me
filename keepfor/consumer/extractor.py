@@ -168,6 +168,41 @@ def _normalize_text_nodes(html_str: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", out).strip()
 
 
+# The reader renders the item title as the page heading. An article that
+# repeats the headline in its own leading <h1> would show it twice
+# (issue #57), so the leading H1 is dropped when it matches the title.
+_TITLE_QUOTES_RE = re.compile(r"[\u00ab\u00bb\u2018\u2019\u201c\u201d\"']")
+_TITLE_SPACE_RE = re.compile(r"\s+")
+
+
+def _fold_title(text: str | None) -> str:
+    """Fold a title or heading for comparison: entities, case, quotes, space."""
+    folded = html_module.unescape(text or "").lower()
+    folded = _TITLE_QUOTES_RE.sub("", folded)
+    return _TITLE_SPACE_RE.sub(" ", folded).strip()
+
+
+def _drop_duplicate_leading_h1(html_str: str, title: str | None) -> str:
+    """Remove a leading <h1> that repeats the article title.
+
+    A later <h1> is a section heading, not a duplicate: it stays.
+    """
+    if not html_str or not title:
+        return html_str or ""
+    soup_cls, _ = _load_parsers()
+    soup = soup_cls(html_str, "html.parser")
+    first = next(
+        (n for n in soup.children if getattr(n, "name", None) or str(n).strip()),
+        None,
+    )
+    if first is None or getattr(first, "name", None) != "h1":
+        return html_str
+    if _fold_title(first.get_text(" ", strip=True)) != _fold_title(title):
+        return html_str
+    first.decompose()
+    return str(soup).strip()
+
+
 def extract_image_url(html: str, metadata: Any = None) -> str | None:
     """Extract cover image URL from trafilatura metadata or OpenGraph tags.
 
@@ -916,6 +951,9 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
             )
 
     clean_html = sanitize_clean_html(clean_html_raw or "")
+    # The reader shows the title as the page heading: an article that repeats
+    # it in a leading <h1> would render the headline twice (issue #57).
+    clean_html = _drop_duplicate_leading_h1(clean_html, title)
     plain_text = _clean_plain_text(plain_text or "")
     word_count = len(plain_text.split())
 
