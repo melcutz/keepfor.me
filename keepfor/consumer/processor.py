@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 from keepfor.consumer.extractor import article_from_reader_markdown, extract_article
 from keepfor.models.db import Database
+from keepfor.search.indexable import should_index_text, should_index_title
 from keepfor.utils.chunker import recursive_character_split
 from keepfor.utils.egress import (
     _get_env_val,
@@ -340,7 +341,23 @@ async def extract_and_store(
             ),
         )
 
-        # 5. Update FTS5 virtual table (include v2 provenance fields)
+        # 5. Update FTS5 virtual table (include v2 provenance fields).
+        # Only an item that holds readable text gets a full text entry and
+        # vector chunks (keepfor-cloud#120): a non-text item is skipped up
+        # front instead of being written here and deleted afterwards by the
+        # hosted ingest. The DELETE stays unconditional so a re-extraction
+        # that turns textless cannot leave a stale row behind.
+        index_item = {
+            "url": url,
+            "title": extracted.get("title") or "",
+            "content_text": extracted.get("content_text") or "",
+            "status": "ok",
+        }
+        index_text = should_index_text(index_item)
+        # A textless item keeps a title-only row (should_index_title): a
+        # saved image, a bare-URL bookmark or a failed extraction has no
+        # text to index, but its title still finds it in library search.
+        index_title = should_index_title(index_item)
         await db.execute(
             "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
             (item_id, user_id),
@@ -361,24 +378,32 @@ async def extract_and_store(
             ]
             if p
         )
-        combined_content = " ".join(
-            p
-            for p in [
-                extracted["content_text"] or "",
-                v2_fields,
-                # The summary and the page description are keyword
-                # sources too: an item that names the concept only there
-                # had no keyword hit and was dropped (#55).
-                summary,
-                extracted.get("excerpt") or "",
-            ]
-            if p
-        )
-        await db.execute(
-            "INSERT INTO items_fts (item_id, user_id, title, content_text) "
-            "VALUES (?, ?, ?, ?);",
-            (item_id, user_id, extracted["title"], combined_content),
-        )
+        if index_text:
+            combined_content = " ".join(
+                p
+                for p in [
+                    extracted["content_text"] or "",
+                    v2_fields,
+                    # The summary and the page description are keyword
+                    # sources too: an item that names the concept only there
+                    # had no keyword hit and was dropped (#55).
+                    summary,
+                    extracted.get("excerpt") or "",
+                ]
+                if p
+            )
+            await db.execute(
+                "INSERT INTO items_fts (item_id, user_id, title, content_text) "
+                "VALUES (?, ?, ?, ?);",
+                (item_id, user_id, extracted["title"], combined_content),
+            )
+        elif index_title:
+            # Title-only row: no text to index, but the title still finds it.
+            await db.execute(
+                "INSERT INTO items_fts (item_id, user_id, title, content_text) "
+                "VALUES (?, ?, ?, ?);",
+                (item_id, user_id, extracted["title"], v2_fields),
+            )
 
         # 5b. Automatic tagging (fail-open: a tagger defect must never
         # flip an extracted item to failed).
@@ -455,9 +480,13 @@ async def extract_and_store(
         except Exception as exc:
             logger.warning(f"Auto-tagging failed: item={item_id}: {exc}")
 
-        # 6. Semantic chunking & Vectorize indexing
-        chunks = recursive_character_split(
-            extracted["content_text"], target_tokens=400, overlap_tokens=50
+        # 6. Semantic chunking & Vectorize indexing (only for text items).
+        chunks = (
+            recursive_character_split(
+                extracted["content_text"], target_tokens=400, overlap_tokens=50
+            )
+            if index_text
+            else []
         )
 
         vectors = scope.vectors(env)
