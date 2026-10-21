@@ -246,7 +246,7 @@ async def library_page(
     # filter, a search or the pager never falls back to another layout.
     # Without one the links stay view-free and the client applies the
     # saved preference (localStorage).
-    view_param = LIBRARY_VIEW_PARAMS.get(view)
+    view_param = LIBRARY_VIEW_PARAMS.get(view or "")
     clean_view = view_param or "list"
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
@@ -371,7 +371,7 @@ async def search_htmx(
     quick_flag = str(quick).strip().lower() in ("1", "true", "on", "yes")
     # The layout travels with the search so the re-rendered pager and the
     # cards keep the view the page is in.
-    view_param = LIBRARY_VIEW_PARAMS.get(view)
+    view_param = LIBRARY_VIEW_PARAMS.get(view or "")
     view_q = f"?view={view_param}" if view_param else ""
     view_a = f"&view={view_param}" if view_param else ""
     # The mode selector was removed from the UI: always run hybrid. The

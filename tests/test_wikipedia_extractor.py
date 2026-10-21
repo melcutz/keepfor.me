@@ -7,7 +7,6 @@ A saved Wikipedia page must reach the reader with one title, no "[edit]"
 fragments, no junk byline and one date: the last modification of the article.
 """
 
-import re
 from pathlib import Path
 
 import pytest
@@ -16,6 +15,7 @@ from fastapi.testclient import TestClient
 from keepfor.app import app
 from keepfor.auth.service import login_user, register_user
 from keepfor.consumer.extractor import extract_article, extract_wikipedia_article
+from tests.htmltools import without_scripts
 
 FIXTURE = Path(__file__).parent / "fixtures" / "wikipedia_raft.html"
 WIKI_URL = "https://en.wikipedia.org/wiki/Raft_(algorithm)"
@@ -90,12 +90,7 @@ def test_wikipedia_normalizes_the_date_to_the_last_modification(wiki_html):
 def test_wikipedia_date_falls_back_to_the_footer_line(wiki_html):
     """Without schema.org metadata the footer's "last edited on" line is
     the remaining source of truth."""
-    without_ld = re.sub(
-        r'<script type="application/ld\+json">.*?</script>',
-        "",
-        wiki_html,
-        flags=re.S,
-    )
+    without_ld = without_scripts(wiki_html, "application/ld+json")
     out = extract_wikipedia_article(without_ld, WIKI_URL)
     assert out["published_date"] == "2026-08-13"
 

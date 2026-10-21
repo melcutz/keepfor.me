@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from keepfor import app as app_module
 from keepfor.auth.service import login_user, register_user
 from keepfor.models.items import save_item
+from tests.htmltools import script_bodies
 
 VIEWS = ("cards", "list", "compact")
 
@@ -165,9 +166,7 @@ async def test_client_script_keeps_the_url_view_and_syncs_the_links(
     client.cookies["kfm_session"] = library["session"]
     res = client.get("/", params={"view": "cards"})
     assert res.status_code == 200
-    scripts = "\n".join(
-        re.findall(r"<script\b[^>]*>(.*?)</script\s*>", res.text, re.S | re.I)
-    )
+    scripts = script_bodies(res.text)
     assert "kfm_view" in scripts
     # The URL is read before the saved preference, so a shared link wins.
     assert scripts.index("urlView") < scripts.index("localStorage.getItem('kfm_view')")
