@@ -1250,8 +1250,8 @@ async def test_search_results_show_favicons_and_tag_colors(client, db, auth_head
 
     response = client.post("/search", data={"query": "", "mode": "keyword", "tag": ""})
     assert response.status_code == 200
-    assert "s2/favicons?domain=example.com" in response.text
-    assert "onerror" in response.text
+    assert 'src="/favicons/example.com"' in response.text
+    assert "s2/favicons" not in response.text
     assert TAG_PILL_CLASSES[tag_palette_index("design")] in response.text
 
 

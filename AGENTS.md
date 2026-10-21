@@ -172,6 +172,15 @@ Cards, List and Compact are **one list of items in three layouts** (issue #39). 
 - **Pinned items lead the feed.** The browse feed is ordered by `is_pinned DESC, created_at DESC` — in all three branches of `get_recent_items` — so a pinned save opens page 1 in every view. Search stays relevance-ordered; `tests/test_library_pinned_order.py` pins both.
 - **The layout travels with the URL.** An explicit `?view=` is carried into every URL the library page builds (pager, category tabs, status chips, tag filters, search form), so the layout survives a filter, a search or a page change; without one the links stay layout-free and the client applies `localStorage`. The switcher marks the rendered layout server-side (`aria-pressed`), and picking one rewrites the page's links and the hidden `view` field the htmx requests send; `tests/test_library_view_param.py` pins both.
 
+## Favicons are served same-origin (`/favicons/<domain>`)
+
+Item cards used to point their `<img>` at a third-party favicon service. Those answer 404 for every domain without an icon, so every library page filled the browser console with failed requests (issue #61). The card now asks `/favicons/<domain>` instead, and that route **always answers 200**.
+
+- `keepfor/utils/favicon.py` owns it: `normalize_host()` keeps only public hostnames (IP literals, `localhost`, `*.local`, `*.internal` are refused), `_fetch_upstream()` goes through `keepfor/utils/egress.py` (so the SSRF policy, the size cap and the timeout apply), and the R2 cache stores `favicons/<domain>` as base64 text (R2's binary put differs between runtimes, its text put does not).
+- A domain with no icon gets the **transparent 1×1 PNG fallback**, so the card's letter tile shows through it. Never serve an upstream body that is not a raster image: an HTML error page would fail to decode in the browser, and SVG is refused because a script inside it runs when the URL is opened as a document.
+- The route is **public**, like `/favicon.ico`: a session that expires between the page and its images must not turn into a 401 in the console.
+- The card must not point at any external favicon service — `tests/test_favicons.py` pins that for all three views.
+
 ## Performance: cold starts dominate latency
 
 Measured on prod: page loads are **~250-300ms warm but spike to 1.5-3.5s on ~15% of requests** (isolate cold starts). Compression is fine — a 200KB library page is 14KB on the wire. D1 queries are fast individually. Do not chase payload or query tuning first; look at what a cold start loads.
