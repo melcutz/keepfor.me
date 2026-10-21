@@ -399,6 +399,43 @@ async def test_rename_and_merge_tags(library):
 
 
 @pytest.mark.asyncio
+async def test_mcp_create_rename_and_merge_unicode_tags(library):
+    user, env, db, ids = library
+    for name, expected in (
+        ("Konsumgüterbranche", "konsumgüterbranche"),
+        ("Straße", "straße"),
+        ("Café", "café"),
+    ):
+        created = await call(db, env, user, "create_tag", name=name)
+        assert created["name"] == expected
+        assert created["created"] is True
+
+    # Decomposed u + combining diaeresis hits the existing NFC tag.
+    duplicate = await call(db, env, user, "create_tag", name="konsumgu\u0308terbranche")
+    assert duplicate["name"] == "konsumgüterbranche"
+    assert duplicate["created"] is False
+
+    renamed = await call(db, env, user, "rename_tag", old="straße", new="großstraße")
+    assert renamed["result"] == "merged"
+
+    merged = await call(
+        db,
+        env,
+        user,
+        "merge_tags",
+        sources=["café", "großstraße"],
+        target="konsumgu\u0308terbranche",
+    )
+    assert merged["result"] == "merged"
+    listed = await call(db, env, user, "list_tags")
+    names = {t["name"] for t in listed["tags"]}
+    assert "konsumgüterbranche" in names
+    assert "café" not in names
+    assert "straße" not in names
+    assert "großstraße" not in names
+
+
+@pytest.mark.asyncio
 async def test_delete_tag_dry_run_then_apply(library):
     user, env, db, ids = library
     preview = await call(db, env, user, "delete_tag", name="work")
