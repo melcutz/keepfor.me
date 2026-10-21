@@ -77,6 +77,58 @@ def test_sanitize_normalizes_whitespace_entities():
     assert "hello world" in clean
 
 
+def _blog_html(title: str, h1: str) -> str:
+    """A generic article page: og:title plus the article's own H1."""
+    prose = "Cloudflare runs AI models on GPUs next to users all over the world. " * 12
+    quoted = title.replace('"', "&quot;")
+    return (
+        "<html><head>"
+        f"<title>{title}</title>"
+        f'<meta property="og:title" content="{quoted}">'
+        "</head><body><article>"
+        f"<h1>{h1}</h1>"
+        f"<p>{prose}</p>"
+        "</article></body></html>"
+    )
+
+
+def test_leading_h1_that_repeats_the_title_is_dropped():
+    """The reader renders the title as the page heading: the article's own
+    copy of it is a duplicate (issue #57)."""
+    out = extract_article(
+        _blog_html(
+            "Workers AI: serverless inference",
+            "Workers AI: serverless inference",
+        ),
+        "https://blog.cloudflare.com/workers-ai/",
+    )
+    assert out["title"] == "Workers AI: serverless inference"
+    assert "<h1" not in out["clean_html"]
+    assert "serverless inference" not in out["clean_html"]
+
+
+def test_leading_h1_that_differs_from_the_title_is_kept():
+    """Only a heading that repeats the title is a duplicate: a different H1
+    is the article's own headline and stays."""
+    out = extract_article(
+        _blog_html("Reading list: October", "How we cut our cold starts"),
+        "https://example.com/post",
+    )
+    assert out["title"] == "Reading list: October"
+    assert "<h1>How we cut our cold starts</h1>" in out["clean_html"]
+
+
+def test_leading_h1_matches_the_title_despite_case_quotes_and_space():
+    """The comparison folds case, quotes and whitespace: the page may write
+    the headline differently in the title and in its H1."""
+    out = extract_article(
+        _blog_html('The "Best" Guide', "the “best”\nguide"),
+        "https://example.com/guide",
+    )
+    assert out["title"] == 'The "Best" Guide'
+    assert "<h1" not in out["clean_html"]
+
+
 def test_extract_flags_login_wall():
     """Login walls extract to a stub; they must not be stored as saved."""
     html = (
@@ -147,6 +199,32 @@ def test_fallback_when_empty_body():
     assert extracted["excerpt"] == "A personal showcase of web projects."
     assert extracted["is_fallback"] == 1
     assert extracted["redirect_url"] is None
+
+
+def test_extract_reads_the_page_language():
+    """The tagger needs the page language to pick its stopword list (#58)."""
+    german = (
+        '<html lang="de"><head><title>Hamburg</title></head><body><article>'
+        "<p>Hamburg ist ein Stadtstaat und eine Hansestadt mit einem grossen "
+        "Hafen, der Elbe und vielen Bruecken in der Innenstadt.</p>"
+        "</article></body></html>"
+    )
+    assert extract_article(german, "https://de.example.com/hamburg")["language"] == "de"
+
+    english = (
+        '<html lang="en"><head><title>Hamburg</title></head><body><article>'
+        "<p>Hamburg is a city state and a free city with a large harbour, "
+        "the Elbe river and many bridges in the inner city.</p>"
+        "</article></body></html>"
+    )
+    assert extract_article(english, "https://example.com/hamburg")["language"] == "en"
+
+    plain = (
+        "<html><head><title>Hamburg</title></head><body><article>"
+        "<p>Hamburg is a city state with a large harbour and many bridges.</p>"
+        "</article></body></html>"
+    )
+    assert extract_article(plain, "https://example.com/hamburg")["language"] is None
 
 
 # ==========================================

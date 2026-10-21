@@ -168,6 +168,41 @@ def _normalize_text_nodes(html_str: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", out).strip()
 
 
+# The reader renders the item title as the page heading. An article that
+# repeats the headline in its own leading <h1> would show it twice
+# (issue #57), so the leading H1 is dropped when it matches the title.
+_TITLE_QUOTES_RE = re.compile(r"[\u00ab\u00bb\u2018\u2019\u201c\u201d\"']")
+_TITLE_SPACE_RE = re.compile(r"\s+")
+
+
+def _fold_title(text: str | None) -> str:
+    """Fold a title or heading for comparison: entities, case, quotes, space."""
+    folded = html_module.unescape(text or "").lower()
+    folded = _TITLE_QUOTES_RE.sub("", folded)
+    return _TITLE_SPACE_RE.sub(" ", folded).strip()
+
+
+def _drop_duplicate_leading_h1(html_str: str, title: str | None) -> str:
+    """Remove a leading <h1> that repeats the article title.
+
+    A later <h1> is a section heading, not a duplicate: it stays.
+    """
+    if not html_str or not title:
+        return html_str or ""
+    soup_cls, _ = _load_parsers()
+    soup = soup_cls(html_str, "html.parser")
+    first = next(
+        (n for n in soup.children if getattr(n, "name", None) or str(n).strip()),
+        None,
+    )
+    if first is None or getattr(first, "name", None) != "h1":
+        return html_str
+    if _fold_title(first.get_text(" ", strip=True)) != _fold_title(title):
+        return html_str
+    first.decompose()
+    return str(soup).strip()
+
+
 def extract_image_url(html: str, metadata: Any = None) -> str | None:
     """Extract cover image URL from trafilatura metadata or OpenGraph tags.
 
@@ -199,6 +234,22 @@ def _clean_plain_text(text: str) -> str:
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
+
+
+# The page's own language, when it declares one (<html lang="de">). Cheap
+# regex over the head of the document: the tagger needs it to cut German
+# pages at German stopwords (issue #58), and a full parse is not worth it.
+_HTML_LANG_RE = re.compile(
+    r"<html[^>]*\blang\s*=\s*[\"']?([a-zA-Z]{2,3})", re.IGNORECASE
+)
+
+
+def detect_html_language(html: str) -> str | None:
+    """The page language code ("de") from <html lang="...">, else None."""
+    match = _HTML_LANG_RE.search(html or "", 0, 20000)
+    if not match:
+        return None
+    return match.group(1).lower()
 
 
 # Pages that return HTTP 200 but carry no article. Seen across the library:
@@ -440,6 +491,7 @@ def extract_youtube_article(html: str, url: str) -> dict[str, Any]:
         "is_fallback": 0,
         "word_count": word_count,
         "image_url": image_url,
+        "language": detect_html_language(html),
         "blocked_reason": detect_blocked_page(title, plain_text, None),
         "redirect_url": None,
     }
@@ -507,6 +559,7 @@ def extract_github_article(html: str, url: str) -> dict[str, Any]:
         "is_fallback": 0 if len(plain_text) >= 50 else 1,
         "word_count": word_count,
         "image_url": None,
+        "language": detect_html_language(html),
         "blocked_reason": detect_blocked_page(title, plain_text, None),
         "redirect_url": None,
     }
@@ -706,6 +759,7 @@ def extract_wikipedia_article(html: str, url: str) -> dict[str, Any]:
         "is_fallback": 0 if word_count >= 50 else 1,
         "word_count": word_count,
         "image_url": image_url,
+        "language": detect_html_language(html),
         "blocked_reason": detect_blocked_page(title, plain_text, None),
         "redirect_url": detect_redirect_url(html, url),
     }
@@ -897,6 +951,9 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
             )
 
     clean_html = sanitize_clean_html(clean_html_raw or "")
+    # The reader shows the title as the page heading: an article that repeats
+    # it in a leading <h1> would render the headline twice (issue #57).
+    clean_html = _drop_duplicate_leading_h1(clean_html, title)
     plain_text = _clean_plain_text(plain_text or "")
     word_count = len(plain_text.split())
 
@@ -918,6 +975,7 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
         "is_fallback": 1 if is_fallback else 0,
         "word_count": word_count,
         "image_url": image_url,
+        "language": detect_html_language(html),
         "blocked_reason": blocked_reason,
         "redirect_url": redirect_url,
     }
@@ -975,6 +1033,8 @@ def article_from_reader_markdown(url: str, reader_text: str) -> dict[str, Any]:
         "is_fallback": 0,
         "word_count": word_count,
         "image_url": None,
+        # Reader-proxy markdown carries no <html lang>: the tagger guesses.
+        "language": None,
         # Reader-proxy text is genuine article content: never a wall.
         "blocked_reason": detect_blocked_page(title, plain_text, None),
         "redirect_url": None,
