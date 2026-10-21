@@ -11,7 +11,6 @@ the client fell back to the saved preference (localStorage) instead.
 
 import html as html_lib
 import re
-from html.parser import HTMLParser
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,25 +20,6 @@ from keepfor.auth.service import login_user, register_user
 from keepfor.models.items import save_item
 
 VIEWS = ("cards", "list", "compact")
-
-
-class _ScriptCollector(HTMLParser):
-    """The inline <script> bodies of a page (parsed, not regex-matched)."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.bodies: list[str] = []
-        self._in_script = False
-
-    def handle_starttag(self, tag: str, attrs: list) -> None:
-        self._in_script = tag == "script"
-
-    def handle_endtag(self, tag: str) -> None:
-        self._in_script = False
-
-    def handle_data(self, data: str) -> None:
-        if self._in_script:
-            self.bodies.append(data)
 
 
 class FakeQueue:
@@ -109,14 +89,6 @@ def _switcher(html: str) -> dict[str, str]:
     )
     assert buttons, "the layout switcher is not rendered"
     return dict(buttons)
-
-
-def _scripts(html: str) -> str:
-    """Every inline script of the page, as one blob of source."""
-    collector = _ScriptCollector()
-    collector.feed(html)
-    collector.close()
-    return "\n".join(collector.bodies)
 
 
 @pytest.mark.parametrize("view", VIEWS)
@@ -193,7 +165,9 @@ async def test_client_script_keeps_the_url_view_and_syncs_the_links(
     client.cookies["kfm_session"] = library["session"]
     res = client.get("/", params={"view": "cards"})
     assert res.status_code == 200
-    scripts = _scripts(res.text)
+    scripts = "\n".join(
+        re.findall(r"<script\b[^>]*>(.*?)</script\s*>", res.text, re.S | re.I)
+    )
     assert "kfm_view" in scripts
     # The URL is read before the saved preference, so a shared link wins.
     assert scripts.index("urlView") < scripts.index("localStorage.getItem('kfm_view')")

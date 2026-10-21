@@ -448,12 +448,7 @@
   // column. Every view lists the same items. The layout goes into URLs,
   // so only the three known values are accepted: the value in a URL is a
   // constant, never the raw query string.
-  function allowedView(v) {
-    if (v === 'cards') return 'cards';
-    if (v === 'list') return 'list';
-    if (v === 'compact') return 'compact';
-    return null;
-  }
+  var VIEWS = ["cards", "list", "compact"];
   var itemsList = document.getElementById('items-list');
   var viewInput = document.getElementById('active-view-input');
   function applyView(v) {
@@ -478,16 +473,15 @@
   // An explicit ?view= wins (shared link), else the saved preference.
   var urlView = null;
   try { urlView = new URLSearchParams(window.location.search).get('view'); } catch (_) {}
-  var explicitView = allowedView(urlView);
+  var explicitView = VIEWS.indexOf(urlView) === -1 ? null : urlView;
   var savedView = explicitView;
   if (!savedView) { try { savedView = localStorage.getItem('kfm_view'); } catch (_) {} }
-  if (!allowedView(savedView)) savedView = 'list';
+  if (VIEWS.indexOf(savedView) === -1) savedView = 'list';
   applyView(savedView);
   // Every URL the page builds carries the layout, so the pager, the
   // category tabs, the tag filters and the search keep the chosen view.
   function withView(url, v) {
-    var allowed = allowedView(v);
-    if (!allowed) return url;
+    if (VIEWS.indexOf(v) === -1) return url;
     var hash = '';
     var h = url.indexOf('#');
     if (h !== -1) { hash = url.slice(h); url = url.slice(0, h); }
@@ -496,11 +490,11 @@
     var params = q === -1 ? [] : url.slice(q + 1).split('&').filter(function (p) {
       return p && p.split('=')[0] !== 'view';
     });
-    params.push('view=' + allowed);
+    params.push('view=' + encodeURIComponent(v));
     return path + '?' + params.join('&') + hash;
   }
   function syncViewLinks(v) {
-    if (!allowedView(v)) return;
+    if (VIEWS.indexOf(v) === -1) return;
     document.querySelectorAll('#library-page a[href], #library-page [hx-push-url]').forEach(function (el) {
       var href = el.getAttribute('href');
       if (href && (href === '/' || href.indexOf('/?') === 0)) {
@@ -515,8 +509,8 @@
   }
   document.querySelectorAll('[data-view-btn]').forEach(function (b) {
     b.addEventListener('click', function () {
-      var v = allowedView(b.getAttribute('data-view-btn'));
-      if (!v) return;
+      var v = b.getAttribute('data-view-btn');
+      if (VIEWS.indexOf(v) === -1) return;
       try { localStorage.setItem('kfm_view', v); } catch (_) {}
       applyView(v);
       // Mirror the choice in the URL so a reload keeps this layout.
