@@ -291,6 +291,7 @@
 
       <form id="save-link-form" action="/save" method="POST" class="space-y-4">
         <h3 id="save-modal-title" class="text-base font-semibold text-slate-900 mb-4">Save Link to Library</h3>
+        <input type="hidden" id="save-view-input" name="view" value="{{ view_param or '' }}">
         <div>
           <label for="save-url-input" class="block text-sm font-semibold uppercase text-slate-500 mb-1">Webpage URL</label>
           <input type="url" id="save-url-input" name="url" required placeholder="https://example.com/article"

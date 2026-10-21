@@ -201,6 +201,32 @@ def test_fallback_when_empty_body():
     assert extracted["redirect_url"] is None
 
 
+def test_extract_reads_the_page_language():
+    """The tagger needs the page language to pick its stopword list (#58)."""
+    german = (
+        '<html lang="de"><head><title>Hamburg</title></head><body><article>'
+        "<p>Hamburg ist ein Stadtstaat und eine Hansestadt mit einem grossen "
+        "Hafen, der Elbe und vielen Bruecken in der Innenstadt.</p>"
+        "</article></body></html>"
+    )
+    assert extract_article(german, "https://de.example.com/hamburg")["language"] == "de"
+
+    english = (
+        '<html lang="en"><head><title>Hamburg</title></head><body><article>'
+        "<p>Hamburg is a city state and a free city with a large harbour, "
+        "the Elbe river and many bridges in the inner city.</p>"
+        "</article></body></html>"
+    )
+    assert extract_article(english, "https://example.com/hamburg")["language"] == "en"
+
+    plain = (
+        "<html><head><title>Hamburg</title></head><body><article>"
+        "<p>Hamburg is a city state with a large harbour and many bridges.</p>"
+        "</article></body></html>"
+    )
+    assert extract_article(plain, "https://example.com/hamburg")["language"] is None
+
+
 # ==========================================
 # Processor-level behavior (fetch -> store)
 # ==========================================

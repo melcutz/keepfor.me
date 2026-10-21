@@ -1248,11 +1248,11 @@ async def list_user_tags(db: Database, user_id: str) -> list[dict[str, Any]]:
 
 
 async def _refresh_fts_for_item(db: Database, user_id: str, item_id: str) -> None:
-    """Rebuild the FTS5 row for an item, folding user_notes and v2
-    fields into the index."""
+    """Rebuild the FTS5 row for an item, folding user_notes, v2 fields,
+    the summary and the page description into the index."""
     row = await db.query_first(
         "SELECT title, content_text, user_notes, agent_summary, "
-        "why_saved, source_context, saved_by FROM items"
+        "why_saved, source_context, saved_by, excerpt, summary FROM items"
         " WHERE id = ? AND user_id = ?;",
         (item_id, user_id),
     )
@@ -1269,7 +1269,18 @@ async def _refresh_fts_for_item(db: Database, user_id: str, item_id: str) -> Non
         if p
     )
     combined = " ".join(
-        p for p in [row["content_text"] or "", row["user_notes"] or "", v2_fields] if p
+        p
+        for p in [
+            row["content_text"] or "",
+            row["user_notes"] or "",
+            v2_fields,
+            # The summary and the page description are keyword sources
+            # too: an item that names the concept only there had no
+            # keyword hit and was dropped (#55).
+            row["summary"] or "",
+            row["excerpt"] or "",
+        ]
+        if p
     )
     await db.execute(
         "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
