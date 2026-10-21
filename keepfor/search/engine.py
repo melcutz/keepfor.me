@@ -56,6 +56,10 @@ def _category_clause(category: str | None, alias: str = "i") -> tuple[str, tuple
     a = alias
     if category == "notes":
         return f" AND {a}.item_type = 'note'", ()
+    if category == "read":
+        return f" AND {a}.read_state = 'read'", ()
+    if category == "unread":
+        return f" AND {a}.read_state = 'unread'", ()
     if category == "archive":
         return f" AND {a}.read_state = 'archived'", ()
     if category == "inbox":
