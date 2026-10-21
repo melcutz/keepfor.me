@@ -12,7 +12,18 @@ from fastapi.testclient import TestClient
 
 from keepfor import app as app_module
 from keepfor.auth.service import login_user, register_user
+from keepfor.models.items import update_user_notes
+from keepfor.paths import migrations_dir
 from keepfor.search.engine import hybrid_search
+
+
+def _migration_statements(name: str) -> list[str]:
+    """The statements of a migration file, like the test fixture applies them."""
+    schema = (migrations_dir() / name).read_text(encoding="utf-8")
+    schema = "\n".join(
+        line for line in schema.splitlines() if not line.strip().startswith("--")
+    )
+    return [s for s in schema.split(";") if s.strip()]
 
 
 class FakeQueue:
@@ -479,3 +490,195 @@ async def test_sidebar_all_items_count_stays_the_library_total(
     assert res.status_code == 200
     assert _sidebar_total(res.text) == 8
     assert _library_total(res.text) == 3
+
+
+# --- #55: the keyword side also matches the tags and the summary
+
+
+async def _save_item(db, user_id, *, title, content, tags=(), summary=None):
+    """An item with its FTS row, without the word "LLM" in the text."""
+    item_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, title, content_text,"
+        " summary, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'saved');",
+        (
+            item_id,
+            user_id,
+            f"https://example.com/{item_id}",
+            f"https://example.com/{item_id}",
+            title,
+            content,
+            summary,
+        ),
+    )
+    await db.execute(
+        "INSERT INTO items_fts (item_id, user_id, title, content_text)"
+        " VALUES (?, ?, ?, ?);",
+        (item_id, user_id, title, content),
+    )
+    for tag in tags:
+        await db.execute(
+            "INSERT OR IGNORE INTO tags (id, user_id, name) VALUES (?, ?, ?);",
+            (f"tag-{tag}", user_id, tag),
+        )
+        await db.execute(
+            "INSERT OR IGNORE INTO item_tags (item_id, tag_id) VALUES (?, ?);",
+            (item_id, f"tag-{tag}"),
+        )
+    return item_id
+
+
+async def test_item_tagged_llm_is_found_for_local_llm(db, search_setup):
+    """The concept is in the tag, not in the title or the body."""
+    item_id = await _save_item(
+        db,
+        search_setup["user"]["id"],
+        title="open-webui",
+        content="A self-hosted chat interface.",
+        tags=["llm"],
+    )
+
+    for mode in ("hybrid", "keyword"):
+        results, total = await hybrid_search(
+            db, MockEnv(), search_setup["user"]["id"], "local LLM", mode=mode
+        )
+        assert item_id in {i["id"] for i in results}, mode
+        assert total >= 1, mode
+
+
+async def test_tagged_item_survives_the_hybrid_rule_at_the_measured_score(
+    db, search_setup, monkeypatch
+):
+    """The prod case: a real hit at 0.63 that only the tag vouches for.
+
+    Without the keyword hit the item is neither strong (0.80) nor near
+    the top, so the hybrid rule dropped it (#55).
+    """
+    item_id = await _save_item(
+        db,
+        search_setup["user"]["id"],
+        title="open-webui",
+        content="A self-hosted chat interface.",
+        tags=["llm"],
+    )
+    _mock_vector_scores(monkeypatch, {item_id: 0.63})
+
+    results, total = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "local LLM", mode="hybrid"
+    )
+    assert item_id in {i["id"] for i in results}
+    assert total == 1
+
+
+async def test_tagged_item_is_kept_in_the_semantic_mode(db, search_setup, monkeypatch):
+    """A tag is a keyword hit in the semantic mode too."""
+    item_id = await _save_item(
+        db,
+        search_setup["user"]["id"],
+        title="open-webui",
+        content="A self-hosted chat interface.",
+        tags=["llm"],
+    )
+    _mock_vector_scores(monkeypatch, {item_id: 0.63})
+
+    results, _ = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "local LLM", mode="semantic"
+    )
+    assert item_id in {i["id"] for i in results}
+
+
+async def test_item_with_llm_in_the_summary_is_found(db, search_setup):
+    """The summary is indexed, so it is a keyword hit too."""
+    item_id = await _save_item(
+        db,
+        search_setup["user"]["id"],
+        title="open-webui",
+        content="A self-hosted chat interface.",
+        summary="Runs a local LLM offline.",
+    )
+    # The FTS row is rebuilt with the summary when the item is touched.
+    await update_user_notes(db, search_setup["user"]["id"], item_id, "")
+
+    results, _ = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "local LLM", mode="keyword"
+    )
+    assert item_id in {i["id"] for i in results}
+
+
+async def test_migration_backfill_indexes_the_summary(db, sqlite_conn, search_setup):
+    """The rows that are already indexed get the summary (#55)."""
+    item_id = await _save_item(
+        db,
+        search_setup["user"]["id"],
+        title="open-webui",
+        content="A self-hosted chat interface.",
+        summary="Runs a local LLM offline.",
+    )
+
+    before, _ = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "local LLM", mode="keyword"
+    )
+    assert item_id not in {i["id"] for i in before}
+
+    for statement in _migration_statements("0015_search_metadata.sql"):
+        sqlite_conn.execute(statement)
+    sqlite_conn.commit()
+
+    after, _ = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "local LLM", mode="keyword"
+    )
+    assert item_id in {i["id"] for i in after}
+
+
+async def test_nonsense_query_does_not_match_the_tags(db, search_setup, monkeypatch):
+    """The tags are a keyword source, but only for a real term."""
+    item_id = await _save_item(
+        db,
+        search_setup["user"]["id"],
+        title="open-webui",
+        content="A self-hosted chat interface.",
+        tags=["llm"],
+    )
+    _mock_vector_scores(monkeypatch, {item_id: 0.727})
+
+    results, total = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "zxqvbnm", mode="hybrid"
+    )
+    assert results == []
+    assert total == 0
+
+
+async def test_a_tag_does_not_match_a_part_of_a_word(db, search_setup):
+    """The tag match is on word boundaries, like the FTS tokenizer."""
+    item_id = await _save_item(
+        db,
+        search_setup["user"]["id"],
+        title="open-webui",
+        content="A self-hosted chat interface.",
+        tags=["email"],
+    )
+
+    results, _ = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "ai", mode="keyword"
+    )
+    assert item_id not in {i["id"] for i in results}
+
+
+async def test_a_trashed_item_is_not_a_tag_hit(db, search_setup):
+    """The Trash stays invisible to the search."""
+    item_id = await _save_item(
+        db,
+        search_setup["user"]["id"],
+        title="open-webui",
+        content="A self-hosted chat interface.",
+        tags=["llm"],
+    )
+    await db.execute(
+        "UPDATE items SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?;", (item_id,)
+    )
+
+    results, total = await hybrid_search(
+        db, MockEnv(), search_setup["user"]["id"], "local LLM", mode="keyword"
+    )
+    assert results == []
+    assert total == 0

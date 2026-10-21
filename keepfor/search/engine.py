@@ -186,10 +186,66 @@ async def get_status_counts(
     return counts
 
 
+# Tag names are matched on word boundaries, like the FTS tokenizer:
+# "llm-tools" answers the query "llm", "email" does not answer "ai".
+_TAG_SEPARATORS = ("-", "_", "/", ".")
+
+
+def _query_terms(query: str) -> list[str]:
+    """The lowercased terms of a query (the tokens the FTS matcher sees)."""
+    clean = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
+    return [t.lower() for t in clean.split() if t]
+
+
+async def search_tag_hits(
+    db: Database, user_id: str, query: str, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Items whose tags name one of the query terms (a keyword hit).
+
+    FTS5 indexes the title and the extracted text only, so an item that
+    names the concept in a tag ("llm") had no keyword hit and the
+    hybrid rule dropped it (#55). Tag names are matched on word
+    boundaries and case-insensitively, like the FTS tokenizer.
+
+    The join order is pinned to the tags: without it SQLite scans the
+    live items of the user first (57 ms on a 2k-item library against
+    0.1 ms with the tag index).
+    """
+    terms = _query_terms(query)
+    if not terms:
+        return []
+    name = "LOWER(t.name)"
+    for sep in _TAG_SEPARATORS:
+        name = f"REPLACE({name}, '{sep}', ' ')"
+    match = " OR ".join(
+        f"instr(' ' || {name} || ' ', ' ' || ? || ' ') > 0" for _ in terms
+    )
+    sql = f"""
+        SELECT it.item_id AS item_id
+        FROM tags t
+        JOIN item_tags it INDEXED BY idx_item_tags_tag ON it.tag_id = t.id
+        JOIN items i ON i.id = it.item_id
+        WHERE t.user_id = ? AND i.user_id = ? AND i.deleted_at IS NULL
+          AND ({match})
+        LIMIT ?;
+    """
+    try:
+        rows = await db.query_all(sql, (user_id, user_id, *terms, limit))
+    except Exception as exc:
+        logger.warning("Tag keyword search failed: %s", exc)
+        return []
+    return [{"item_id": r["item_id"], "rank": -1.0} for r in rows]
+
+
 async def search_fts(
     db: Database, user_id: str, query: str, limit: int = 50
 ) -> list[dict[str, Any]]:
-    """Runs FTS5 keyword query returning ranked item_ids with snippets."""
+    """Runs FTS5 keyword query returning ranked item_ids with snippets.
+
+    The keyword side of the search: the title and the extracted text
+    (FTS5), the url (LIKE) and the tags (#55). `limit` caps the
+    candidates per source.
+    """
     url_matches: list[dict[str, Any]] = []
     if "." in query or "/" in query or ":" in query:
         url_sql = """
@@ -212,6 +268,10 @@ async def search_fts(
     # Escape special FTS characters
     clean_q = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
     fts_matches: list[dict[str, Any]] = []
+    # The tags are a keyword source too (#55): FTS5 covers the title and
+    # the text, so an item that names the concept in a tag ("llm") had no
+    # keyword hit at all. The query runs in parallel with the FTS one.
+    tag_task = asyncio.create_task(search_tag_hits(db, user_id, query, limit=limit))
     if clean_q:
         # Format for prefix matching: word1* word2*
         fts_terms = " ".join(f'"{term}"*' for term in clean_q.split() if term)
@@ -244,10 +304,14 @@ async def search_fts(
                 fts_matches = await db.query_all(
                     fallback_sql, (user_id, like_term, like_term, limit)
                 )
+    tag_matches = await tag_task
 
     seen = set()
     combined: list[dict[str, Any]] = []
-    for r in url_matches + (fts_matches or []):
+    # The tag hits come before the text matches: they are the keyword
+    # hits the hybrid rule needs to keep a real hit (#55), so they must
+    # survive the limit even when the text matches fill it.
+    for r in url_matches + tag_matches + (fts_matches or []):
         if r["item_id"] not in seen:
             seen.add(r["item_id"])
             combined.append(r)
@@ -257,13 +321,12 @@ async def search_fts(
 async def search_fts_whole_words(
     db: Database, user_id: str, query: str, limit: int = 50
 ) -> set[str]:
-    """Ids whose title or text contains a query term as a whole word.
+    """Ids whose title, text or tags contain a query term as a whole word.
 
     FTS5 matches whole tokens (case-insensitive), so this is the keyword
     signal of the semantic-only mode, where no keyword ranking runs.
     """
-    clean_q = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
-    terms = [t for t in clean_q.split() if t]
+    terms = _query_terms(query)
     if not terms:
         return set()
     match = " OR ".join(f'"{t}"' for t in terms)
@@ -280,7 +343,12 @@ async def search_fts_whole_words(
     except Exception as exc:
         logger.warning("Whole-word keyword search failed: %s", exc)
         return set()
-    return {r["item_id"] for r in rows}
+    ids = {r["item_id"] for r in rows}
+    # The tags count as a keyword hit as well (#55).
+    ids.update(
+        r["item_id"] for r in await search_tag_hits(db, user_id, query, limit=limit)
+    )
+    return ids
 
 
 async def search_vectorize(

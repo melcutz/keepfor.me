@@ -362,7 +362,17 @@ async def extract_and_store(
             if p
         )
         combined_content = " ".join(
-            p for p in [extracted["content_text"] or "", v2_fields] if p
+            p
+            for p in [
+                extracted["content_text"] or "",
+                v2_fields,
+                # The summary and the page description are keyword
+                # sources too: an item that names the concept only there
+                # had no keyword hit and was dropped (#55).
+                summary,
+                extracted.get("excerpt") or "",
+            ]
+            if p
         )
         await db.execute(
             "INSERT INTO items_fts (item_id, user_id, title, content_text) "
