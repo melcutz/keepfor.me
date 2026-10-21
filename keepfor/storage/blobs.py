@@ -73,10 +73,18 @@ class BlobStore:
         """
         if ".." in rel_prefix:
             raise ValueError(f"Prefix must not contain '..': {rel_prefix!r}")
+        rel = rel_prefix.lstrip("/")
+        if not self.prefix and not rel:
+            # An empty prefix matches every key: the caller would wipe the
+            # whole bucket, so it has to name one.
+            raise ValueError(
+                "delete_prefix refuses an empty prefix: "
+                "it would delete the whole bucket"
+            )
         if self.bucket is None:
             return 0
 
-        full_prefix = f"{self.prefix}{rel_prefix.lstrip('/')}"
+        full_prefix = f"{self.prefix}{rel}"
         cursor = None
         total_deleted = 0
 
