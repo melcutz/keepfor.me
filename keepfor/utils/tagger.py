@@ -16,6 +16,12 @@ Two halves (hybrid tagging):
   vacuum") is not a tag of its own, and a phrase the user's vocabulary
   already covers is left to match_existing_tags.
 
+The stopword list follows the page language (issue #58): a German page is
+cut at German function words, so "Hamburg und" cannot be a tag, and
+German citation boilerplate ("Abgerufen am ...") is never a topic. The
+language comes from the page's own <html lang> when the caller has it and
+from a stopword-ratio guess otherwise.
+
 Only `re`, `collections` and `urllib.parse` are used so this module never
 grows the Worker cold-start import graph (same rule as the lazy parser
 imports in keepfor/consumer/extractor.py).
@@ -26,11 +32,17 @@ from collections import Counter
 from typing import NamedTuple
 from urllib.parse import urlparse
 
+# URL noise words: they leak out of links in extracted prose and are
+# meaningless in every language.
+_URL_NOISE = frozenset(
+    "https http www com org net html htm php aspx url href amp nbsp".split()
+)
+
 # Compact stopword list (~240 words). Embedded so there is no data file to
-# bundle and no NLTK download at runtime. It also carries the URL noise words
-# that leak out of links in extracted prose.
-STOPWORDS = frozenset(
-    """
+# bundle and no NLTK download at runtime.
+STOPWORDS = (
+    frozenset(
+        """
     a about above after again against all am an and any are as at be because
     been before being below between both but by can cannot could did do does
     doing down during each few for from further had has have having he her
@@ -45,13 +57,67 @@ STOPWORDS = frozenset(
     us let lets now around among onto upon across behind beyond near toward
     towards along despite except plus since versus regarding concerning
     including yet another either neither whether although though because
-    unless https http www com org net html htm php aspx url href amp nbsp
-    isn't aren't wasn't weren't don't doesn't didn't can't couldn't won't
-    wouldn't shouldn't mustn't hasn't haven't hadn't it's that's there's
+    unless isn't aren't wasn't weren't don't doesn't didn't can't couldn't
+    won't wouldn't shouldn't mustn't hasn't haven't hadn't it's that's there's
     here's what's let's i'm i've i'd i'll he's she's you're we're they're
     we've they've we'll you'll they'll
     """.split()
+    )
+    | _URL_NOISE
 )
+
+# German function words: articles, pronouns, prepositions, conjunctions,
+# adverbs and the auxiliary verbs. A phrase edge is never one of these, so
+# "Hamburg und" or "der Hafen" cannot become a tag. "de" is only a URL
+# label (de.wikipedia.org), never a German word.
+STOPWORDS_DE = frozenset(
+    """
+    ab aber alle allem allen aller alles als also am an ander andere anderem
+    anderen anderer anderes andern anderr anders ans auch auf aus auseinander
+    ausschließlich außerdem bei beim bereits beziehungsweise bezüglich bin
+    bis bist da dabei dadurch dafür daher damit danach dann daran darauf
+    darin darum das dass dazu de dein deine deinem deinen deiner deines dem
+    demselben den denn denselben der derer derselbe derselben des desselben
+    dessen dich die dies diese dieselbe dieselben diesem diesen dieser dieses
+    dir doch dort du durch durften dürfen ebenfalls ein eine einem einen
+    einer eines einig einige einigem einigen einiger einiges einmal er es
+    etwa etwas euch euer eure eurem euren eurer eures ferner für
+    gegebenenfalls gegen gegenüber gewesen ggf hab habe haben hat hatte
+    hatten hier hierbei hierfür hierher hierin hierzu hin hinter hätte hätten
+    höchstens ich ihm ihn ihnen ihr ihre ihrem ihren ihrer ihres im in indem
+    ins insbesondere insgesamt insofern inwiefern ist ja jede jedem jeden
+    jeder jedes jene jenem jenen jener jenes jetzt kann kein keine keinem
+    keinen keiner keines konnte konnten können könnte könnten lassen laufend
+    längs lässt mag man manche manchem manchen mancher manches mehr mein
+    meine meinem meinen meiner meines meist meistens mich mir mit mochte muss
+    musste möchten mögen nach nachdem nacheinander nein neulich nicht nichts
+    noch nun nur ob oberhalb obwohl oder ohne schon sehr seien sein seine
+    seinem seinen seiner seines seit selbst sich sie sind so solange solch
+    solche solchem solchen solcher solches soll solleten sollte sondern sonst
+    sowie sowohl um und uns unser unsere unserem unseren unserer unseres
+    unter unterhalb viel vom von vor war waren warst was weg wegen weil
+    weitere welchem welchen welcher welches wenn werde werden wie wieder will
+    wir wird wirst wo woher wohin wollen wollte wollten womit worden wurde
+    wurden während wären würde würden zu zuletzt zum zur zwar zwischen über
+    """.split()
+)
+
+# Citation boilerplate of German articles: "Abgerufen am 25. September
+# 2014", "Archiviert vom Original ...". Metadata, never a topic. The month
+# names live here too: in a German article they are the date of a citation.
+BOILERPLATE_DE = frozenset(
+    """
+    abgerufen aufgerufen archiv archiviert archivierung original webarchiv
+    zitiert einzelbeleg einzelbelege einzelnachweis einzelnachweise literatur
+    fundstelle abruf
+    januar februar märz april mai juni juli august september oktober november
+    dezember
+    """.split()
+)
+STOPWORDS_DE |= BOILERPLATE_DE | _URL_NOISE
+
+# The stopword lists the tagger knows about, by language code.
+LANGUAGE_STOPWORDS = {"en": STOPWORDS, "de": STOPWORDS_DE}
 
 # Verbs that never head a tag. A candidate phrase is trimmed back to its
 # noun-phrase core by dropping these from either end. Only unambiguous
@@ -75,8 +141,15 @@ MIN_TAG_LENGTH = 2
 # Cap on the number of tag suggestions handed to the user.
 MAX_SUGGESTIONS = 5
 _VALID_TAG_RE = re.compile(r"^[a-z0-9]+(?:[ _-][a-z0-9]+)*$")
-_WORD_RE = re.compile(r"[a-z0-9]+(?:[-'][a-z0-9]+)?")
-_ENTITY_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b")
+# Word tokens: Unicode letters (German umlauts and eszett are letters, not
+# noise) plus digits, keeping apostrophes and hyphens inside a word.
+_WORD_RE = re.compile(r"[^\W_]+(?:[-'][^\W_]+)?")
+# Title Case entities: an uppercase letter followed by lowercase ones. The
+# ranges cover the Latin-1 letters, so "Bürgerschaft" is an entity like
+# "Hamburg" is.
+_ENTITY_RE = re.compile(
+    r"\b([A-ZÀ-ÖØ-Þ][a-zà-öø-ÿß]+(?:\s+[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿß]+){0,2})\b"
+)
 # Sentence and line boundaries: a phrase never spans one.
 _SEGMENT_RE = re.compile(r"[^.!?\n]+")
 
@@ -140,14 +213,36 @@ def _count_whole_word(text: str, tag: str) -> int:
     return total
 
 
-def slug_tokens(url: str) -> set[str]:
+def slug_tokens(url: str, stopwords: frozenset[str] = STOPWORDS) -> set[str]:
     """Lowercase alphanumeric tokens from the URL path + host."""
     try:
         parts = urlparse(url)
     except Exception:
         return set()
     text = f"{parts.netloc} {parts.path}".lower().replace("-", " ").replace("_", " ")
-    return {w for w in _WORD_RE.findall(text) if len(w) >= 2} - STOPWORDS
+    return {w for w in _WORD_RE.findall(text) if len(w) >= 2} - stopwords
+
+
+def detect_language(text: str) -> str:
+    """Guess the document language from its stopwords (no model, no deps).
+
+    German wins only when its stopwords clearly outnumber the English
+    ones, so an English page keeps the English list.
+    """
+    tokens = _WORD_RE.findall((text or "").lower())
+    if not tokens:
+        return "en"
+    de = sum(1 for t in tokens if t in STOPWORDS_DE)
+    en = sum(1 for t in tokens if t in STOPWORDS)
+    return "de" if de >= 3 and de > 2 * en else "en"
+
+
+def stopwords_for(lang: str | None, text: str = "") -> frozenset[str]:
+    """The stopword list of a page: its declared language, else a guess."""
+    code = (lang or "").strip().lower().split("-")[0]
+    if code in LANGUAGE_STOPWORDS:
+        return LANGUAGE_STOPWORDS[code]
+    return LANGUAGE_STOPWORDS[detect_language(text)]
 
 
 def match_existing_tags(
@@ -156,6 +251,7 @@ def match_existing_tags(
     url: str,
     body: str,
     user_tags: list[str],
+    lang: str | None = None,
 ) -> MatchResult:
     """Conservative lexical match of existing user tags.
 
@@ -166,7 +262,7 @@ def match_existing_tags(
     """
     auto: list[str] = []
     suggest: list[str] = []
-    slugs = slug_tokens(url or "")
+    slugs = slug_tokens(url or "", stopwords_for(lang, f"{title} {excerpt} {body}"))
     for raw in user_tags:
         tag = normalize_tag(raw)
         if not tag:
@@ -193,9 +289,9 @@ def _segments(text: str) -> list[str]:
     return [s.lower() for s in _SEGMENT_RE.findall(text or "")]
 
 
-def _is_content(word: str) -> bool:
+def _is_content(word: str, stopwords: frozenset[str]) -> bool:
     """True for a word that may carry meaning (not a stopword, not a number)."""
-    return word not in STOPWORDS and len(word) >= 2 and not word.isdigit()
+    return word not in stopwords and len(word) >= 2 and not word.isdigit()
 
 
 def _trim(run: list[str], head_ok: set[str]) -> list[str]:
@@ -217,12 +313,14 @@ def _can_head(word: str, head_ok: set[str]) -> bool:
     return word not in _VERBISH and word in head_ok
 
 
-def _runs(tokens: list[str], significant: set[str]) -> list[list[str]]:
+def _runs(
+    tokens: list[str], significant: set[str], stopwords: frozenset[str]
+) -> list[list[str]]:
     """Maximal runs of significant content words inside one segment."""
     runs: list[list[str]] = []
     current: list[str] = []
     for word in tokens:
-        if not _is_content(word) or word not in significant:
+        if not _is_content(word, stopwords) or word not in significant:
             if current:
                 runs.append(current)
                 current = []
@@ -253,6 +351,7 @@ def suggest_new_tags(
     body: str,
     user_tags: list[str],
     limit: int = MAX_SUGGESTIONS,
+    lang: str | None = None,
 ) -> list[Suggestion]:
     """Keyphrase extraction; stdlib only.
 
@@ -264,6 +363,9 @@ def suggest_new_tags(
     collocation or be anchored in the title/slug, a single word must stand on
     its own somewhere, and a phrase the user's vocabulary already covers is
     left to match_existing_tags.
+
+    `lang` is the page's own language code ("de"); without it the language
+    is guessed from the text, so a German page is cut at German stopwords.
     """
     title = title or ""
     excerpt = excerpt or ""
@@ -271,11 +373,12 @@ def suggest_new_tags(
     if not (title.strip() or excerpt.strip() or body.strip()):
         return []
 
+    stopwords = stopwords_for(lang, f"{title}\n{excerpt}\n{body}")
     existing = {normalize_tag(t) for t in user_tags}
     existing = {t for t in existing if t}
     existing_grams = {tuple(_fold(w) for w in _WORD_RE.findall(t)) for t in existing}
     existing_grams.discard(())
-    slugs = slug_tokens(url or "")
+    slugs = slug_tokens(url or "", stopwords)
     entities = {m.group(1).lower() for m in _ENTITY_RE.finditer(f"{title} {body}")}
     entity_words = {w for e in entities for w in e.split()}
 
@@ -284,9 +387,11 @@ def suggest_new_tags(
     freq: Counter[str] = Counter()
     for seg in tokens:
         for word in seg:
-            if _is_content(word):
+            if _is_content(word, stopwords):
                 freq[word] += 1
-    title_words = {w for w in _WORD_RE.findall(title.lower()) if _is_content(w)}
+    title_words = {
+        w for w in _WORD_RE.findall(title.lower()) if _is_content(w, stopwords)
+    }
     repeated = {w for w, c in freq.items() if c >= 2}
     significant = repeated | slugs | entity_words | title_words
     # Words allowed to head a tag: the document repeats them, or the URL
@@ -295,7 +400,7 @@ def suggest_new_tags(
 
     runs: list[list[str]] = []
     for seg in tokens:
-        for run in _runs(seg, significant):
+        for run in _runs(seg, significant, stopwords):
             trimmed = _trim(run, head_ok)
             if trimmed:
                 runs.append(trimmed)
