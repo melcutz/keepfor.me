@@ -1524,33 +1524,42 @@ async def unarchive_item(db: Database, user_id: str, item_id: str) -> bool:
 async def mark_item_read(db: Database, user_id: str, item_id: str) -> bool:
     """Mark an item read (read_state='read'); it stays in the library.
 
-    Archive stays a separate action (here: archive_item). Returns owned.
+    Archive stays a separate action (here: archive_item). An archived item
+    is left alone: the archive is the stronger state, so reading it must not
+    pull it back into the library. False means "missing or archived".
     """
     row = await db.query_first(
-        "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        "SELECT id, read_state FROM items"
+        " WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
         (item_id, user_id),
     )
-    if not row:
+    if not row or row["read_state"] == "archived":
         return False
     await db.execute(
         "UPDATE items SET read_state = 'read',"
-        " updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+        " updated_at = CURRENT_TIMESTAMP"
+        " WHERE id = ? AND user_id = ? AND read_state != 'archived';",
         (item_id, user_id),
     )
     return True
 
 
 async def mark_item_unread(db: Database, user_id: str, item_id: str) -> bool:
-    """Undo mark_item_read: back to 'unread'. Returns owned."""
+    """Undo mark_item_read: back to 'unread'.
+
+    An archived item is left alone, like mark_item_read does.
+    """
     row = await db.query_first(
-        "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        "SELECT id, read_state FROM items"
+        " WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
         (item_id, user_id),
     )
-    if not row:
+    if not row or row["read_state"] == "archived":
         return False
     await db.execute(
         "UPDATE items SET read_state = 'unread',"
-        " updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+        " updated_at = CURRENT_TIMESTAMP"
+        " WHERE id = ? AND user_id = ? AND read_state != 'archived';",
         (item_id, user_id),
     )
     return True

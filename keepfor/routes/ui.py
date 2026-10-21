@@ -82,6 +82,9 @@ if TYPE_CHECKING:
 
 router = APIRouter()
 
+# An archived item is left alone by Mark as Read / Mark as Unread.
+ARCHIVED_READ_CONFLICT = "Archived items cannot be marked read or unread"
+
 # Brand mark served as a file so browsers persist it onto bookmarks
 # (inline data: favicons are not). Dynamic route: zero bundle impact.
 FAVICON_SVG = (
@@ -510,7 +513,9 @@ async def reader_page(
     )
     response = HTMLResponse(content=html)
     if flash_cookie:
-        response.delete_cookie("read_flash", path="/")
+        response.delete_cookie(
+            "read_flash", path="/", secure=True, httponly=True, samesite="lax"
+        )
     return response
 
 
@@ -648,18 +653,32 @@ def _referer_redirect(
                 dest = candidate
     response = RedirectResponse(url=dest, status_code=303)
     if flash:
-        response.set_cookie("read_flash", flash, path="/")
+        # One-shot flash: the reader renders it server side, so no JS reads
+        # this cookie (HttpOnly is safe).
+        response.set_cookie(
+            "read_flash",
+            flash,
+            max_age=60,
+            path="/",
+            secure=True,
+            httponly=True,
+            samesite="lax",
+        )
     return response
 
 
 @router.post("/items/{item_id}/read", response_class=HTMLResponse)
 async def mark_read_route(request: Request, item_id: str):
-    """Mark as Read sets the read state only — archive stays a separate action."""
+    """Mark as Read sets the read state only: archive stays a separate action."""
     user = await deps.require_user(request)
     db = deps.get_db(request)
     ok = await mark_item_read(db, user["id"], item_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Item not found")
+        # False means "missing" or "archived": an archived item stays archived.
+        item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=409, detail=ARCHIVED_READ_CONFLICT)
     if request.headers.get("hx-request"):
         item = await get_item(db, user["id"], item_id)
         if not item:
@@ -679,7 +698,11 @@ async def mark_unread_route(request: Request, item_id: str):
     db = deps.get_db(request)
     ok = await mark_item_unread(db, user["id"], item_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Item not found")
+        # False means "missing" or "archived": an archived item stays archived.
+        item = await get_item(db, user["id"], item_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        raise HTTPException(status_code=409, detail=ARCHIVED_READ_CONFLICT)
     if request.headers.get("hx-request"):
         item = await get_item(db, user["id"], item_id)
         if not item:

@@ -3,9 +3,11 @@
 
 """Issue #42 regression: Mark as Read is a real read state, not a silent archive.
 
-TDD RED — mark_item_read/mark_item_unread, the read/unread category filters
-and the /items/{id}/read + /unread routes do not exist yet.
+Covers the read/unread model helpers, the /items/{id}/read + /unread routes,
+the read/unread category filters and the archived-item guard.
 """
+
+from http.cookies import SimpleCookie
 
 import pytest
 from fastapi.testclient import TestClient
@@ -45,7 +47,8 @@ def client(db, monkeypatch):
 
     monkeypatch.setattr("keepfor.deps.get_db", mock_get_db)
     monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
-    return TestClient(app)
+    # https: the flash cookie is Secure, so it is only sent back over TLS.
+    return TestClient(app, base_url="https://testserver")
 
 
 @pytest.fixture
@@ -202,6 +205,90 @@ async def test_post_read_requires_auth(db, unread_item, client):
     assert row["read_state"] != "read"
 
 
+# --- archived items are left alone ---
+
+
+@pytest.mark.asyncio
+async def test_mark_read_leaves_archived_item_archived(db, unread_item):
+    """Marking an archived item read must not pull it out of the archive."""
+    user_id, item_id = unread_item
+    assert await archive_item(db, user_id, item_id) is True
+    assert await mark_item_read(db, user_id, item_id) is False
+    row = await db.query_first("SELECT read_state FROM items WHERE id = ?;", (item_id,))
+    assert row["read_state"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_mark_unread_leaves_archived_item_archived(db, unread_item):
+    """Marking an archived item unread must not pull it out of the archive."""
+    user_id, item_id = unread_item
+    await mark_item_read(db, user_id, item_id)
+    assert await archive_item(db, user_id, item_id) is True
+    assert await mark_item_unread(db, user_id, item_id) is False
+    row = await db.query_first("SELECT read_state FROM items WHERE id = ?;", (item_id,))
+    assert row["read_state"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_post_read_on_archived_item_is_refused(db, client, auth, unread_item):
+    """POST /items/{id}/read on an archived item: 409 and no state change."""
+    user_id, item_id = unread_item
+    await archive_item(db, user_id, item_id)
+    client.cookies["kfm_session"] = auth[1]
+    response = client.post(f"/items/{item_id}/read", follow_redirects=False)
+    assert response.status_code == 409
+    row = await db.query_first("SELECT read_state FROM items WHERE id = ?;", (item_id,))
+    assert row["read_state"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_post_unread_on_archived_item_is_refused(db, client, auth, unread_item):
+    """POST /items/{id}/unread on an archived item: 409 and no state change."""
+    user_id, item_id = unread_item
+    await mark_item_read(db, user_id, item_id)
+    await archive_item(db, user_id, item_id)
+    client.cookies["kfm_session"] = auth[1]
+    response = client.post(f"/items/{item_id}/unread", follow_redirects=False)
+    assert response.status_code == 409
+    row = await db.query_first("SELECT read_state FROM items WHERE id = ?;", (item_id,))
+    assert row["read_state"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_read_toggle_not_rendered_for_archived_item(
+    db, client, auth, unread_item
+):
+    """An archived item shows no Mark as Read / Mark as Unread control."""
+    user_id, item_id = unread_item
+    await archive_item(db, user_id, item_id)
+    client.cookies["kfm_session"] = auth[1]
+
+    card = client.get(f"/items/{item_id}/card")
+    assert card.status_code == 200
+    assert f"/items/{item_id}/read" not in card.text
+    assert f"/items/{item_id}/unread" not in card.text
+
+    reader = client.get(f"/items/{item_id}")
+    assert reader.status_code == 200
+    assert f"/items/{item_id}/read" not in reader.text
+    assert f"/items/{item_id}/unread" not in reader.text
+
+
+@pytest.mark.asyncio
+async def test_read_flash_cookie_has_the_security_flags(client, auth, unread_item):
+    """The one-shot flash cookie is Secure, HttpOnly and SameSite=Lax."""
+    _, item_id = unread_item
+    client.cookies["kfm_session"] = auth[1]
+    response = client.post(f"/items/{item_id}/read", follow_redirects=False)
+    assert response.status_code == 303
+    jar = SimpleCookie()
+    jar.load(response.headers["set-cookie"])
+    morsel = jar["read_flash"]
+    assert morsel["secure"] is True
+    assert morsel["httponly"] is True
+    assert morsel["samesite"] == "lax"
+
+
 # --- library page: indicator + filter ---
 
 
@@ -263,7 +350,7 @@ async def test_reader_shows_confirmation_with_undo(client, auth, unread_item):
     client.cookies["kfm_session"] = auth[1]
     response = client.post(
         f"/items/{item_id}/read",
-        headers={"referer": f"http://testserver/items/{item_id}"},
+        headers={"referer": f"https://testserver/items/{item_id}"},
         follow_redirects=True,
     )
     assert response.status_code == 200
