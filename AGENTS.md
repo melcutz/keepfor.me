@@ -163,6 +163,13 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 
 Icons, PWA icons, and the web manifest are served by **dynamic Python routes** (`/favicon.ico`, `/icon-192.png`, `/icon-512.png`, `/icon-maskable.png`, `/manifest.webmanifest`) with bytes embedded in `keepfor/pwa_icons.py` / `keepfor/app.py` — deliberately no static files, so there is zero bundle impact and it works identically in the Worker, local dev, and TestClient.
 
+## Library views: the feed is the only list of items
+
+Cards, List and Compact are **one list of items in three layouts** (issue #39). The layout is a URL parameter (`?view=cards|list|compact`): the server renders the requested layout, the client keeps the choice in `localStorage` and mirrors it into the URL.
+
+- **No view may hide an item.** The feed shows every item the category/status/tag filters match — pinned and archived ones included — so the counts and the list always agree. A CSS rule that hides a card (`display: none`) breaks that silently; `tests/test_library_views.py` pins it.
+- **There is no pinned shelf.** Pinned items are ordinary feed items, marked in the card (amber border + "Pinned" badge). A second copy of an item (the old cards-only shelf) breaks the count, and an unscoped shelf shows items the current filter excludes.
+
 ## Performance: cold starts dominate latency
 
 Measured on prod: page loads are **~250-300ms warm but spike to 1.5-3.5s on ~15% of requests** (isolate cold starts). Compression is fine — a 200KB library page is 14KB on the wire. D1 queries are fast individually. Do not chase payload or query tuning first; look at what a cold start loads.

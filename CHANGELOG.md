@@ -167,6 +167,7 @@ argument away in the first two cases.
   - Every query is scoped to the caller's `user_id`: reading another tenant's item or tag fails with `not_found`, and neither listing nor a prompt ever quotes another tenant's data. Covered by the isolation test suite.
 
 ### Fixed
+- **List and Compact views no longer drop items** (GitHub issue #39): those two views hid pinned items with a CSS rule, so the feed showed fewer items than the category and status counts promised — the Archive category looked empty while its count said otherwise. Cards, List and Compact now list exactly the items the counts report, pinned and archived ones included. The layout is a URL parameter now (`?view=cards|list|compact`), so the server renders the requested layout and a shared link keeps it.
 - **Import errors no longer leak internal detail**: a failed note or link used to store the raw exception text (`note: OperationalError: ...`) in `import_status.errors`, which is rendered in the library and settings panels. The stored message is now generic ("note: could not be imported", "link: could not be queued"); the exception goes to the server log.
 - **MCP `dry_run` fails closed**: `dry_run` is now accepted only as a JSON boolean. A `null`, `0` or `"false"` used to be coerced with `bool(...)` and silently *applied* the change; it is now rejected with an `invalid_arguments` error. The same check covers `bulk_update`, `delete_tag`, `tag_items` and `retag_by_query`.
 - **MCP `bulk_update` tag names**: `add_tags`/`remove_tags` now go through the same normalization and validation as `create_tag` (2-64 characters of `a-z`, `0-9`, space, `_` or `-`). A name the tag API would reject is refused with an `invalid_arguments` error instead of creating a junk tag.
@@ -179,6 +180,7 @@ argument away in the first two cases.
 - **Note bodies lost on read**: the MCP 0.2.0 content cap was applied inside `get_item`, so every caller (the reader page, the Copy-for-AI action, `GET /api/items/{id}`) got a truncated body — and notes, which have no excerpt, lost their text entirely. The cap now lives in the MCP `get_item` tool only; `get_item` returns the full body by default.
 
 ### Changed
+- The pinned shelf ("Pinned References & Notes") is gone. Pinned items are listed in the feed of every view, marked with the existing "Pinned" badge and an amber border, so a card is never listed twice and never missing.
 - FTS5 index now includes the provenance fields (`agent_summary`, `why_saved`, `source_context`, `saved_by`) in `content_text` for searchability.
 - Migration 0009 adds `agent_summary`, `why_saved`, `source_context`, `saved_by` columns to `items` table.
 - Migration 0010 adds `description`, `color` and `parent_id` columns to the `tags` table for tag metadata and hierarchy.

@@ -34,7 +34,6 @@ from keepfor.models.items import (
     dismiss_suggestion,
     get_item,
     get_item_clean_html,
-    get_pinned_items,
     list_pending_suggestions,
     list_rules,
     list_trash,
@@ -78,6 +77,10 @@ if TYPE_CHECKING:
     from keepfor.models.db import Database
 
 router = APIRouter()
+
+# The three library layouts. The view is a URL parameter so the server
+# renders the requested layout; every view lists the same items.
+LIBRARY_VIEWS = ("cards", "list", "compact")
 
 # Brand mark served as a file so browsers persist it onto bookmarks
 # (inline data: favicons are not). Dynamic route: zero bundle impact.
@@ -201,6 +204,7 @@ async def library_page(
     per_page: int = 20,
     category: str | None = None,
     quick: bool = False,
+    view: str | None = None,
 ):
     user = await deps.get_current_user(request)
     if not user:
@@ -230,6 +234,7 @@ async def library_page(
     scope = deps.get_scope(request)
     clean_status = status.strip() if status and status.strip() else None
     clean_category = category.strip() if category and category.strip() else None
+    clean_view = view if view in LIBRARY_VIEWS else "list"
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
     items, total = await hybrid_search(
@@ -263,7 +268,7 @@ async def library_page(
             scope=scope,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
-    tags, status_counts, pinned_items, import_status = await asyncio.gather(
+    tags, status_counts, import_status = await asyncio.gather(
         list_user_tags(db, user["id"]),
         get_status_counts(
             db,
@@ -273,7 +278,6 @@ async def library_page(
             untagged=untagged_only,
             quick=bool(quick),
         ),
-        get_pinned_items(db, user["id"]),
         user_import_status(db, user["id"], limit=1),
     )
     tag_styles = tag_styles_for([t["name"] for t in tags])
@@ -309,11 +313,11 @@ async def library_page(
         total=total,
         per_page_options=PER_PAGE_OPTIONS,
         push_base=push_base,
-        pinned_items=pinned_items,
         active_category=clean_category or "all",
         active_quick=bool(quick),
         import_summary=import_summary,
         import_status=import_status,
+        view=clean_view,
         **pager,
     )
     response = HTMLResponse(content=html)
