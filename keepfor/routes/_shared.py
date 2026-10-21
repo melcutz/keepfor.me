@@ -97,8 +97,8 @@ def _safe_next(value: str | None, default: str = "/") -> str:
 
 
 TAG_PILL_CLASSES = [
-    "bg-blue-50 text-blue-700",
-    "bg-emerald-50 text-emerald-700",
+    "bg-[var(--brand-50)] text-[var(--brand-700)]",
+    "bg-fuchsia-50 text-fuchsia-700",
     "bg-amber-50 text-amber-700",
     "bg-rose-50 text-rose-700",
     "bg-violet-50 text-violet-700",
@@ -108,8 +108,8 @@ TAG_PILL_CLASSES = [
 ]
 
 TAG_DOT_CLASSES = [
-    "bg-blue-600",
-    "bg-emerald-600",
+    "bg-[var(--brand-600)]",
+    "bg-fuchsia-600",
     "bg-amber-500",
     "bg-rose-500",
     "bg-violet-500",

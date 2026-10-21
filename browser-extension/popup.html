@@ -5,27 +5,40 @@
   <title>Save to Keepfor.me</title>
   <style>
     :root {
+      --brand-50: #eff6ff;
+      --brand-100: #dbeafe;
+      --brand-200: #bfdbfe;
+      --brand-300: #93c5fd;
+      --brand-400: #60a5fa;
+      --brand-500: #3b82f6;
+      --brand-600: #2563eb;
+      --brand-700: #1d4ed8;
+      --brand-800: #1e40af;
+      --brand-900: #1e3a8a;
+      --brand-950: #172554;
+      --brand-accent: #2563eb;
       --bg: #fcfbf8;
       --card-bg: #ffffff;
       --border: #e7e3da;
       --text: #1c1917;
       --muted: #78716c;
-      --accent: #1e3a2f;
-      --accent-hover: #152921;
+      --accent: var(--brand-600);
+      --accent-hover: var(--brand-700);
       --btn-text: #ffffff;
-      --focus-ring: rgba(30, 58, 47, 0.2);
+      --focus-ring: rgba(37, 99, 235, 0.2);
     }
     @media (prefers-color-scheme: dark) {
       :root {
+        --brand-accent: #60a5fa;
         --bg: #141413;
         --card-bg: #1c1b1a;
         --border: #2d2b29;
         --text: #f5f5f4;
         --muted: #a8a29e;
-        --accent: #10b981;
-        --accent-hover: #059669;
+        --accent: var(--brand-400);
+        --accent-hover: var(--brand-500);
         --btn-text: #09090b;
-        --focus-ring: rgba(16, 185, 129, 0.25);
+        --focus-ring: rgba(96, 165, 250, 0.25);
       }
     }
     body {
@@ -122,7 +135,7 @@
       font-weight: 500;
       min-height: 18px;
     }
-    .status.success { color: #16a34a; }
+    .status.success { color: var(--brand-accent); }
     .status.error { color: #dc2626; }
     .ext-links {
       display: flex;

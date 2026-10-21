@@ -182,6 +182,7 @@ argument away in the first two cases.
 - **Note bodies lost on read**: the MCP 0.2.0 content cap was applied inside `get_item`, so every caller (the reader page, the Copy-for-AI action, `GET /api/items/{id}`) got a truncated body — and notes, which have no excerpt, lost their text entirely. The cap now lives in the MCP `get_item` tool only; `get_item` returns the full body by default.
 
 ### Changed
+- The core UI (Tags, Trash, Stats, Reader, save popup and the browser extension) uses the homepage brand blue tokens instead of green accents; `tests/test_brand_tokens.py` keeps green and hard-coded blue classes out of the templates.
 - FTS5 index now includes the provenance fields (`agent_summary`, `why_saved`, `source_context`, `saved_by`) in `content_text` for searchability.
 - Migration 0009 adds `agent_summary`, `why_saved`, `source_context`, `saved_by` columns to `items` table.
 - Migration 0010 adds `description`, `color` and `parent_id` columns to the `tags` table for tag metadata and hierarchy.

@@ -34,7 +34,7 @@
         <span class="ml-auto flex items-center gap-2 shrink-0">
           <form action="/items/{{ s.item_id }}/suggestions/{{ s.id }}/accept" method="POST">
             <input type="hidden" name="next" value="/tags">
-            <button type="submit" class="px-3 py-1 bg-emerald-600 text-white rounded-md font-medium hover:bg-emerald-700">Accept</button>
+            <button type="submit" class="px-3 py-1 bg-[var(--brand-600)] text-white rounded-md font-medium hover:bg-[var(--brand-700)]">Accept</button>
           </form>
           <form action="/items/{{ s.item_id }}/suggestions/{{ s.id }}/dismiss" method="POST">
             <input type="hidden" name="next" value="/tags">
@@ -134,7 +134,7 @@
             <input type="hidden" name="field" value="domain">
             <input type="hidden" name="substr" value="{{ s.domain }}">
             <input type="hidden" name="tag" value="{{ s.tag }}">
-            <button type="submit" class="px-3 py-1 bg-emerald-600 text-white rounded-md font-medium hover:bg-emerald-700">Create rule</button>
+            <button type="submit" class="px-3 py-1 bg-[var(--brand-600)] text-white rounded-md font-medium hover:bg-[var(--brand-700)]">Create rule</button>
           </form>
           <form action="/tags/rules/suggestions/dismiss" method="POST" class="inline">
             <input type="hidden" name="key" value="{{ s.key }}">

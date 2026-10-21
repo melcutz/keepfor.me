@@ -19,7 +19,7 @@
         <p class="text-xs text-slate-400 mt-0.5">Trashed {{ it.deleted_at[:16] }}</p>
       </div>
       <form action="/items/{{ it.id }}/restore" method="POST" class="shrink-0">
-        <button type="submit" class="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700">
+        <button type="submit" class="px-3 py-1.5 bg-[var(--brand-600)] text-white rounded-lg text-xs font-medium hover:bg-[var(--brand-700)]">
           Restore
         </button>
       </form>

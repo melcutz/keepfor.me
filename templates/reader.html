@@ -4,14 +4,14 @@
 {% block title %}{{ item.title or "Reader" }} — Keepfor.me{% endblock %}
 
 {% block content %}
-<div id="reading-progress" class="fixed top-0 left-0 h-0.5 bg-blue-600 z-50 transition-[width]" style="width: 0%;"></div>
+<div id="reading-progress" class="fixed top-0 left-0 h-0.5 bg-[var(--brand-600)] z-50 transition-[width]" style="width: 0%;"></div>
 <div id="reader-container" class="min-h-full py-8 transition-colors duration-200">
   {% if read_flash %}
   <div class="max-w-[72ch] sm:max-w-[68ch] mx-auto px-4 sm:px-6 mb-4">
-    <div id="read-flash-toast" aria-live="polite" class="px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center justify-between gap-2">
+    <div id="read-flash-toast" aria-live="polite" class="px-4 py-2.5 bg-[var(--brand-50)] border border-[var(--brand-200)] rounded-lg text-xs text-[var(--brand-800)] flex items-center justify-between gap-2">
       <span class="font-medium">{% if read_flash == 'read' %}Marked as read.{% else %}Marked as unread.{% endif %}</span>
       <form action="/items/{{ item.id }}/{{ 'unread' if read_flash == 'read' else 'read' }}" method="POST" class="inline">
-        <button type="submit" class="font-semibold underline hover:text-emerald-900">Undo</button>
+        <button type="submit" class="font-semibold underline hover:text-[var(--brand-900)]">Undo</button>
       </form>
     </div>
   </div>
@@ -99,7 +99,7 @@
           </form>
           {% endif %}
           <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" 
-             class="inline-flex items-center gap-1 text-blue-600 hover:underline font-medium whitespace-nowrap ml-1" title="Original website">
+             class="inline-flex items-center gap-1 text-[var(--brand-accent)] hover:underline font-medium whitespace-nowrap ml-1" title="Original website">
             <span>Original</span>
             {{ icon("external", class="w-3.5 h-3.5") }}
           </a>
@@ -156,7 +156,7 @@
               <span class="font-medium text-slate-700">#{{ s.phrase }}</span>
               <form action="/items/{{ item.id }}/suggestions/{{ s.id }}/accept" method="POST" class="inline">
                 <input type="hidden" name="next" value="/items/{{ item.id }}">
-                <button type="submit" class="text-emerald-600 hover:text-emerald-800 p-1.5 inline-flex items-center min-h-[28px] min-w-[28px] justify-center" title="Accept" aria-label="Accept tag {{ s.phrase }}">{{ icon("check", class="w-3.5 h-3.5") }}</button>
+                <button type="submit" class="text-[var(--brand-600)] hover:text-[var(--brand-800)] p-1.5 inline-flex items-center min-h-[28px] min-w-[28px] justify-center" title="Accept" aria-label="Accept tag {{ s.phrase }}">{{ icon("check", class="w-3.5 h-3.5") }}</button>
               </form>
               <form action="/items/{{ item.id }}/suggestions/{{ s.id }}/dismiss" method="POST" class="inline">
                 <input type="hidden" name="next" value="/items/{{ item.id }}">
