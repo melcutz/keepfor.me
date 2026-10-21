@@ -384,12 +384,18 @@ async def extract_and_store(
                 "SELECT name FROM tags WHERE user_id = ?;", (user_id,)
             )
             vocab = [r["name"] for r in vocab_rows]
+            # The page's own language (or a guess from its text) decides
+            # which stopword list the tagger cuts the page at (#58).
+            lang = extracted.get("language") or _tagger.detect_language(
+                f"{extracted.get('title') or ''}\n{extracted.get('content_text') or ''}"
+            )
             matched = _tagger.match_existing_tags(
                 title=extracted.get("title") or "",
                 excerpt=extracted.get("excerpt") or "",
                 url=url,
                 body=extracted.get("content_text") or "",
                 user_tags=vocab,
+                lang=lang,
             )
             if matched.auto_apply:
                 await add_tags_to_item(db, user_id, item_id, matched.auto_apply)
@@ -403,6 +409,7 @@ async def extract_and_store(
                 body=extracted.get("content_text") or "",
                 user_tags=vocab,
                 limit=_tagger.MAX_SUGGESTIONS,
+                lang=lang,
             )
             # Existing-vocabulary matches lead the list (their score also
             # outranks every novel keyphrase in the pending view) and the

@@ -207,6 +207,130 @@ def _suggest(article, user_tags=()):
     )
 
 
+# A German article in the shape the extraction pipeline produces
+# (de.wikipedia.org/wiki/Hamburg). Its suggestions used to be
+# "#hamburg, #abgerufen, #hamburg und": the citation boilerplate became a
+# topic and a conjunction ended a phrase (issue #58).
+GERMAN_ARTICLE = {
+    "title": "Hamburg",
+    "excerpt": "Stadt und Land der Bundesrepublik Deutschland",
+    "url": "https://de.wikipedia.org/wiki/Hamburg",
+    "body": """
+        Hamburg (niederdeutsch Hamborg), amtlich Freie und Hansestadt Hamburg,
+        ist als Stadtstaat ein Land der Bundesrepublik Deutschland. Der amtliche
+        Name verweist auf die Geschichte Hamburgs als Freie Reichsstadt und als
+        Mitglied des Handelsbundes der Hanse.
+
+        Hamburg ist mit rund 1,87 Millionen Einwohnern die zweitgrößte Stadt
+        Deutschlands und die drittgrößte im deutschen Sprachraum. Das Stadtgebiet
+        ist in sieben Bezirke und 104 Stadtteile gegliedert, darunter mit dem
+        Stadtteil Neuwerk eine in der Nordsee gelegene Inselgruppe.
+
+        Der Hamburger Hafen zählt zu den größten Umschlaghäfen weltweit und macht
+        Hamburg zusammen mit dem internationalen Flughafen zu einem bedeutenden
+        Logistikstandort. Wirtschaftlich und wissenschaftlich ist die Metropole
+        vor allem im Bereich der Luft- und Raumfahrttechnik, der
+        Biowissenschaften und der Informationstechnik sowie für die
+        Konsumgüterbranche und als Medienstandort bedeutend. Seit 1996 ist
+        Hamburg zudem Sitz des Internationalen Seegerichtshofs.
+
+        Die Speicherstadt und das benachbarte Kontorhausviertel sind seit 2015
+        Teil des UNESCO-Weltkulturerbes. Weitere bekannte Kulturdenkmäler und
+        Wahrzeichen sind das Hamburger Rathaus und die fünf Hauptkirchen.
+        International bekannt sind auch das Vergnügungsviertel St. Pauli mit der
+        Reeperbahn sowie das 2017 eröffnete Konzerthaus Elbphilharmonie.
+
+        Hamburg liegt in Norddeutschland an den Mündungen der Bille und der
+        Alster in die Unterelbe, die etwa 100 Kilometer weiter nordwestlich in
+        die Nordsee mündet. An der Elbe erstreckt sich der Tidehafen etwa von
+        der Veddel bis Finkenwerder, hauptsächlich auf dem Südufer der
+        Norderelbe, gegenüber den Stadtteilen St. Pauli und Altona.
+
+        ↑ § 23 HmbVwVfG – Amtssprache. Hamburgisches Verwaltungsvorschrif-
+        tengesetz vom 9. November 1977. Abgerufen am 25. September 2014.
+
+        1 2 3 Kaufkraft in Deutschland 2024. In: acxiom. Archiviert vom
+        Original am 7. Juli 2025; abgerufen am 7. Juli 2025.
+
+        ↑ BIP | Statistikportal.de. 30. März 2026, abgerufen am 4. September
+        2026. Abgerufen am 4. September 2026.
+    """,
+}
+
+
+def test_german_suggestions_never_hold_a_stopword():
+    """A German page is cut at German function words (#58)."""
+    phrases = [s.phrase for s in _suggest(GERMAN_ARTICLE)]
+    assert phrases, "expected the German article to yield suggestions"
+    for phrase in phrases:
+        words = phrase.split()
+        assert not [w for w in words if w in tagger.STOPWORDS_DE], phrase
+        assert words[0] not in tagger.STOPWORDS_DE, phrase
+        assert words[-1] not in tagger.STOPWORDS_DE, phrase
+
+
+def test_german_suggestions_drop_citation_boilerplate():
+    phrases = {s.phrase for s in _suggest(GERMAN_ARTICLE)}
+    assert "abgerufen" not in phrases
+    assert "archiviert" not in phrases
+    assert not [p for p in phrases if "abgerufen" in p.split()], phrases
+
+
+def test_german_suggestions_are_topical():
+    phrases = {s.phrase for s in _suggest(GERMAN_ARTICLE)}
+    assert "hamburg" in phrases
+    assert not [p for p in phrases if p.endswith(" und")], phrases
+    assert "hamburg und" not in phrases
+
+
+def test_detect_language_reads_the_stopwords_of_the_page():
+    assert (
+        tagger.detect_language(
+            "Die Stadt Hamburg ist ein Stadtstaat und eine Hansestadt. " * 4
+        )
+        == "de"
+    )
+    assert (
+        tagger.detect_language(
+            "The city of Hamburg is a city state and a free city. " * 4
+        )
+        == "en"
+    )
+
+
+def test_the_declared_language_wins_over_the_guess():
+    body = "Hamburg und der Hafen. " * 5
+    german = tagger.suggest_new_tags(
+        title="Hamburg",
+        excerpt="",
+        url="https://de.example.com/hamburg",
+        body=body,
+        user_tags=[],
+        lang="de",
+    )
+    english = tagger.suggest_new_tags(
+        title="Hamburg",
+        excerpt="",
+        url="https://de.example.com/hamburg",
+        body=body,
+        user_tags=[],
+        lang="en",
+    )
+    assert {s.phrase for s in german} == {"hamburg", "hafen"}
+    assert "hamburg und der" in {s.phrase for s in english}
+
+
+def test_english_pages_keep_the_english_stopwords():
+    """The German list must not leak into English suggestions."""
+    for article in ARTICLES:
+        for suggestion in _suggest(article):
+            words = suggestion.phrase.split()
+            assert not [w for w in words if w in tagger.STOPWORDS_DE], (
+                article["title"],
+                suggestion,
+            )
+
+
 def test_suggestions_never_start_or_end_with_a_stopword():
     for article in ARTICLES:
         for suggestion in _suggest(article):
