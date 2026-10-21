@@ -238,6 +238,11 @@ async def library_page(
     clean_category = category.strip() if category and category.strip() else None
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
+    # The pinned shelf shows the pinned items, so the browse grid leaves
+    # them out (in the query, so the total and the pager match it). A
+    # search keeps them: the shelf is not filtered by the query, so
+    # hiding a pinned match would be a silent loss.
+    exclude_pinned = not (q or "").strip()
     items, total = await hybrid_search(
         db,
         env,
@@ -251,6 +256,7 @@ async def library_page(
         category=clean_category,
         quick=bool(quick),
         scope=scope,
+        exclude_pinned=exclude_pinned,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -267,6 +273,7 @@ async def library_page(
             category=clean_category,
             quick=bool(quick),
             scope=scope,
+            exclude_pinned=exclude_pinned,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
     tags, status_counts, pinned_items, import_status = await asyncio.gather(
@@ -353,6 +360,10 @@ async def search_htmx(
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
     tag_list, untagged_only = parse_tag_filter(clean_tag)
+    # An empty query is the browse grid: the pinned shelf shows the
+    # pinned items, so the grid leaves them out. A real search keeps
+    # them, the shelf is not filtered by the query.
+    exclude_pinned = not query.strip()
     items, total = await hybrid_search(
         db,
         env,
@@ -367,6 +378,7 @@ async def search_htmx(
         category=clean_category,
         quick=quick_flag,
         scope=scope,
+        exclude_pinned=exclude_pinned,
     )
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
@@ -384,6 +396,7 @@ async def search_htmx(
             category=clean_category,
             quick=quick_flag,
             scope=scope,
+            exclude_pinned=exclude_pinned,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
     tag_styles = tag_styles_for([t for it in items for t in (it.get("tags") or [])])
@@ -421,10 +434,14 @@ async def search_htmx(
             status_counts=scoped_counts, active_status=clean_status
         )
         + "</div>"
+        # The header count follows the search results; the "All Items"
+        # counts (sidebar + mobile chip) stay on the library total, so a
+        # search does not shrink the library.
         + f'<span id="library-total" hx-swap-oob="true">{total}</span>'
         + f'<span id="sidebar-total" hx-swap-oob="true"'
         ' class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">'
-        f"{total}</span>" + f'<span id="mobile-total" hx-swap-oob="true">{total}</span>'
+        f"{scoped_counts['all']}</span>"
+        + f'<span id="mobile-total" hx-swap-oob="true">{scoped_counts["all"]}</span>'
     )
     template = jinja_env.get_template("partials/item_card.html")
     if not items:

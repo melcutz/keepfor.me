@@ -26,6 +26,25 @@ DEFAULT_MAX_TOKENS = 2000  # Standard RRF constant
 # responsive even when Workers AI or Vectorize is slow; both fall back to
 # keyword-only results on timeout.
 VECTOR_SEARCH_TIMEOUT = 5.0
+# Similarity floor for semantic hits. Vectorize is queried with
+# metric=cosine, so `score` is the cosine SIMILARITY of the two
+# embeddings (1.0 = identical), not a distance. Measured Oct 2026 with
+# the production embedding model @cf/baai/bge-base-en-v1.5: on the QA
+# tenant's 7-item library a nonsense query scored 0.587 ("zxqvbnm"),
+# but on a real prod library the same nonsense query scores 0.727 while
+# the real matches score 0.63-0.67. The baseline climbs with the library
+# size, so no absolute floor separates noise from a match: the rule
+# below needs a keyword hit or a strong near-top hit instead.
+SEMANTIC_MIN_SIMILARITY = 0.62
+# Floor for a semantic-only hit (no keyword match) that clusters with
+# the top of the vector results. Short real queries ("work" 0.637) come
+# back through the keyword path, not through this one.
+HYBRID_SEMANTIC_ONLY_MIN_SIMILARITY = 0.68
+# A semantic-only hit this strong is kept on its own.
+SEMANTIC_ONLY_STRONG_SIMILARITY = 0.80
+# How close to the top vector score a candidate must be to count as
+# "near the top".
+NEAR_TOP_WINDOW = 0.05
 
 # UI status groups: the items table stores raw statuses ('queued', 'fetching',
 # 'ok', 'failed'); the library pills group them for humans. 'fetching' is
@@ -235,6 +254,35 @@ async def search_fts(
     return combined[:limit]
 
 
+async def search_fts_whole_words(
+    db: Database, user_id: str, query: str, limit: int = 50
+) -> set[str]:
+    """Ids whose title or text contains a query term as a whole word.
+
+    FTS5 matches whole tokens (case-insensitive), so this is the keyword
+    signal of the semantic-only mode, where no keyword ranking runs.
+    """
+    clean_q = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
+    terms = [t for t in clean_q.split() if t]
+    if not terms:
+        return set()
+    match = " OR ".join(f'"{t}"' for t in terms)
+    sql = """
+        SELECT item_id FROM items_fts
+        WHERE items_fts MATCH ? AND user_id = ?
+          AND EXISTS (SELECT 1 FROM items i
+                      WHERE i.id = items_fts.item_id AND i.user_id = ?
+                        AND i.deleted_at IS NULL)
+        LIMIT ?;
+    """
+    try:
+        rows = await db.query_all(sql, (match, user_id, user_id, limit))
+    except Exception as exc:
+        logger.warning("Whole-word keyword search failed: %s", exc)
+        return set()
+    return {r["item_id"] for r in rows}
+
+
 async def search_vectorize(
     env: Any,
     user_id: str,
@@ -336,6 +384,36 @@ async def _drop_trashed(db: Database, user_id: str, item_ids: list[str]) -> list
     return [i for i in item_ids if i in live]
 
 
+def _keep_vector_hit(
+    score: float,
+    *,
+    keyword_hit: bool,
+    has_keyword_hits: bool,
+    top_score: float,
+) -> bool:
+    """Decides whether a vector candidate is a result or just a neighbour.
+
+    A keyword hit (an FTS match in hybrid mode, a whole query term in the
+    title or text in semantic-only mode) proves relevance and is always
+    kept. A semantic-only hit has to be strong
+    (SEMANTIC_ONLY_STRONG_SIMILARITY) and near the top of the vector
+    results, or - when the query did match something by keyword - close
+    to that top (NEAR_TOP_WINDOW) and above
+    HYBRID_SEMANTIC_ONLY_MIN_SIMILARITY.
+
+    The keyword guard is what drops a nonsense query: it produces no
+    keyword hit, so a cluster of near-top scores cannot vouch for it.
+    """
+    if keyword_hit:
+        return True
+    near_top = score >= top_score - NEAR_TOP_WINDOW
+    if score >= SEMANTIC_ONLY_STRONG_SIMILARITY:
+        return near_top
+    return (
+        has_keyword_hits and score >= HYBRID_SEMANTIC_ONLY_MIN_SIMILARITY and near_top
+    )
+
+
 async def hybrid_search(
     db: Database,
     env: Any,
@@ -355,11 +433,17 @@ async def hybrid_search(
     tags_any: list[str] | None = None,
     tags_none: list[str] | None = None,
     scope: TenantScope | None = None,
+    exclude_pinned: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """Execute hybrid search with RRF fusion, filters, and pagination.
 
     Returns (page_items, total_matches). total is exact for browse, and
     the ranked-candidate count (~100 max) for text queries.
+
+    `exclude_pinned` drops the pinned items from the browse grid (and
+    from its total). The pinned shelf shows them, so the grid must not
+    repeat them; a search keeps them, because the shelf is not filtered
+    by the query.
     """
     if scope is None and user_id:
         from keepfor.defaults import default_scope
@@ -390,6 +474,7 @@ async def hybrid_search(
                 status=status,
                 category=category,
                 quick=quick,
+                exclude_pinned=exclude_pinned,
             ),
             count_recent_items(
                 db,
@@ -400,6 +485,7 @@ async def hybrid_search(
                 status=status,
                 category=category,
                 quick=quick,
+                exclude_pinned=exclude_pinned,
             ),
         )
         return items, total
@@ -430,6 +516,33 @@ async def hybrid_search(
             await _drop_trashed(db, user_id, [r["item_id"] for r in vec_results])
         )
         vec_results = [r for r in vec_results if r["item_id"] in live]
+
+    # Relevance filter on the vector scores only (the FTS/RRF scores are
+    # untouched): a candidate that is neither a keyword hit nor a strong
+    # near-top hit is noise, not a match. Without it a nonsense query
+    # ("zxqvbnm") still returns the closest vectors.
+    if vec_results:
+        vec_results = [
+            r for r in vec_results if r.get("score", 0.0) >= SEMANTIC_MIN_SIMILARITY
+        ]
+    if vec_results:
+        if mode == "hybrid":
+            keyword_ids = {r["item_id"] for r in fts_results}
+        else:
+            # Semantic-only mode runs no keyword ranking: a whole query
+            # term in the title or the text is the keyword signal.
+            keyword_ids = await search_fts_whole_words(db, user_id, query)
+        top_score = max(r.get("score", 0.0) for r in vec_results)
+        vec_results = [
+            r
+            for r in vec_results
+            if _keep_vector_hit(
+                r.get("score", 0.0),
+                keyword_hit=r["item_id"] in keyword_ids,
+                has_keyword_hits=bool(keyword_ids),
+                top_score=top_score,
+            )
+        ]
 
     # Reciprocal Rank Fusion
     rrf_scores: dict[str, float] = {}
@@ -537,6 +650,7 @@ async def get_recent_items(
     status: str | None = None,
     category: str | None = None,
     quick: bool = False,
+    exclude_pinned: bool = False,
 ) -> list[dict[str, Any]]:
     """Retrieves recent items for user with pagination and optional filters."""
     status_values = _status_values(status)
@@ -551,6 +665,8 @@ async def get_recent_items(
     bare_cat, _ = _category_clause(category, "items")
     bare_cat_params = cat_params
     bare_quick = " AND word_count < 1000" if quick else ""
+    pinned_clause = " AND i.is_pinned = 0" if exclude_pinned else ""
+    bare_pinned = pinned_clause.replace("i.", "")
     tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))][
         :MAX_TAG_FILTERS
     ]
@@ -565,7 +681,7 @@ async def get_recent_items(
         SELECT {RECENT_COLUMNS}
         FROM items i
         WHERE i.user_id = ? AND i.deleted_at IS NULL
-          {status_clause}{cat_clause}{quick_clause} {exists}
+          {status_clause}{cat_clause}{quick_clause}{pinned_clause} {exists}
         ORDER BY i.created_at DESC
         LIMIT ? OFFSET ?;
     """
@@ -576,7 +692,8 @@ async def get_recent_items(
         sql = f"""
             SELECT {RECENT_COLUMNS_BARE}
             FROM items
-            WHERE user_id = ? AND deleted_at IS NULL{bare_status}{bare_cat}{bare_quick}
+            WHERE user_id = ? AND deleted_at IS NULL
+              {bare_status}{bare_cat}{bare_quick}{bare_pinned}
               AND NOT EXISTS (SELECT 1 FROM item_tags itx WHERE itx.item_id = items.id)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?;
@@ -588,7 +705,8 @@ async def get_recent_items(
         sql = f"""
             SELECT {RECENT_COLUMNS_BARE}
             FROM items
-            WHERE user_id = ? AND deleted_at IS NULL{bare_status}{bare_cat}{bare_quick}
+            WHERE user_id = ? AND deleted_at IS NULL
+              {bare_status}{bare_cat}{bare_quick}{bare_pinned}
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?;
         """
@@ -630,6 +748,7 @@ async def count_recent_items(
     status: str | None = None,
     category: str | None = None,
     quick: bool = False,
+    exclude_pinned: bool = False,
 ) -> int:
     """Count items matching the browse filters (same WHERE as get_recent_items)."""
     status_values = _status_values(status)
@@ -642,6 +761,8 @@ async def count_recent_items(
     cat_clause_i, _ = _category_clause(category, "i")
     quick_clause = " AND word_count < 1000" if quick else ""
     quick_clause_i = " AND i.word_count < 1000" if quick else ""
+    pinned_clause = " AND i.is_pinned = 0" if exclude_pinned else ""
+    bare_pinned = pinned_clause.replace("i.", "")
     tag_list = [t.lower() for t in (list(tags) if tags else ([tag] if tag else []))][
         :MAX_TAG_FILTERS
     ]
@@ -657,14 +778,14 @@ async def count_recent_items(
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items i "
             f"WHERE i.user_id = ? AND i.deleted_at IS NULL"
-            f"{tag_clause}{cat_clause_i}{quick_clause_i} {exists};",
+            f"{tag_clause}{cat_clause_i}{quick_clause_i}{pinned_clause} {exists};",
             (user_id, *status_params, *cat_params, *tag_list),
         )
     elif untagged:
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items "
             "WHERE user_id = ? AND deleted_at IS NULL"
-            f"{status_clause}{cat_clause}{quick_clause} "
+            f"{status_clause}{cat_clause}{quick_clause}{bare_pinned} "
             "AND NOT EXISTS (SELECT 1 FROM item_tags itx "
             "WHERE itx.item_id = items.id);",
             (user_id, *status_params, *cat_params),
@@ -673,7 +794,7 @@ async def count_recent_items(
         rows = await db.query_all(
             "SELECT COUNT(*) as count FROM items"
             " WHERE user_id = ? AND deleted_at IS NULL"
-            f"{status_clause}{cat_clause}{quick_clause};",
+            f"{status_clause}{cat_clause}{quick_clause}{bare_pinned};",
             (user_id, *status_params, *cat_params),
         )
     return rows[0]["count"] if rows else 0
