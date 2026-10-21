@@ -56,10 +56,6 @@
         {% if item.is_pinned %}
         <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-full font-medium">{{ icon("pin-filled", class="w-3 h-3 text-amber-600") }}<span>Pinned</span></span>
         {% endif %}
-
-        {% if item.rrf_score %}
-        <span class="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-mono">score: {{ item.rrf_score }}</span>
-        {% endif %}
       </div>
 
       {% if item.title %}

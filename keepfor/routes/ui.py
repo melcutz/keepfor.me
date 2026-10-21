@@ -7,6 +7,7 @@ import asyncio
 import datetime
 import json
 import sys
+from html import escape
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode, urlparse
 
@@ -277,7 +278,6 @@ async def library_page(
         user_import_status(db, user["id"], limit=1),
     )
     tag_styles = tag_styles_for([t["name"] for t in tags])
-    total_count = status_counts.get("all", 0)
 
     pager_qs = urlencode(
         {
@@ -302,7 +302,7 @@ async def library_page(
         active_untagged=untagged_only,
         query=q or "",
         tag_styles=tag_styles,
-        total_count=total_count,
+        total_count=total,
         active_status=clean_status,
         status_counts=status_counts,
         active_nav="library",
@@ -416,20 +416,23 @@ async def search_htmx(
             status_counts=scoped_counts, active_status=clean_status
         )
         + "</div>"
-        + f'<span id="library-total" hx-swap-oob="true">{scoped_counts["all"]}</span>'
+        + f'<span id="library-total" hx-swap-oob="true">{total}</span>'
+        + f'<span id="sidebar-total" hx-swap-oob="true"'
+        ' class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">'
+        f"{total}</span>" + f'<span id="mobile-total" hx-swap-oob="true">{total}</span>'
     )
     template = jinja_env.get_template("partials/item_card.html")
     if not items:
-        msg = (
-            "No saves match these tags."
-            if (tag_list or untagged_only)
-            else "No matching articles found."
-        )
-        clear = (
-            ' <a href="/" class="underline">Clear filters</a>'
-            if (tag_list or untagged_only)
-            else ""
-        )
+        term = query.strip()
+        if term:
+            msg = f"No results for “{escape(term)}”"
+            clear = ' <a href="/" class="underline">Clear search</a>'
+        elif tag_list or untagged_only:
+            msg = "No saves match these tags."
+            clear = ' <a href="/" class="underline">Clear filters</a>'
+        else:
+            msg = "No matching articles found."
+            clear = ""
         return HTMLResponse(
             '<div class="col-span-all text-center py-12 text-slate-400 text-xs">'
             + msg
