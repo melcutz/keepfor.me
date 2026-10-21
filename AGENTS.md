@@ -170,6 +170,7 @@ Cards, List and Compact are **one list of items in three layouts** (issue #39). 
 - **No view may hide an item.** The feed shows every item the category/status/tag filters match — pinned and archived ones included — so the counts and the list always agree. A CSS rule that hides a card (`display: none`) breaks that silently; `tests/test_library_views.py` pins it.
 - **There is no pinned shelf.** Pinned items are ordinary feed items, marked in the card (amber border + "Pinned" badge). A second copy of an item (the old cards-only shelf) breaks the count, and an unscoped shelf shows items the current filter excludes.
 - **Pinned items lead the feed.** The browse feed is ordered by `is_pinned DESC, created_at DESC` — in all three branches of `get_recent_items` — so a pinned save opens page 1 in every view. Search stays relevance-ordered; `tests/test_library_pinned_order.py` pins both.
+- **The layout travels with the URL.** An explicit `?view=` is carried into every URL the library page builds (pager, category tabs, status chips, tag filters, search form), so the layout survives a filter, a search or a page change; without one the links stay layout-free and the client applies `localStorage`. The switcher marks the rendered layout server-side (`aria-pressed`), and picking one rewrites the page's links and the hidden `view` field the htmx requests send; `tests/test_library_view_param.py` pins both.
 
 ## Performance: cold starts dominate latency
 
