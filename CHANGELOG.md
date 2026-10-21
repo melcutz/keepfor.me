@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Delete stale vectors and chunks on textless re-extraction** (keepfor-cloud#160): when `should_index_text` returns `False` during extraction or re-extraction, the processor now deletes the item's existing Vectorize vectors (using the chunk IDs from the `chunks` table and the tenant namespace) and then removes the `chunks` rows. If no chunks exist, no vector call is made. Vector-delete errors are logged and do not fail extraction; chunks are only deleted after the vector delete succeeds.
+
 ### Breaking
 MCP Server 0.2.0 changes three tool behaviours. The old behaviour is one
 argument away in the first two cases.
