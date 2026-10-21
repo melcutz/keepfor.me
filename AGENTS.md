@@ -192,7 +192,8 @@ Item cards used to point their `<img>` at a third-party favicon service. Those a
 - `keepfor/utils/favicon.py` owns it: `normalize_host()` keeps only public hostnames (IP literals, `localhost`, `*.local`, `*.internal` are refused), `_fetch_upstream()` goes through `keepfor/utils/egress.py` (so the SSRF policy, the size cap and the timeout apply), and the R2 cache stores `favicons/<domain>` as base64 text (R2's binary put differs between runtimes, its text put does not).
 - A domain with no icon gets the **transparent 1×1 PNG fallback**, so the card's letter tile shows through it. Never serve an upstream body that is not a raster image: an HTML error page would fail to decode in the browser, and SVG is refused because a script inside it runs when the URL is opened as a document.
 - The route is **public**, like `/favicon.ico`: a session that expires between the page and its images must not turn into a 401 in the console.
-- **Only a signed-in request may fetch or cache.** The route calls `deps.get_current_user()` (no 401) and passes `may_fetch` to `resolve_favicon()`; an anonymous request gets the cached icon on a cache hit and the fallback otherwise — no outbound fetch, no R2 write. Without that gate the route is an open fetch-and-store proxy for anyone.
+- **Only a signed-in request may read the cache, fetch or store.** The route calls `deps.get_current_user()` (no 401) and passes `may_fetch` to `resolve_favicon()`; an anonymous request gets the **fallback, always** (same status, body, content type and `Cache-Control`, cached domain or not) — the cache is global, so a cached icon would tell a visitor whether some user's library holds that domain. Without the gate the route is an open fetch-and-store proxy for anyone.
+- **Cache misses are rate limited** (keepfor-cloud#154): a miss makes us fetch an arbitrary domain and write an R2 object, so misses are capped per user and per IP (`FAVICON_MAX_MISSES_PER_USER` / `FAVICON_MAX_MISSES_PER_IP`, 60 per `FAVICON_MISS_WINDOW_SECONDS` = 10 min) in the same `rate_limits` table as the auth throttle. Over the cap: the fallback, no upstream fetch, no R2 write. A cache **hit** costs nothing.
 - **Only a real fetched icon is cached.** The fallback is never written to R2 (so there is no hourly re-fetch of iconless domains), and a failed fetch writes nothing either. A legacy `fallback: true` entry is treated as a miss and refetched.
 - The card must not point at any external favicon service — `tests/test_favicons.py` pins that for all three views.
 
@@ -235,6 +236,7 @@ If a separate frontend origin is ever needed, proxy through the same origin inst
 - `client_ip()` trusts only `CF-Connecting-IP` (edge-set). It must never trust `X-Forwarded-For` — that is client-controllable and would mint a fresh limit per request.
 - The limiter **fails open** on error. Login needs D1 anyway, but hard-failing would lock the owner out of their own instance over a defect in this file.
 - Fixed 15-minute windows, not a sliding log: one indexed row per key per window. Boundary bursts are absorbed by the conservative limits.
+- The same table and helpers serve the **favicon miss limiter** (`check_limit()` / `record_hits()` with their own window and caps, and their own `fav-user:` / `fav-ip:` key prefixes). The row cleanup keeps a window that can still be current for *any* limiter (the longest window is the horizon), so a favicon miss never deletes a live auth counter.
 
 ## CodeQL: `py/url-redirection` false positives on `_safe_next()`
 

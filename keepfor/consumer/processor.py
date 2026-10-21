@@ -490,64 +490,89 @@ async def extract_and_store(
         )
 
         vectors = scope.vectors(env)
-        can_embed = False
-        if chunks and vectors.index is not None:
-            try:
-                decision = await providers.entitlements.check(
-                    scope.tenant_id, "embed", qty=len(chunks)
-                )
-                can_embed = decision.allowed
-            except Exception as exc:
-                logger.warning("Entitlement check for embed failed: %s", exc)
 
-        if can_embed:
-            # Batch embeddings in groups of 10
-            vectors_to_upsert = []
-            chunk_records = []
-
-            for i in range(0, len(chunks), 10):
-                batch_chunks = chunks[i : i + 10]
-                texts = [c.text for c in batch_chunks]
-                embeddings = await providers.ai.embed(env, texts)
-
-                for chunk, vector in zip(batch_chunks, embeddings):
-                    chunk_id = f"item_{item_id}_chunk_{chunk.index}"
-                    vectors_to_upsert.append(
-                        {
-                            "id": chunk_id,
-                            "values": vector,
-                            "metadata": {
-                                "item_id": item_id,
-                                "user_id": user_id,
-                                "chunk_index": chunk.index,
-                            },
-                        }
-                    )
-                    chunk_records.append(
-                        (chunk_id, item_id, user_id, chunk.index, chunk.token_count)
-                    )
-
-            # Upsert into Vectorize
-            if vectors_to_upsert:
-                await vectors.upsert(vectors_to_upsert)
+        if index_text:
+            # Text item: upsert new vectors and update chunks table
+            can_embed = False
+            if chunks and vectors.index is not None:
                 try:
-                    await providers.entitlements.record(
-                        scope.tenant_id, "embed", qty=len(vectors_to_upsert)
+                    decision = await providers.entitlements.check(
+                        scope.tenant_id, "embed", qty=len(chunks)
                     )
+                    can_embed = decision.allowed
                 except Exception as exc:
-                    logger.warning("Entitlement record for embed failed: %s", exc)
+                    logger.warning("Entitlement check for embed failed: %s", exc)
 
-            # Update D1 chunks tracking table
-            await db.execute(
-                "DELETE FROM chunks WHERE item_id = ? AND user_id = ?;",
+            if can_embed:
+                # Batch embeddings in groups of 10
+                vectors_to_upsert = []
+                chunk_records = []
+
+                for i in range(0, len(chunks), 10):
+                    batch_chunks = chunks[i : i + 10]
+                    texts = [c.text for c in batch_chunks]
+                    embeddings = await providers.ai.embed(env, texts)
+
+                    for chunk, vector in zip(batch_chunks, embeddings):
+                        chunk_id = f"item_{item_id}_chunk_{chunk.index}"
+                        vectors_to_upsert.append(
+                            {
+                                "id": chunk_id,
+                                "values": vector,
+                                "metadata": {
+                                    "item_id": item_id,
+                                    "user_id": user_id,
+                                    "chunk_index": chunk.index,
+                                },
+                            }
+                        )
+                        chunk_records.append(
+                            (chunk_id, item_id, user_id, chunk.index, chunk.token_count)
+                        )
+
+                # Upsert into Vectorize
+                if vectors_to_upsert:
+                    await vectors.upsert(vectors_to_upsert)
+                    try:
+                        await providers.entitlements.record(
+                            scope.tenant_id, "embed", qty=len(vectors_to_upsert)
+                        )
+                    except Exception as exc:
+                        logger.warning("Entitlement record for embed failed: %s", exc)
+
+                # Update D1 chunks tracking table
+                await db.execute(
+                    "DELETE FROM chunks WHERE item_id = ? AND user_id = ?;",
+                    (item_id, user_id),
+                )
+                for rec in chunk_records:
+                    await db.execute(
+                        "INSERT INTO chunks (id, item_id, user_id, chunk_index, "
+                        "token_count) VALUES (?, ?, ?, ?, ?);",
+                        rec,
+                    )
+        else:
+            # Textless item: delete stale vectors and chunks from a previous extraction
+            chunk_rows = await db.query_all(
+                "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;",
                 (item_id, user_id),
             )
-            for rec in chunk_records:
-                await db.execute(
-                    "INSERT INTO chunks (id, item_id, user_id, chunk_index, "
-                    "token_count) VALUES (?, ?, ?, ?, ?);",
-                    rec,
-                )
+            chunk_ids = [r["id"] for r in chunk_rows]
+            if chunk_ids and vectors.index is not None:
+                try:
+                    await vectors.delete(chunk_ids)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to delete stale vector embeddings for item %s: %s",
+                        item_id,
+                        exc,
+                    )
+                else:
+                    # Only delete chunks rows after vector delete succeeds
+                    await db.execute(
+                        "DELETE FROM chunks WHERE item_id = ? AND user_id = ?;",
+                        (item_id, user_id),
+                    )
 
         # 7. Publish item.extracted event
         try:

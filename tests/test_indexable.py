@@ -117,9 +117,19 @@ class FakeVectorize:
 
     def __init__(self):
         self.upserts: list[dict] = []
+        self.delete_calls: list[list[str]] = []
+        self.store: dict[str, dict] = {}
 
     async def upsert(self, vectors):
         self.upserts.extend(vectors)
+        for vector in vectors:
+            self.store[str(vector["id"])] = vector
+
+    async def deleteByIds(self, ids, options=None):  # noqa: N802
+        ids = [ids] if isinstance(ids, str) else list(ids)
+        self.delete_calls.append(ids)
+        for vector_id in ids:
+            self.store.pop(str(vector_id), None)
 
 
 def _env_with_vectors():
@@ -136,6 +146,18 @@ async def _insert_photo(db, user_id, item_id):
         "VALUES (?,?,?,?, 'queued', '2026-01-01 00:00:00');",
         (item_id, user_id, PHOTO_URL, PHOTO_URL),
     )
+
+
+async def _seed_chunk(db, env, user_id, item_id, index=0):
+    """The state a textual extraction leaves behind: a chunk row and a vector."""
+    chunk_id = f"item_{item_id}_chunk_{index}"
+    await db.execute(
+        "INSERT INTO chunks (id, item_id, user_id, chunk_index, token_count) "
+        "VALUES (?,?,?,?,?);",
+        (chunk_id, item_id, user_id, index, 42),
+    )
+    env.VECTORIZE.store[chunk_id] = {"id": chunk_id, "values": [0.1]}
+    return chunk_id
 
 
 async def _extract_photo(db, monkeypatch, env, item_id, title="The Photograph"):
@@ -168,6 +190,41 @@ async def _extract_photo(db, monkeypatch, env, item_id, title="The Photograph"):
     monkeypatch.setattr(processor, "recursive_character_split", spy)
 
     await processor.extract_and_store(db, env, item_id, PHOTO_URL)
+    return chunk_calls
+
+
+async def _extract_textless(
+    db, monkeypatch, env, item_id, url=PHOTO_URL, title="The Photograph"
+):
+    """Extracts the item as a title with no text; returns the chunker calls."""
+    from keepfor.consumer import processor
+
+    async def fake_fetch_and_extract(url, item_id):
+        return {
+            "title": title,
+            "byline": "",
+            "site_name": "example.com",
+            "published_date": "",
+            "excerpt": "",
+            "content_text": "",
+            "word_count": 0,
+            "is_fallback": 1,
+            "clean_html": "<article><p></p></article>",
+        }, "<html>raw</html>"
+
+    monkeypatch.setattr(
+        "keepfor.consumer.processor._fetch_and_extract", fake_fetch_and_extract
+    )
+    chunk_calls: list[tuple[str, tuple]] = []
+    real_split = processor.recursive_character_split
+
+    def spy(text, **kwargs):
+        chunk_calls.append((text, tuple(kwargs)))
+        return real_split(text, **kwargs)
+
+    monkeypatch.setattr(processor, "recursive_character_split", spy)
+
+    await processor.extract_and_store(db, env, item_id, url)
     return chunk_calls
 
 
@@ -282,3 +339,221 @@ async def test_processor_still_indexes_a_text_item(db, monkeypatch):
     assert fts is not None
     assert fts["title"] == "Real Article"
     assert "meaningful article body" in fts["content_text"]
+
+
+@pytest.mark.asyncio
+async def test_textless_re_extraction_deletes_stale_vectors_and_chunks(db, monkeypatch):
+    """A text item re-extracted as textless ends with no vectors and no chunks."""
+    from keepfor.consumer import processor
+    from tests.fakes import FakeAI
+
+    user = await register_user(db, "u5@test.local", "password123")
+    item_id = "99999999-9999-9999-9999-999999999999"
+    url = "https://example.com/article"
+
+    # First, insert a text item
+    long_text = "This is a meaningful article body that has plenty of text. " * 20
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status, created_at) "
+        "VALUES (?,?,?,?, 'queued', '2026-01-01 00:00:00');",
+        (item_id, user["id"], url, url),
+    )
+
+    async def fake_fetch_text(url, item_id):
+        return {
+            "title": "Real Article",
+            "byline": "Author",
+            "site_name": "example.com",
+            "published_date": "2026-01-01",
+            "excerpt": "Short excerpt",
+            "content_text": long_text,
+            "word_count": len(long_text.split()),
+            "is_fallback": 0,
+            "clean_html": f"<article><p>{long_text}</p></article>",
+        }, "<html>raw</html>"
+
+    monkeypatch.setattr(
+        "keepfor.consumer.processor._fetch_and_extract", fake_fetch_text
+    )
+    env = _env_with_vectors()
+    env.AI = FakeAI()  # Enable embeddings
+    await processor.extract_and_store(db, env, item_id, url)
+
+    # Verify the item has chunks and vectors
+    chunks = await db.query_all(
+        "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;",
+        (item_id, user["id"]),
+    )
+    assert len(chunks) > 0
+    chunk_ids = [c["id"] for c in chunks]
+    for cid in chunk_ids:
+        assert cid in env.VECTORIZE.store
+
+    # Now re-extract as textless (e.g., the page became an image)
+    async def fake_fetch_textless(url, item_id):
+        return {
+            "title": "Real Article",
+            "byline": "Author",
+            "site_name": "example.com",
+            "published_date": "2026-01-01",
+            "excerpt": "",
+            "content_text": "",
+            "word_count": 0,
+            "is_fallback": 1,
+            "clean_html": "<article><p></p></article>",
+        }, "<html>raw</html>"
+
+    monkeypatch.setattr(
+        "keepfor.consumer.processor._fetch_and_extract", fake_fetch_textless
+    )
+    await processor.extract_and_store(db, env, item_id, url)
+
+    # Verify chunks are deleted
+    chunks = await db.query_all(
+        "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;",
+        (item_id, user["id"]),
+    )
+    assert chunks == []
+
+    # Verify vectors are deleted
+    for cid in chunk_ids:
+        assert cid not in env.VECTORIZE.store
+
+    # Verify the FTS title-only row remains
+    fts = await db.query_first(
+        "SELECT title, content_text FROM items_fts WHERE item_id = ? AND user_id = ?;",
+        (item_id, user["id"]),
+    )
+    assert fts is not None
+    assert fts["title"] == "Real Article"
+
+
+@pytest.mark.asyncio
+async def test_textless_re_extraction_no_chunks_no_vector_call(db, monkeypatch):
+    """A textless item with no chunks makes no vector call."""
+
+    user = await register_user(db, "u6@test.local", "password123")
+    item_id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+    await _insert_photo(db, user["id"], item_id)
+    # No chunks seeded
+
+    env = _env_with_vectors()
+    delete_calls_before = len(env.VECTORIZE.delete_calls)
+
+    await _extract_photo(db, monkeypatch, env, item_id)
+
+    # No vector delete should have been called
+    assert len(env.VECTORIZE.delete_calls) == delete_calls_before
+
+
+@pytest.mark.asyncio
+async def test_textless_re_extraction_other_user_chunks_untouched(db, monkeypatch):
+    """Another user's chunks are untouched when one user's item turns textless."""
+    from keepfor.consumer import processor
+    from tests.fakes import FakeAI
+
+    # Create users directly in the db to avoid registration closure
+    user1_id = "11111111-1111-1111-1111-111111111111"
+    user2_id = "22222222-2222-2222-2222-222222222222"
+    await db.execute(
+        "INSERT INTO users (id, email, password_hash, role, created_at) "
+        "VALUES (?, ?, 'hash', 'user', '2026-01-01 00:00:00');",
+        (user1_id, "u7@test.local"),
+    )
+    await db.execute(
+        "INSERT INTO users (id, email, password_hash, role, created_at) "
+        "VALUES (?, ?, 'hash', 'user', '2026-01-01 00:00:00');",
+        (user2_id, "u8@test.local"),
+    )
+
+    item_id1 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    item_id2 = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    url = "https://example.com/article"
+
+    long_text = "This is a meaningful article body that has plenty of text. " * 20
+
+    # User1 saves a text item
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status, created_at) "
+        "VALUES (?,?,?,?, 'queued', '2026-01-01 00:00:00');",
+        (item_id1, user1_id, url, url),
+    )
+
+    # User2 saves a text item
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, status, created_at) "
+        "VALUES (?,?,?,?, 'queued', '2026-01-01 00:00:00');",
+        (item_id2, user2_id, url, url),
+    )
+
+    async def fake_fetch_text(url, item_id):
+        return {
+            "title": "Real Article",
+            "byline": "Author",
+            "site_name": "example.com",
+            "published_date": "2026-01-01",
+            "excerpt": "Short excerpt",
+            "content_text": long_text,
+            "word_count": len(long_text.split()),
+            "is_fallback": 0,
+            "clean_html": f"<article><p>{long_text}</p></article>",
+        }, "<html>raw</html>"
+
+    monkeypatch.setattr(
+        "keepfor.consumer.processor._fetch_and_extract", fake_fetch_text
+    )
+    env = _env_with_vectors()
+    env.AI = FakeAI()  # Enable embeddings
+
+    # Extract both as text items
+    await processor.extract_and_store(db, env, item_id1, url, user_id=user1_id)
+    await processor.extract_and_store(db, env, item_id2, url, user_id=user2_id)
+
+    # Verify both have chunks
+    chunks1 = await db.query_all(
+        "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;",
+        (item_id1, user1_id),
+    )
+    chunks2 = await db.query_all(
+        "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;",
+        (item_id2, user2_id),
+    )
+    assert len(chunks1) > 0
+    assert len(chunks2) > 0
+    chunk_ids_2 = [c["id"] for c in chunks2]
+
+    # Now user1's item turns textless
+    async def fake_fetch_textless(url, item_id):
+        return {
+            "title": "Real Article",
+            "byline": "Author",
+            "site_name": "example.com",
+            "published_date": "2026-01-01",
+            "excerpt": "",
+            "content_text": "",
+            "word_count": 0,
+            "is_fallback": 1,
+            "clean_html": "<article><p></p></article>",
+        }, "<html>raw</html>"
+
+    monkeypatch.setattr(
+        "keepfor.consumer.processor._fetch_and_extract", fake_fetch_textless
+    )
+    await processor.extract_and_store(db, env, item_id1, url, user_id=user1_id)
+
+    # User1's chunks should be deleted
+    chunks1 = await db.query_all(
+        "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;",
+        (item_id1, user1_id),
+    )
+    assert chunks1 == []
+
+    # User2's chunks should remain
+    chunks2 = await db.query_all(
+        "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;",
+        (item_id2, user2_id),
+    )
+    assert len(chunks2) > 0
+    for cid in chunk_ids_2:
+        assert cid in env.VECTORIZE.store
