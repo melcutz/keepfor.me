@@ -9,10 +9,12 @@ from fastapi.testclient import TestClient
 from keepfor.app import app
 from keepfor.auth.service import login_user, register_user
 from keepfor.models.highlights import (
+    MAX_HIGHLIGHT_COLOR,
     MAX_HIGHLIGHT_NOTE,
     MAX_HIGHLIGHT_TEXT,
     create_highlight,
     list_highlights,
+    resolve_highlight_offsets,
 )
 from keepfor.models.items import save_item
 
@@ -75,6 +77,93 @@ async def item_with_content(db, auth):
         (content, item["id"], user["id"]),
     )
     return user["id"], item["id"], content
+
+
+@pytest.fixture
+async def wikipedia_like_item(db, auth):
+    """Save an item with multi-paragraph content, entities and nbsp."""
+    user, _ = auth
+    item, _ = await save_item(
+        db,
+        MockEnv(),
+        user["id"],
+        "https://example.com/wiki/Article",
+        [],
+    )
+    # clean_html mirrors what the extractor produces: paragraphs, entities, nbsp.
+    clean_html = (
+        "<p>The first paragraph introduces the topic.</p>"
+        "<p>A second paragraph has an ampersand: A &amp; B.</p>"
+        "<p>The third paragraph uses a non-breaking space here:\u00a0keep together.</p>"
+    )
+    # content_text is the _html_to_text + _clean_plain_text output.
+    content = (
+        "The first paragraph introduces the topic.\n\n"
+        "A second paragraph has an ampersand: A & B.\n\n"
+        "The third paragraph uses a non-breaking space here: keep together."
+    )
+    await db.execute(
+        "UPDATE items SET content_text = ?, status = 'ok'"
+        " WHERE id = ? AND user_id = ?;",
+        (content, item["id"], user["id"]),
+    )
+    return user["id"], item["id"], content, clean_html
+
+
+# --- Pure offset resolution tests ---
+
+
+def test_resolve_highlight_offsets_exact_match():
+    """Exact offsets are returned unchanged."""
+    content = "Hello world, this is a test article."
+    assert resolve_highlight_offsets(content, "test article", 23, 35) == (23, 35)
+
+
+def test_resolve_highlight_offsets_clamps_to_content_length():
+    """Offsets past the content length are clamped."""
+    content = "Short text."
+    assert resolve_highlight_offsets(content, "text", 6, 100) == (6, 10)
+
+
+def test_resolve_highlight_offsets_finds_nearby_quote():
+    """An off-by-whitespace mismatch finds the nearest occurrence."""
+    content = "Hello world, this is a test article."
+    # Client sends one character too late because of a leading space mismatch.
+    assert resolve_highlight_offsets(content, "test article", 24, 36) == (23, 35)
+
+
+def test_resolve_highlight_offsets_finds_quote_anywhere():
+    """If the requested offsets are wrong, the quote is found in the full text."""
+    content = "Hello world, this is a test article."
+    assert resolve_highlight_offsets(content, "Hello", 100, 105) == (0, 5)
+
+
+def test_resolve_highlight_offsets_returns_none_when_missing():
+    """A quote that is genuinely not in the content returns None."""
+    content = "Hello world."
+    assert resolve_highlight_offsets(content, "missing text", 0, 12) is None
+
+
+def test_resolve_highlight_offsets_wikipedia_paragraph_boundaries():
+    """Multi-paragraph content with entities and nbsp resolves correctly."""
+    content = (
+        "The first paragraph introduces the topic.\n\n"
+        "A second paragraph has an ampersand: A & B.\n\n"
+        "The third paragraph uses a non-breaking space here: keep together."
+    )
+    # Off-by-newline mismatch from a cross-paragraph drag selection.
+    assert resolve_highlight_offsets(
+        content,
+        "A second paragraph has an ampersand: A & B.",
+        43,
+        90,
+    ) == (43, 86)
+
+
+def test_resolve_highlight_offsets_whitespace_normalized_fallback():
+    """A quote with collapsed whitespace still anchors on the content text."""
+    content = "Word1  word2\nword3"
+    assert resolve_highlight_offsets(content, "word1 word2 word3", 0, 18) == (0, 18)
 
 
 # --- Model layer tests (via routes) ---
@@ -548,3 +637,148 @@ async def test_mcp_created_highlight_shows_in_reader(
     assert response.status_code == 200
     assert "test article" in response.text
     assert "created via MCP" in response.text
+
+
+# --- Issue #94: Wikipedia-like offsets, triple-click, whitespace drift, inline UI ---
+
+
+@pytest.mark.asyncio
+async def test_create_highlight_wikipedia_like_article(
+    db, client, auth, wikipedia_like_item
+):
+    """Highlights work on multi-paragraph articles with HTML entities and nbsp."""
+    user_id, item_id, content, _ = wikipedia_like_item
+    client.cookies["kfm_session"] = auth[1]
+
+    # Select across entities ("ampersand: A & B.") and nbsp.
+    r1 = client.post(
+        f"/items/{item_id}/highlights",
+        data={
+            "text": "A second paragraph has an ampersand: A & B.",
+            "note": "entity paragraph",
+            "color": "yellow",
+            "start_offset": 41,  # raw textContent offset without \n\n
+            "end_offset": 84,
+        },
+        headers={"hx-request": "true"},
+    )
+    assert r1.status_code == 200
+    assert "A second paragraph has an ampersand: A &amp; B." in r1.text
+
+    r2 = client.post(
+        f"/items/{item_id}/highlights",
+        data={
+            "text": "non-breaking space here:\u00a0keep together.",
+            "note": "nbsp quote",
+            "color": "violet",
+            "start_offset": 115,
+            "end_offset": 154,
+        },
+        headers={"hx-request": "true"},
+    )
+    assert r2.status_code == 200
+
+    highlights = await list_highlights(db, user_id, item_id)
+    assert len(highlights) == 2
+    assert highlights[0]["text"] == "A second paragraph has an ampersand: A & B."
+    assert highlights[0]["start_offset"] == 43
+    assert highlights[0]["end_offset"] == 86
+    assert highlights[0]["color"] == "yellow"
+    assert highlights[1]["text"] == "non-breaking space here: keep together."
+    assert highlights[1]["color"] == "violet"
+
+
+@pytest.mark.asyncio
+async def test_create_highlight_triple_click_selection(
+    db, client, auth, wikipedia_like_item
+):
+    """Triple-click selection with trailing newline and end_offset past content."""
+    user_id, item_id, content, _ = wikipedia_like_item
+    client.cookies["kfm_session"] = auth[1]
+
+    last_para = "The third paragraph uses a non-breaking space here: keep together."
+    start_idx = content.index(last_para)
+
+    response = client.post(
+        f"/items/{item_id}/highlights",
+        data={
+            "text": last_para + "\n",
+            "note": "triple clicked",
+            "color": "rose",
+            "start_offset": start_idx,
+            "end_offset": len(content) + 12,
+        },
+        headers={"hx-request": "true"},
+    )
+    assert response.status_code == 200
+    highlights = await list_highlights(db, user_id, item_id)
+    assert len(highlights) == 1
+    assert highlights[0]["text"] == last_para
+    assert highlights[0]["start_offset"] == start_idx
+    assert highlights[0]["end_offset"] == len(content)
+    assert highlights[0]["color"] == "rose"
+
+
+@pytest.mark.asyncio
+async def test_create_highlight_in_paragraph_drag_whitespace_mismatch(
+    db, client, auth, wikipedia_like_item
+):
+    """In-paragraph drag with off-by-whitespace offset drift anchors to quote."""
+    user_id, item_id, content, _ = wikipedia_like_item
+    client.cookies["kfm_session"] = auth[1]
+
+    response = client.post(
+        f"/items/{item_id}/highlights",
+        data={
+            "text": "ampersand:  A & B.",
+            "note": "whitespace mismatch",
+            "start_offset": 65,
+            "end_offset": 85,
+        },
+        headers={"hx-request": "true"},
+    )
+    assert response.status_code == 200
+    highlights = await list_highlights(db, user_id, item_id)
+    assert len(highlights) == 1
+    assert highlights[0]["text"] == "ampersand: A & B."
+    assert (
+        content[highlights[0]["start_offset"] : highlights[0]["end_offset"]]
+        == "ampersand: A & B."
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_highlight_rejects_overlong_color(
+    db, client, auth, item_with_content
+):
+    """Color exceeding MAX_HIGHLIGHT_COLOR is rejected."""
+    _, item_id, _ = item_with_content
+    client.cookies["kfm_session"] = auth[1]
+
+    response = client.post(
+        f"/items/{item_id}/highlights",
+        data={
+            "text": "test article",
+            "color": "c" * (MAX_HIGHLIGHT_COLOR + 1),
+            "start_offset": 23,
+            "end_offset": 35,
+        },
+        headers={"hx-request": "true"},
+    )
+    assert response.status_code == 422
+
+
+def test_reader_template_uses_inline_popover_without_alert_or_prompt():
+    """reader.html uses an inline popover and never calls alert() or prompt()."""
+    from pathlib import Path
+
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "reader.html"
+    source = template_path.read_text(encoding="utf-8")
+
+    assert "alert(" not in source
+    assert "prompt(" not in source
+    assert 'id="highlight-popover"' in source
+    assert 'id="highlight-note-input"' in source
+    assert 'id="highlight-color-input"' in source
+    assert 'id="highlight-popover-error"' in source
+    assert 'id="highlight-feedback"' in source

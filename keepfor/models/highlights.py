@@ -9,6 +9,7 @@ text plus the character offsets it covers inside the item's content_text.
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any
 
@@ -24,6 +25,64 @@ MAX_HIGHLIGHT_COLOR = 32
 MAX_HIGHLIGHT_OFFSET = 10_000_000
 # Cap on the number of highlights one list call returns.
 MAX_HIGHLIGHTS_LIMIT = 100
+
+
+def resolve_highlight_offsets(
+    content: str,
+    quote: str,
+    start_offset: int = 0,
+    end_offset: int = 0,
+) -> tuple[int, int] | None:
+    """Resolve a highlight quote to exact (start_offset, end_offset) in content.
+
+    Handles clamped triple-click selections, trailing newlines, nbsp vs space,
+    and off-by-whitespace offset drift by anchoring to the nearest occurrence
+    of the quote in content. Returns None when the quote does not appear in
+    content.
+    """
+    if not content or not quote:
+        return None
+    cleaned = quote.strip()
+    if not cleaned:
+        return None
+
+    content_len = len(content)
+    clamped_start = max(0, min(start_offset, content_len))
+    clamped_end = max(clamped_start, min(end_offset, content_len))
+
+    slice_text = content[clamped_start:clamped_end]
+    if slice_text == cleaned:
+        return (clamped_start, clamped_end)
+    if slice_text.strip() == cleaned:
+        rel = slice_text.find(cleaned)
+        if rel != -1:
+            return (clamped_start + rel, clamped_start + rel + len(cleaned))
+
+    norm_content = content.replace("\u00a0", " ")
+    norm_quote = cleaned.replace("\u00a0", " ")
+
+    best: tuple[int, int] | None = None
+    best_dist: int | None = None
+    pos = norm_content.find(norm_quote)
+    while pos != -1:
+        dist = abs(pos - clamped_start)
+        if best_dist is None or dist < best_dist:
+            best_dist = dist
+            best = (pos, pos + len(norm_quote))
+        pos = norm_content.find(norm_quote, pos + 1)
+    if best is not None:
+        return best
+
+    parts = norm_quote.split()
+    if not parts:
+        return None
+    pattern = r"\s+".join(re.escape(part) for part in parts)
+    for flags in (0, re.IGNORECASE):
+        matches = list(re.finditer(pattern, norm_content, flags))
+        if matches:
+            nearest = min(matches, key=lambda m: abs(m.start() - clamped_start))
+            return (nearest.start(), nearest.end())
+    return None
 
 
 async def item_content_length(db: Database, user_id: str, item_id: str) -> int | None:

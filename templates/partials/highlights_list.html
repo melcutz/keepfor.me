@@ -7,8 +7,26 @@
     <span>Highlights ({{ highlights|length }})</span>
   </h3>
   {% for h in highlights %}
-  <div id="highlight-{{ h.id }}" class="highlight-card p-3 bg-[var(--brand-50)] border border-[var(--brand-200)] rounded-lg">
-    <blockquote class="text-sm text-slate-700 leading-relaxed italic border-l-2 border-[var(--brand-300)] pl-3 my-2">
+  {% set hc = (h.color or 'brand')|lower %}
+  {% if hc in ('yellow', 'amber') %}
+    {% set card_cls = 'bg-amber-50/70 border-amber-200' %}
+    {% set quote_cls = 'border-amber-400' %}
+  {% elif hc in ('violet', 'purple') %}
+    {% set card_cls = 'bg-violet-50/70 border-violet-200' %}
+    {% set quote_cls = 'border-violet-400' %}
+  {% elif hc in ('rose', 'pink') %}
+    {% set card_cls = 'bg-rose-50/70 border-rose-200' %}
+    {% set quote_cls = 'border-rose-400' %}
+  {% else %}
+    {% set card_cls = 'bg-[var(--brand-50)] border-[var(--brand-200)]' %}
+    {% set quote_cls = 'border-[var(--brand-300)]' %}
+  {% endif %}
+  <div id="highlight-{{ h.id }}"
+       data-highlight-color="{{ h.color or 'brand' }}"
+       data-start-offset="{{ h.start_offset }}"
+       data-end-offset="{{ h.end_offset }}"
+       class="highlight-card p-3 {{ card_cls }} border rounded-lg">
+    <blockquote class="text-sm text-slate-700 leading-relaxed italic border-l-2 {{ quote_cls }} pl-3 my-2">
       {{ h.text }}
     </blockquote>
     {% if h.note %}

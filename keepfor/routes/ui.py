@@ -24,12 +24,13 @@ from markupsafe import escape
 from keepfor import deps
 from keepfor.models.cleanup import find_cleanup
 from keepfor.models.highlights import (
+    MAX_HIGHLIGHT_COLOR,
     MAX_HIGHLIGHT_NOTE,
     MAX_HIGHLIGHT_TEXT,
     create_highlight,
     delete_highlight,
-    item_content_length,
     list_highlights,
+    resolve_highlight_offsets,
 )
 from keepfor.models.items import (
     accept_suggestion,
@@ -1285,6 +1286,7 @@ async def create_highlight_route(
     item_id: str,
     text: str = Form(...),
     note: str = Form(""),
+    color: str = Form(""),
     start_offset: int = Form(0),
     end_offset: int = Form(0),
 ):
@@ -1295,44 +1297,62 @@ async def create_highlight_route(
     user = await deps.require_user(request)
     db = deps.get_db(request)
 
+    text = text.strip()
+    note = note.strip()
+    color = color.strip()
+
     # Validate quote length
     if not text or len(text) > MAX_HIGHLIGHT_TEXT:
         raise HTTPException(
             status_code=422, detail=f"Quote must be 1-{MAX_HIGHLIGHT_TEXT} characters"
         )
 
-    # Validate note length
+    # Validate note and color lengths
     if note and len(note) > MAX_HIGHLIGHT_NOTE:
         raise HTTPException(
             status_code=422,
             detail=f"Note must be at most {MAX_HIGHLIGHT_NOTE} characters",
         )
+    if color and len(color) > MAX_HIGHLIGHT_COLOR:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Color must be at most {MAX_HIGHLIGHT_COLOR} characters",
+        )
 
-    # Validate the item exists and get content length
-    content_len = await item_content_length(db, user["id"], item_id)
-    if content_len is None:
-        raise HTTPException(status_code=404, detail="Item not found")
-
-    # Validate offsets
-    if start_offset < 0 or start_offset > content_len:
-        raise HTTPException(status_code=422, detail="Invalid start offset")
-    if end_offset < start_offset or end_offset > content_len:
-        raise HTTPException(status_code=422, detail="Invalid end offset")
-
-    # Verify the quoted text exists at the given offsets in content_text
-    # (matches create_highlight model behavior for MCP tools)
+    # Validate the item exists and read content_text
     row = await db.query_first(
         "SELECT content_text FROM items"
         " WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
         (item_id, user["id"]),
     )
-    if row and row["content_text"]:
-        content_text = row["content_text"]
-        if content_text[start_offset:end_offset] != text:
+    if not row:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    content_text = row["content_text"] or ""
+    content_len = len(content_text)
+
+    if start_offset < 0 or start_offset > content_len:
+        raise HTTPException(status_code=422, detail="Invalid start offset")
+    if end_offset < start_offset:
+        raise HTTPException(status_code=422, detail="Invalid end offset")
+
+    if content_text:
+        resolved = resolve_highlight_offsets(
+            content_text, text, start_offset, end_offset
+        )
+        if resolved is None:
+            if end_offset > content_len:
+                raise HTTPException(status_code=422, detail="Invalid end offset")
             raise HTTPException(
                 status_code=422,
                 detail="Quote does not match content at given offsets",
             )
+        start_offset, end_offset = resolved
+        text = content_text[start_offset:end_offset]
+    else:
+        if end_offset > 0:
+            raise HTTPException(status_code=422, detail="Invalid end offset")
+        end_offset = start_offset + len(text)
 
     highlight = await create_highlight(
         db,
@@ -1340,9 +1360,9 @@ async def create_highlight_route(
         item_id,
         text,
         start_offset,
-        end_offset if end_offset else start_offset + len(text),
+        end_offset,
         note=note if note else None,
-        color=None,  # Single color for now
+        color=color if color else None,
     )
     if not highlight:
         raise HTTPException(status_code=404, detail="Item not found")
