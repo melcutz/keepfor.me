@@ -298,6 +298,84 @@ async def test_trashed_item_is_invisible_to_mcp(harness: IsolationHarness):
 
 
 @pytest.mark.asyncio
+async def test_mcp_list_trash_isolation(harness: IsolationHarness):
+    """MCP list_trash as Tenant B never returns Tenant A's trashed items."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    await a.db.execute(
+        "UPDATE items SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+        (a.html_item_id, a.user["id"]),
+    )
+
+    resp_b = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 212,
+            "method": "tools/call",
+            "params": {"name": "list_trash", "arguments": {}},
+        },
+        headers=b.auth_headers,
+    )
+    assert resp_b.status_code == 200
+    text_b = resp_b.json()["result"]["content"][0]["text"]
+    assert a.html_item_id not in text_b
+    assert a.unique_keyword not in text_b
+
+    resp_a = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 213,
+            "method": "tools/call",
+            "params": {"name": "list_trash", "arguments": {}},
+        },
+        headers=a.auth_headers,
+    )
+    assert resp_a.status_code == 200
+    data_a = json.loads(resp_a.json()["result"]["content"][0]["text"])
+    trashed_ids = [item["id"] for item in data_a["items"]]
+    assert a.html_item_id in trashed_ids
+
+
+@pytest.mark.asyncio
+async def test_mcp_restore_item_isolation(harness: IsolationHarness):
+    """MCP restore_item as Tenant B targeting Tenant A's trashed item returns not_found
+    and does not restore Tenant A's item.
+    """
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    await a.db.execute(
+        "UPDATE items SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+        (a.html_item_id, a.user["id"]),
+    )
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 214,
+            "method": "tools/call",
+            "params": {
+                "name": "restore_item",
+                "arguments": {"item_ids": [a.html_item_id]},
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    res_data = json.loads(resp.json()["result"]["content"][0]["text"])
+    assert a.html_item_id in res_data["not_found"]
+    assert res_data["restored"] == []
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before
+
+
+@pytest.mark.asyncio
 async def test_mcp_pin_item_isolation(harness: IsolationHarness):
     """MCP pin_item as Tenant B targeting Tenant A's item does not pin A's item."""
     a = harness.tenant_a

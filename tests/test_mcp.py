@@ -11,6 +11,7 @@ import pytest
 
 from keepfor.auth.service import register_user
 from keepfor.mcp.server import MCP_TOOLS, MCP_TOOLS_BY_NAME, process_mcp_request
+from keepfor.models.items import trash_item
 
 
 class FakeQueue:
@@ -295,7 +296,7 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 41
+    assert len(names) == 43
     assert "save_url" in names
     assert "save_note" in names
     assert "pin_item" in names
@@ -318,12 +319,16 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     assert "create_highlight" in names
     assert "list_highlights" in names
     assert "delete_highlight" in names
+    assert "update_highlight" in names
     assert "create_collection" in names
     assert "list_collections" in names
     assert "add_to_collection" in names
     assert "remove_from_collection" in names
     assert "rename_collection" in names
     assert "delete_collection" in names
+    # Trash tools
+    assert "list_trash" in names
+    assert "restore_item" in names
     # Every tool declares annotations
     for tool in res.json()["result"]["tools"]:
         assert set(tool["annotations"]) == {
@@ -442,6 +447,8 @@ TOOL_ARGUMENTS = {
     "tag_cleanup": {},
     "find_cleanup": {},
     "delete_item": {"item_id": "ITEM"},
+    "list_trash": {},
+    "restore_item": {"item_ids": ["ITEM"]},
     "pin_item": {"item_id": "ITEM"},
     "library_digest": {},
     "create_highlight": {"item_id": "ITEM", "text": "quoted", "end_offset": 6},
@@ -1146,6 +1153,7 @@ WRITE_ARGUMENTS = {
     "retag_by_query": {"query": "alpha", "add": ["probe-add"]},
     "bulk_update": {"tags_all": ["work"], "add_tags": ["probe-add"]},
     "set_item_tags": {"item_id": "ITEM", "tags": ["probe-add"]},
+    "restore_item": {"item_ids": ["ITEM"]},
     # Highlights and collections (GitHub issue #24): the collection and the
     # highlight must exist for the call to change anything, so the shared
     # defaults above (which name a collection that is not there yet, or one
@@ -1265,6 +1273,10 @@ async def test_read_only_token_is_refused_on_write_tools(db, scoped_user, tool_n
     """
     user, env, item_id = scoped_user
     args = _write_arguments(tool_name, item_id)
+
+    # restore_item only writes when the item is in the Trash.
+    if tool_name == "restore_item":
+        await trash_item(db, user["id"], item_id)
 
     def call(scopes):
         return process_mcp_request(
