@@ -1202,3 +1202,21 @@ async def test_mcp_collection_items_stay_tenant_scoped(harness: IsolationHarness
         (b.user["id"], a.html_item_id),
     )
     assert links == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_get_account_isolation(harness: IsolationHarness):
+    """get_account as Tenant B reports B's quota and never touches A."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = await _call_as_tenant(harness, b, "get_account", {})
+    assert resp.status_code == 200
+    assert "error" not in resp.json(), resp.json()
+    assert a.unique_keyword not in resp.text
+    assert a.html_item_id not in resp.text
+    assert a.user["id"] not in resp.text
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, "get_account modified Tenant A"

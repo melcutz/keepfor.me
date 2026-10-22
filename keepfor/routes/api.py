@@ -3,13 +3,14 @@
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from keepfor import deps
-from keepfor.mcp.server import process_mcp_request
+from keepfor.mcp.server import is_free_tool_call, process_mcp_request
 from keepfor.models.items import (
     get_item,
     get_item_clean_html,
@@ -18,6 +19,7 @@ from keepfor.models.items import (
 )
 from keepfor.schemas import SaveItemRequest, SearchRequest
 from keepfor.search.engine import get_recent_items, hybrid_search
+from keepfor.spi import Decision
 from keepfor.utils.importer import export_library_html, export_library_json
 from keepfor.utils.logging import logger
 from keepfor.utils.url import extract_url
@@ -124,6 +126,20 @@ def _is_mcp_origin_allowed(request: Request) -> bool:
     return urlparse(origin).netloc.lower() == host.lower()
 
 
+def _limit_quota(decision: Decision) -> dict[str, Any]:
+    """The quota of a refusal, when the provider reports one.
+
+    A provider that reports nothing gets no `data` field: the error stays
+    exactly what the clients already know.
+    """
+    quota: dict[str, Any] = {}
+    if decision.remaining is not None:
+        quota["remaining"] = decision.remaining
+    if decision.resets_at is not None:
+        quota["resets_at"] = decision.resets_at
+    return quota
+
+
 @router.post("/api/mcp")
 async def mcp_endpoint(request: Request):
     # Stateless Streamable HTTP endpoint: no sessions, no SSE. Requests get
@@ -140,25 +156,38 @@ async def mcp_endpoint(request: Request):
 
     scope = deps.get_scope(request)
     providers = deps.get_providers(request)
-    decision = await providers.entitlements.check(scope.tenant_id, "mcp_call", qty=1)
-    if not decision.allowed:
-        req_id = body.get("id") if isinstance(body, dict) else None
-        return JSONResponse(
-            content={
-                "jsonrpc": "2.0",
-                "id": req_id,
-                "error": {"code": -32001, "message": "limit"},
-            }
+    # get_account reports the quota, so the call itself is free: it costs no
+    # `mcp_call` unit and stays readable when the quota is exhausted.
+    free_call = is_free_tool_call(body)
+    if not free_call:
+        decision = await providers.entitlements.check(
+            scope.tenant_id, "mcp_call", qty=1
         )
+        if not decision.allowed:
+            req_id = body.get("id") if isinstance(body, dict) else None
+            error: dict[str, Any] = {"code": -32001, "message": "limit"}
+            quota = _limit_quota(decision)
+            if quota:
+                error["data"] = quota
+            return JSONResponse(
+                content={
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": error,
+                }
+            )
 
-    response_payload = await process_mcp_request(body, db, env, user, scope=scope)
+    response_payload = await process_mcp_request(
+        body, db, env, user, scope=scope, providers=providers
+    )
     if response_payload is None:
         return Response(status_code=202)
 
-    try:
-        await providers.entitlements.record(scope.tenant_id, "mcp_call", qty=1)
-    except Exception as exc:
-        logger.warning("Failed to record entitlement for mcp_call: %s", exc)
+    if not free_call:
+        try:
+            await providers.entitlements.record(scope.tenant_id, "mcp_call", qty=1)
+        except Exception as exc:
+            logger.warning("Failed to record entitlement for mcp_call: %s", exc)
 
     if body.get("method") == "initialize":
         if "result" in response_payload:

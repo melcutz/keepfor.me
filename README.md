@@ -185,7 +185,7 @@ working.
 ## Connecting AI Agents (Remote MCP)
 
 Keepfor.me hosts a remote Streamable HTTP MCP server at `https://app.keepfor.me/api/mcp`,
-exposing 41 tools for capturing, finding, reading and tagging your library:
+exposing 42 tools for capturing, finding, reading and tagging your library:
 1. `save_url`: Save any webpage to your library.
 2. `save_urls`: Save many webpages to your library in one call, with a status for each URL.
 3. `save_note`: Save a note, snippet or prompt template.
@@ -206,6 +206,7 @@ exposing 41 tools for capturing, finding, reading and tagging your library:
 18. `library_digest`: A compact recap — saves, opens, top tags, unread highlights.
 19. `create_highlight` / `list_highlights` / `delete_highlight`: Quote a passage of an item, anchored by character offsets.
 20. `create_collection` / `list_collections` / `add_to_collection` / `remove_from_collection` / `rename_collection` / `delete_collection`: Named buckets of library items.
+21. `get_account`: Your plan, the end of the trial and the quota left — free, so it still answers when the quota is exhausted.
 
 The server is stateless (no sessions, plain JSON responses, no SSE stream) and
 authenticates with the same Personal Access Tokens as the REST API.
@@ -251,7 +252,7 @@ curl https://app.keepfor.me/api/mcp \
 
 ### Available MCP Tools (Server 0.2.0)
 
-The MCP server exposes 41 tools. The tools that change many items at once take a `dry_run` flag: it is only accepted as a JSON boolean (omitted means `true`, a preview), and anything else is rejected rather than applied.
+The MCP server exposes 42 tools. The tools that change many items at once take a `dry_run` flag: it is only accepted as a JSON boolean (omitted means `true`, a preview), and anything else is rejected rather than applied.
 
 1. **`save_url`** — Save any webpage to your library. Accepts optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
 2. **`save_urls`** — Save up to 50 webpages to your library in one call, with a status per URL (`queued`, `exists`, `invalid`, `over_limit`) and the totals. Needs the write scope. The URLs are deduped by canonical URL, every new URL goes through the same save check as `save_url` (the ones the save limit refuses come back as `over_limit`), and the extraction is queued, so the call does not wait for the pages.
@@ -294,6 +295,7 @@ The MCP server exposes 41 tools. The tools that change many items at once take a
 39. **`remove_from_collection`** — Take items out of a collection. The items themselves are never deleted.
 40. **`rename_collection`** — Rename a collection. Renaming onto a name that is already taken is refused, never merged.
 41. **`delete_collection`** — Delete a collection and its links. The items it held are never deleted; use `remove_from_collection` to empty it.
+42. **`get_account`** — Read-only report of your account: the plan, `trial_ends_at` and the quota of every metered action (`limit`, `used`, `remaining`, `resets_at`). The call is free — it costs no quota unit, so it still answers when the quota is exhausted.
 
 All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`). They are advisory hints for the client, and the server uses them to enforce the scopes of a token (see below). A token is never rejected for missing scope information: no scope information means full access. Each description says when to use a tool versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
 
