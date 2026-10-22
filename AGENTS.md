@@ -196,6 +196,7 @@ Item cards used to point their `<img>` at a third-party favicon service. Those a
 - **Cache misses are rate limited** (keepfor-cloud#154): a miss makes us fetch an arbitrary domain and write an R2 object, so misses are capped per user and per IP (`FAVICON_MAX_MISSES_PER_USER` / `FAVICON_MAX_MISSES_PER_IP`, 60 per `FAVICON_MISS_WINDOW_SECONDS` = 10 min) in the same `rate_limits` table as the auth throttle. Over the cap: the fallback, no upstream fetch, no R2 write. A cache **hit** costs nothing.
 - **Only a real fetched icon is cached.** The fallback is never written to R2 (so there is no hourly re-fetch of iconless domains), and a failed fetch writes nothing either. A legacy `fallback: true` entry is treated as a miss and refetched.
 - The card must not point at any external favicon service — `tests/test_favicons.py` pins that for all three views.
+- **A site's CDN can refuse our whole network** (keepfor-cloud#168): python.org answers **403 with an empty body** to every request that leaves Cloudflare, for every user agent, header set, redirect handling and retry — the icon is public, the CDN just does not serve us. The request shape is *not* the cause; do not chase the UA. When a site answers a refusal status (`REFUSED_STATUSES` in `keepfor/utils/favicon.py`), the icon is fetched from a public icon service instead (`FAVICON_ICON_SERVICE`, `""` turns it off). A 404 still means "no icon" and keeps the placeholder.
 
 ## Performance: cold starts dominate latency
 

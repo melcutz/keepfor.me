@@ -78,6 +78,23 @@ Or point it to a self-hosted readability instance (e.g., `https://readability.yo
 
 > **Privacy Note**: Enabling `READER_PROXY_BASE` causes article URLs that receive HTTP 403/429/530 to be sent to that proxy. Internal or private network IP addresses (such as `127.0.0.1`, `10.0.0.0/8`, `192.168.0.0/16`) are blocked by SSRF policy and are never forwarded to any proxy.
 
+### Favicon Icon Service (`FAVICON_ICON_SERVICE`)
+
+A site's CDN can refuse the whole Cloudflare network: python.org answers HTTP 403 with an empty body to every request that leaves Cloudflare, although its `favicon.ico` is public. Such a site gets no icon from a direct fetch.
+
+- **Default Behavior**: On. The site's `/favicon.ico` is tried first; only when it refuses us (403, 419, 429, 520, 522, 530) is the domain asked of a public icon service, which reaches the site from a network it does not block. A site that answers 404 has no icon and keeps the transparent placeholder.
+- **Turning It Off**: Set `FAVICON_ICON_SERVICE` to `""` to serve the placeholder for every site that refuses us.
+
+```jsonc
+{
+  "vars": {
+    "FAVICON_ICON_SERVICE": ""
+  }
+}
+```
+
+> **Privacy Note**: The icon service only ever sees a bare hostname (never a full URL), only for domains whose own site refused the request, and at most once per domain (the result is cached in R2).
+
 ### Egress Limits & Policy Variables
 
 Outbound HTTP egress is governed by `keepfor/utils/egress.py` and can be adjusted with environment variables:
