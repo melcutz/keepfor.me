@@ -214,8 +214,36 @@
       </div>
 
       <!-- Highlights -->
+      <div id="highlight-feedback" role="status" aria-live="polite" class="hidden mt-6 px-3.5 py-2.5 rounded-lg text-xs font-medium border"></div>
       <div id="highlights-section" class="mt-8">
         {% include "partials/highlights_list.html" %}
+      </div>
+
+      <!-- Inline Highlight Popover -->
+      <div id="highlight-popover" role="dialog" aria-label="Save highlight" class="fixed z-50 w-72 sm:w-80 bg-white border border-slate-200 rounded-xl shadow-xl p-3.5 hidden">
+        <form id="highlight-popover-form" class="space-y-3" onsubmit="submitHighlightPopover(event)">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-semibold text-slate-700">Highlight color</span>
+            <div class="flex items-center gap-1.5" role="radiogroup" aria-label="Highlight color">
+              <input type="hidden" id="highlight-color-input" name="color" value="yellow">
+              <button type="button" data-color-choice="yellow" onclick="selectHighlightColor('yellow')" aria-label="Yellow" aria-pressed="true" class="w-5 h-5 rounded-full bg-amber-300 border-2 border-slate-900 focus:outline-none"></button>
+              <button type="button" data-color-choice="brand" onclick="selectHighlightColor('brand')" aria-label="Brand blue" aria-pressed="false" class="w-5 h-5 rounded-full bg-[var(--brand-300)] border border-slate-300 focus:outline-none"></button>
+              <button type="button" data-color-choice="violet" onclick="selectHighlightColor('violet')" aria-label="Violet" aria-pressed="false" class="w-5 h-5 rounded-full bg-violet-300 border border-slate-300 focus:outline-none"></button>
+              <button type="button" data-color-choice="rose" onclick="selectHighlightColor('rose')" aria-label="Rose" aria-pressed="false" class="w-5 h-5 rounded-full bg-rose-300 border border-slate-300 focus:outline-none"></button>
+            </div>
+          </div>
+          <div>
+            <label for="highlight-note-input" class="sr-only">Note (optional)</label>
+            <textarea id="highlight-note-input" name="note" rows="2" maxlength="500"
+                      placeholder="Add a note (optional)…"
+                      class="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-[var(--brand-300)] bg-white resize-none"></textarea>
+          </div>
+          <p id="highlight-popover-error" role="alert" class="hidden text-xs text-red-600 font-medium"></p>
+          <div class="flex items-center justify-end gap-2">
+            <button type="button" onclick="closeHighlightPopover()" class="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 rounded-lg">Cancel</button>
+            <button type="submit" id="highlight-save-btn" class="px-3 py-1.5 bg-[var(--brand-600)] hover:bg-[var(--brand-700)] text-white text-xs font-semibold rounded-lg">Save</button>
+          </div>
+        </form>
       </div>
 
     </article>
@@ -342,17 +370,42 @@
   // Highlighting functionality
   let highlightButton = null;
   let currentSelection = null;
+  let selectedHighlightColor = 'yellow';
+
+  const BLOCK_TAGS = new Set([
+    'P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+    'LI', 'TR', 'BLOCKQUOTE', 'PRE', 'DD', 'DT',
+    'SECTION', 'FIGCAPTION', 'CAPTION'
+  ]);
+  const CELL_TAGS = new Set(['TD', 'TH']);
+  const SKIP_TAGS = new Set(['SCRIPT', 'STYLE']);
+  const ZERO_WIDTH_RE = /[\u200b\u200c\u200d\ufeff\u00ad]/g;
 
   // Create the floating highlight button
   function createHighlightButton() {
     if (highlightButton) return highlightButton;
-    highlightButton = document.createElement('div');
+    highlightButton = document.createElement('button');
+    highlightButton.type = 'button';
     highlightButton.id = 'highlight-float-btn';
     highlightButton.className = 'fixed z-50 px-3 py-1.5 bg-[var(--brand-600)] text-white text-xs font-medium rounded-lg shadow-lg hidden transition-opacity';
-    highlightButton.innerHTML = 'Highlight';
-    highlightButton.addEventListener('click', createHighlightFromSelection);
+    highlightButton.textContent = 'Highlight';
+    highlightButton.addEventListener('click', openHighlightPopover);
     document.body.appendChild(highlightButton);
     return highlightButton;
+  }
+
+  function positionFloatingElement(el, rect, heightEstimate) {
+    const pad = 12;
+    const width = el.offsetWidth || 280;
+    const topCandidate = rect.top - heightEstimate - 10;
+    const top = topCandidate >= pad ? topCandidate : Math.min(window.innerHeight - heightEstimate - pad, rect.bottom + 10);
+    const centerLeft = rect.left + rect.width / 2;
+    const minLeft = pad + width / 2;
+    const maxLeft = Math.max(minLeft, window.innerWidth - pad - width / 2);
+    const clampedLeft = Math.min(maxLeft, Math.max(minLeft, centerLeft));
+    el.style.top = Math.max(pad, top) + 'px';
+    el.style.left = clampedLeft + 'px';
+    el.style.transform = 'translateX(-50%)';
   }
 
   // Show the floating button near the selection
@@ -360,10 +413,8 @@
     const btn = createHighlightButton();
     const range = selection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
-    btn.style.top = (rect.top + window.scrollY - 40) + 'px';
-    btn.style.left = (rect.left + window.scrollX + rect.width / 2) + 'px';
-    btn.style.transform = 'translateX(-50%)';
     btn.classList.remove('hidden');
+    positionFloatingElement(btn, rect, 36);
   }
 
   // Hide the floating button
@@ -371,65 +422,277 @@
     if (highlightButton) highlightButton.classList.add('hidden');
   }
 
+  function selectHighlightColor(color) {
+    selectedHighlightColor = color || 'yellow';
+    const input = document.getElementById('highlight-color-input');
+    if (input) input.value = selectedHighlightColor;
+    document.querySelectorAll('[data-color-choice]').forEach((btn) => {
+      const active = btn.getAttribute('data-color-choice') === selectedHighlightColor;
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+      btn.classList.toggle('border-2', active);
+      btn.classList.toggle('border-slate-900', active);
+      btn.classList.toggle('border', !active);
+      btn.classList.toggle('border-slate-300', !active);
+    });
+  }
+
+  function showHighlightFeedback(message, isError) {
+    const box = document.getElementById('highlight-feedback');
+    if (!box) return;
+    box.textContent = message;
+    box.className = 'mt-6 px-3.5 py-2.5 rounded-lg text-xs font-medium border ' + (
+      isError
+        ? 'bg-red-50 border-red-200 text-red-700'
+        : 'bg-[var(--brand-50)] border-[var(--brand-200)] text-[var(--brand-800)]'
+    );
+    box.classList.remove('hidden');
+  }
+
+  function hideHighlightFeedback() {
+    const box = document.getElementById('highlight-feedback');
+    if (box) box.classList.add('hidden');
+  }
+
+  function showPopoverError(message) {
+    const errEl = document.getElementById('highlight-popover-error');
+    if (errEl) {
+      errEl.textContent = message;
+      errEl.classList.remove('hidden');
+    }
+    showHighlightFeedback(message, true);
+  }
+
+  function openHighlightPopover(e) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!currentSelection) return;
+    const popover = document.getElementById('highlight-popover');
+    if (!popover) return;
+    const noteInput = document.getElementById('highlight-note-input');
+    const errEl = document.getElementById('highlight-popover-error');
+    if (noteInput) noteInput.value = '';
+    if (errEl) {
+      errEl.textContent = '';
+      errEl.classList.add('hidden');
+    }
+    hideHighlightFeedback();
+    selectHighlightColor(selectedHighlightColor || 'yellow');
+    hideHighlightButton();
+    popover.classList.remove('hidden');
+    const rect = currentSelection.range.getBoundingClientRect();
+    positionFloatingElement(popover, rect, popover.offsetHeight || 150);
+    if (noteInput) noteInput.focus();
+  }
+
+  function closeHighlightPopover() {
+    const popover = document.getElementById('highlight-popover');
+    if (popover) popover.classList.add('hidden');
+  }
+
+  // Build normalized content_text from #article-body and map a DOM Range to
+  // (startOffset, endOffset, text) matching the server's _html_to_text + _clean_plain_text.
+  function getSelectionOffsets(range) {
+    const chars = [];
+    const selectedFlags = [];
+
+    function pushChar(ch, isSelected) {
+      if (ch === '\n') {
+        // Strip spaces/tabs right before a newline
+        while (chars.length > 0 && chars[chars.length - 1] === ' ') {
+          chars.pop();
+          selectedFlags.pop();
+        }
+        // Collapse 3+ newlines into 2
+        if (
+          chars.length >= 2 &&
+          chars[chars.length - 1] === '\n' &&
+          chars[chars.length - 2] === '\n'
+        ) {
+          return;
+        }
+        chars.push('\n');
+        selectedFlags.push(Boolean(isSelected));
+        return;
+      }
+      if (ch === ' ') {
+        if (chars.length === 0) return;
+        const prev = chars[chars.length - 1];
+        if (prev === ' ') return;
+        chars.push(' ');
+        selectedFlags.push(Boolean(isSelected));
+        return;
+      }
+      chars.push(ch);
+      selectedFlags.push(Boolean(isSelected));
+    }
+
+    function isCharInRange(textNode, index) {
+      try {
+        return (
+          range.comparePoint(textNode, index) >= 0 &&
+          range.comparePoint(textNode, index + 1) <= 0
+        );
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function walk(node) {
+      if (!node) return;
+      if (node.nodeType === Node.TEXT_NODE) {
+        const raw = node.nodeValue || '';
+        for (let i = 0; i < raw.length; i++) {
+          const ch = raw[i];
+          if (ZERO_WIDTH_RE.test(ch)) {
+            ZERO_WIDTH_RE.lastIndex = 0;
+            continue;
+          }
+          const sel = isCharInRange(node, i);
+          if (ch === '\u00a0' || ch === ' ' || ch === '\t' || ch === '\r') {
+            pushChar(' ', sel);
+          } else if (ch === '\n') {
+            pushChar('\n', sel);
+          } else {
+            pushChar(ch, sel);
+          }
+        }
+        return;
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = node.tagName;
+      if (SKIP_TAGS.has(tag)) return;
+      if (tag === 'BR') {
+        pushChar('\n', false);
+        return;
+      }
+      for (let child = node.firstChild; child; child = child.nextSibling) {
+        walk(child);
+      }
+      if (CELL_TAGS.has(tag)) {
+        pushChar(' ', false);
+      } else if (BLOCK_TAGS.has(tag)) {
+        pushChar('\n', false);
+        pushChar('\n', false);
+      }
+    }
+
+    walk(articleBody);
+
+    // Trim leading/trailing whitespace just like _clean_plain_text().strip()
+    let trimStart = 0;
+    while (trimStart < chars.length && (chars[trimStart] === ' ' || chars[trimStart] === '\n')) {
+      trimStart++;
+    }
+    let trimEnd = chars.length;
+    while (trimEnd > trimStart && (chars[trimEnd - 1] === ' ' || chars[trimEnd - 1] === '\n')) {
+      trimEnd--;
+    }
+
+    const normChars = chars.slice(trimStart, trimEnd);
+    const normSel = selectedFlags.slice(trimStart, trimEnd);
+
+    let firstSel = -1;
+    let lastSel = -1;
+    for (let i = 0; i < normSel.length; i++) {
+      if (normSel[i]) {
+        if (firstSel === -1) firstSel = i;
+        lastSel = i + 1;
+      }
+    }
+
+    // Trim leading/trailing whitespace and trailing newlines from the selection itself
+    while (firstSel !== -1 && firstSel < lastSel && (normChars[firstSel] === ' ' || normChars[firstSel] === '\n')) {
+      firstSel++;
+    }
+    while (lastSel > firstSel && (normChars[lastSel - 1] === ' ' || normChars[lastSel - 1] === '\n')) {
+      lastSel--;
+    }
+
+    if (firstSel === -1 || firstSel >= lastSel) {
+      const fallback = range.toString().replace(/\u00a0/g, ' ').trim();
+      return { startOffset: 0, endOffset: fallback.length, text: fallback };
+    }
+
+    const mappedText = normChars.slice(firstSel, lastSel).join('');
+    return {
+      startOffset: firstSel,
+      endOffset: lastSel,
+      text: mappedText,
+    };
+  }
+
   // Handle text selection
   function onSelectionChange() {
+    const popover = document.getElementById('highlight-popover');
+    if (popover && !popover.classList.contains('hidden')) {
+      return;
+    }
+
     const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       hideHighlightButton();
       currentSelection = null;
       return;
     }
 
     const range = selection.getRangeAt(0);
-    const text = selection.toString().trim();
+    if (!articleBody.contains(range.commonAncestorContainer)) {
+      hideHighlightButton();
+      currentSelection = null;
+      return;
+    }
 
-    // Ignore empty selections or selections outside article body
-    if (!text || text.length < 2 || !articleBody.contains(range.commonAncestorContainer)) {
+    const mapped = getSelectionOffsets(range);
+    if (!mapped.text || mapped.text.length < 2) {
       hideHighlightButton();
       currentSelection = null;
       return;
     }
 
     currentSelection = {
-      text: text,
+      text: mapped.text,
       range: range.cloneRange(),
-      startOffset: getTextOffset(range.startContainer, range.startOffset),
-      endOffset: getTextOffset(range.endContainer, range.endOffset),
+      startOffset: mapped.startOffset,
+      endOffset: mapped.endOffset,
     };
 
     showHighlightButton(selection);
   }
 
-  // Get character offset within article body text content
-  function getTextOffset(node, offset) {
-    const walker = document.createTreeWalker(
-      articleBody,
-      NodeFilter.SHOW_TEXT,
-      null,
-      false
-    );
-    let currentNode = articleBody.firstChild;
-    let charCount = 0;
-
-    while (currentNode) {
-      if (currentNode === node) {
-        return charCount + offset;
+  function extractErrorMessage(rawText) {
+    const fallback = 'Could not save highlight. Please try selecting the text again.';
+    if (!rawText) return fallback;
+    try {
+      const parsed = JSON.parse(rawText);
+      if (parsed && typeof parsed.detail === 'string' && parsed.detail.trim()) {
+        return parsed.detail.trim();
       }
-      if (currentNode.nodeType === Node.TEXT_NODE) {
-        charCount += currentNode.textContent.length;
+    } catch (_) {
+      const trimmed = rawText.trim();
+      if (trimmed && !trimmed.startsWith('{') && !trimmed.startsWith('[') && !trimmed.startsWith('<')) {
+        return trimmed;
       }
-      currentNode = walker.nextNode();
     }
-    return charCount;
+    return fallback;
   }
 
-  // Create highlight from current selection
-  async function createHighlightFromSelection() {
-    if (!currentSelection) return;
+  // Submit highlight from inline popover
+  async function submitHighlightPopover(e) {
+    if (e) e.preventDefault();
+    if (!currentSelection) {
+      closeHighlightPopover();
+      return;
+    }
 
-    const note = prompt('Add a note (optional):') || '';
+    const noteInput = document.getElementById('highlight-note-input');
+    const colorInput = document.getElementById('highlight-color-input');
+    const note = noteInput ? noteInput.value.trim() : '';
+    const color = colorInput ? colorInput.value.trim() : selectedHighlightColor;
+
     if (note.length > 500) {
-      alert('Note must be 500 characters or less');
+      showPopoverError('Note must be 500 characters or less.');
       return;
     }
 
@@ -437,6 +700,7 @@
     const formData = new FormData();
     formData.append('text', currentSelection.text);
     formData.append('note', note);
+    formData.append('color', color);
     formData.append('start_offset', currentSelection.startOffset.toString());
     formData.append('end_offset', currentSelection.endOffset.toString());
 
@@ -452,26 +716,38 @@
         const highlightsSection = document.getElementById('highlights-section');
         if (highlightsSection) {
           highlightsSection.innerHTML = html;
+          if (window.htmx) {
+            window.htmx.process(highlightsSection);
+          }
         }
-        // Highlight the text in the article
-        highlightTextInArticle(currentSelection.text);
+        highlightTextInArticle(currentSelection.text, color);
+        closeHighlightPopover();
+        hideHighlightButton();
+        hideHighlightFeedback();
+        const sel = window.getSelection();
+        if (sel) sel.removeAllRanges();
+        currentSelection = null;
       } else {
-        const err = await response.text();
-        alert('Failed to create highlight: ' + err);
+        const rawErr = await response.text();
+        showPopoverError(extractErrorMessage(rawErr));
       }
-    } catch (e) {
-      console.error('Highlight error:', e);
-      alert('Failed to create highlight');
+    } catch (_) {
+      showPopoverError('Could not save highlight. Please check your connection and try again.');
     }
+  }
 
-    hideHighlightButton();
-    window.getSelection().removeAllRanges();
-    currentSelection = null;
+  function markClassesForColor(color) {
+    const c = (color || 'brand').toLowerCase();
+    if (c === 'yellow' || c === 'amber') return 'bg-amber-100 rounded px-0.5';
+    if (c === 'violet' || c === 'purple') return 'bg-violet-100 rounded px-0.5';
+    if (c === 'rose' || c === 'pink') return 'bg-rose-100 rounded px-0.5';
+    return 'bg-[var(--brand-100)] rounded px-0.5';
   }
 
   // Highlight text in the article by wrapping with <mark>
-  function highlightTextInArticle(text) {
-    // Find the first occurrence of the text in the article body
+  function highlightTextInArticle(text, color) {
+    if (!text) return;
+    const normTarget = text.replace(/\u00a0/g, ' ');
     const walker = document.createTreeWalker(
       articleBody,
       NodeFilter.SHOW_TEXT,
@@ -483,21 +759,21 @@
     let matchIndex = -1;
 
     while ((textNode = walker.nextNode())) {
-      matchIndex = textNode.textContent.indexOf(text);
+      const nodeStr = (textNode.textContent || '').replace(/\u00a0/g, ' ');
+      matchIndex = nodeStr.indexOf(normTarget);
       if (matchIndex >= 0) break;
     }
 
     if (!textNode || matchIndex < 0) return;
 
-    // Split the text node and wrap the match in <mark>
     const before = textNode.textContent.slice(0, matchIndex);
-    const match = textNode.textContent.slice(matchIndex, matchIndex + text.length);
-    const after = textNode.textContent.slice(matchIndex + text.length);
+    const match = textNode.textContent.slice(matchIndex, matchIndex + normTarget.length);
+    const after = textNode.textContent.slice(matchIndex + normTarget.length);
 
     const parent = textNode.parentNode;
     if (before) parent.insertBefore(document.createTextNode(before), textNode);
     const mark = document.createElement('mark');
-    mark.className = 'bg-[var(--brand-100)] rounded px-0.5';
+    mark.className = markClassesForColor(color);
     mark.textContent = match;
     parent.insertBefore(mark, textNode);
     if (after) parent.insertBefore(document.createTextNode(after), textNode);
@@ -506,10 +782,12 @@
 
   // On load, highlight existing highlights in the article
   function highlightExistingHighlights() {
-    const highlights = document.querySelectorAll('#highlights-list blockquote');
-    highlights.forEach(hq => {
-      const text = hq.textContent.trim();
-      if (text) highlightTextInArticle(text);
+    const cards = document.querySelectorAll('#highlights-list .highlight-card');
+    cards.forEach((card) => {
+      const hq = card.querySelector('blockquote');
+      const color = card.getAttribute('data-highlight-color') || 'brand';
+      const text = hq ? hq.textContent.trim() : '';
+      if (text) highlightTextInArticle(text, color);
     });
   }
 
@@ -522,6 +800,13 @@
   // Hide button on scroll/click elsewhere
   document.addEventListener('scroll', hideHighlightButton, { passive: true });
   document.addEventListener('mousedown', (e) => {
+    const popover = document.getElementById('highlight-popover');
+    if (popover && !popover.classList.contains('hidden')) {
+      if (!popover.contains(e.target) && (!highlightButton || !highlightButton.contains(e.target))) {
+        closeHighlightPopover();
+      }
+      return;
+    }
     if (highlightButton && !highlightButton.contains(e.target)) {
       hideHighlightButton();
     }
