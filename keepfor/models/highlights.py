@@ -105,6 +105,45 @@ async def list_highlights(
     return [dict(r) for r in rows]
 
 
+async def update_highlight(
+    db: Database,
+    user_id: str,
+    highlight_id: str,
+    *,
+    note: str | None = None,
+    color: str | None = None,
+) -> dict[str, Any] | None:
+    """Edits the note and the color of one owned highlight.
+
+    None leaves a field untouched, an empty string clears it. The quoted
+    text and the offsets are never changed. Returns the updated highlight,
+    or None when the highlight does not exist or belongs to another user.
+    """
+    row = await db.query_first(
+        "SELECT id, item_id, text, start_offset, end_offset, note, color"
+        " FROM highlights WHERE id = ? AND user_id = ?;",
+        (highlight_id, user_id),
+    )
+    if not row:
+        return None
+    new_note = row["note"] if note is None else (note or None)
+    new_color = row["color"] if color is None else (color or None)
+    if new_note != row["note"] or new_color != row["color"]:
+        await db.execute(
+            "UPDATE highlights SET note = ?, color = ? WHERE id = ? AND user_id = ?;",
+            (new_note, new_color, highlight_id, user_id),
+        )
+    return {
+        "id": row["id"],
+        "item_id": row["item_id"],
+        "text": row["text"],
+        "start_offset": row["start_offset"],
+        "end_offset": row["end_offset"],
+        "note": new_note,
+        "color": new_color,
+    }
+
+
 async def delete_highlight(
     db: Database, user_id: str, highlight_id: str, item_id: str | None = None
 ) -> bool:

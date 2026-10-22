@@ -5,6 +5,10 @@
 
 Every function is tenant-scoped by user_id. A collection never owns the
 items it holds: deleting one drops the links, the items survive.
+
+A collection is either manual (its members are the linked items) or smart
+(it carries a query and/or a tag filter, and its members are resolved at
+read time through the search).
 """
 
 from __future__ import annotations
@@ -18,6 +22,10 @@ from keepfor.models.db import Database
 MAX_COLLECTION_NAME = 64
 # Cap on a collection description.
 MAX_COLLECTION_DESCRIPTION = 200
+# Cap on the query of a smart collection.
+MAX_COLLECTION_QUERY = 200
+# Cap on the tag filter of a smart collection.
+MAX_COLLECTION_TAG = 64
 # Cap on the items one add/remove call may carry.
 MAX_COLLECTION_ITEMS = 100
 # Cap on the number of collections one list call returns.
@@ -29,6 +37,15 @@ MAX_LISTED_ITEMS = 20
 _ID_CHUNK = 90
 
 
+def collection_kind(row: dict[str, Any]) -> str:
+    """The kind of a collection: "smart" when it carries a filter.
+
+    A smart collection resolves its members at read time; a manual one
+    holds the items that were linked into it.
+    """
+    return "smart" if (row.get("query") or row.get("tag")) else "manual"
+
+
 async def _resolve_collection(
     db: Database, user_id: str, ref: str
 ) -> dict[str, Any] | None:
@@ -36,8 +53,8 @@ async def _resolve_collection(
     if not ref or not isinstance(ref, str):
         return None
     row = await db.query_first(
-        "SELECT id, name, description, created_at, updated_at FROM collections"
-        " WHERE user_id = ? AND (name = ? OR id = ?);",
+        "SELECT id, name, description, query, tag, created_at, updated_at"
+        " FROM collections WHERE user_id = ? AND (name = ? OR id = ?);",
         (user_id, ref, ref),
     )
     return dict(row) if row else None
@@ -59,12 +76,21 @@ async def _collection_item_count(db: Database, user_id: str, collection_id: str)
 
 
 async def create_collection(
-    db: Database, user_id: str, name: str, *, description: str | None = None
+    db: Database,
+    user_id: str,
+    name: str,
+    *,
+    description: str | None = None,
+    query: str | None = None,
+    tag: str | None = None,
 ) -> dict[str, Any] | None:
     """Creates a collection; idempotent. Returns the collection row.
 
     An existing collection with the same name is returned untouched, with
     `created` False. Returns None when the name or description is invalid.
+
+    A query and/or a tag make the collection a smart one: its members are
+    resolved at read time instead of being linked into it.
     """
     clean = (name or "").strip()
     if not clean or len(clean) > MAX_COLLECTION_NAME:
@@ -73,28 +99,34 @@ async def create_collection(
     if desc and len(desc) > MAX_COLLECTION_DESCRIPTION:
         return None
     existing = await db.query_first(
-        "SELECT id, name, description, created_at, updated_at FROM collections"
-        " WHERE user_id = ? AND name = ?;",
+        "SELECT id, name, description, query, tag, created_at, updated_at"
+        " FROM collections WHERE user_id = ? AND name = ?;",
         (user_id, clean),
     )
     if existing:
-        return {**dict(existing), "created": False}
+        row = dict(existing)
+        return {**row, "created": False, "kind": collection_kind(row)}
     collection_id = str(uuid.uuid4())
     await db.execute(
-        "INSERT OR IGNORE INTO collections (id, user_id, name, description)"
-        " VALUES (?, ?, ?, ?);",
-        (collection_id, user_id, clean, desc),
+        "INSERT OR IGNORE INTO collections (id, user_id, name, description,"
+        " query, tag) VALUES (?, ?, ?, ?, ?, ?);",
+        (collection_id, user_id, clean, desc, query or None, tag or None),
     )
     # Read back by name: a concurrent create of the same name wins, and this
     # returns its row instead of raising on the unique constraint.
     row = await db.query_first(
-        "SELECT id, name, description, created_at, updated_at FROM collections"
-        " WHERE user_id = ? AND name = ?;",
+        "SELECT id, name, description, query, tag, created_at, updated_at"
+        " FROM collections WHERE user_id = ? AND name = ?;",
         (user_id, clean),
     )
     if not row:
         return None
-    return {**dict(row), "created": row["id"] == collection_id}
+    stored = dict(row)
+    return {
+        **stored,
+        "created": row["id"] == collection_id,
+        "kind": collection_kind(stored),
+    }
 
 
 async def list_collections(
@@ -103,12 +135,16 @@ async def list_collections(
     """Lists the user's collections with their item count and item ids.
 
     A trashed item is not in the library: it is neither counted nor listed.
+
+    A smart collection has no links: its item count and ids are resolved
+    at read time by the caller, through the search.
     """
     # Cap the limit here too: every listed collection binds its own id, and
     # D1 rejects a statement with more than 100 parameters.
     limit = min(limit, MAX_COLLECTIONS_LIMIT)
     rows = await db.query_all(
         "SELECT c.id, c.name, c.description, c.created_at, c.updated_at,"
+        " c.query, c.tag,"
         " (SELECT COUNT(*) FROM collection_items ci JOIN items i"
         "  ON i.id = ci.item_id AND i.user_id = c.user_id"
         "  AND i.deleted_at IS NULL"
@@ -117,27 +153,33 @@ async def list_collections(
         " ORDER BY c.created_at ASC, c.name ASC LIMIT ? OFFSET ?;",
         (user_id, limit, offset),
     )
-    collections = [dict(r) for r in rows]
+    collections = []
+    for r in rows:
+        row = dict(r)
+        row["kind"] = collection_kind(row)
+        collections.append(row)
     if not collections:
         return collections
 
-    ids = [c["id"] for c in collections]
-    placeholders = ",".join("?" for _ in ids)
-    item_rows = await db.query_all(
-        "SELECT collection_id, item_id FROM ("
-        " SELECT ci.collection_id AS collection_id, ci.item_id AS item_id,"
-        " ROW_NUMBER() OVER (PARTITION BY ci.collection_id"
-        " ORDER BY ci.created_at, ci.rowid)"
-        " AS rn FROM collection_items ci"
-        " JOIN collections c ON c.id = ci.collection_id AND c.user_id = ?"
-        " JOIN items i ON i.id = ci.item_id AND i.user_id = ?"
-        " AND i.deleted_at IS NULL"
-        f" WHERE ci.collection_id IN ({placeholders})) WHERE rn <= ?;",
-        (user_id, user_id, *ids, MAX_LISTED_ITEMS),
-    )
+    # Only a manual collection holds links.
+    ids = [c["id"] for c in collections if c["kind"] == "manual"]
     by_collection: dict[str, list[str]] = {}
-    for row in item_rows:
-        by_collection.setdefault(row["collection_id"], []).append(row["item_id"])
+    if ids:
+        placeholders = ",".join("?" for _ in ids)
+        item_rows = await db.query_all(
+            "SELECT collection_id, item_id FROM ("
+            " SELECT ci.collection_id AS collection_id, ci.item_id AS item_id,"
+            " ROW_NUMBER() OVER (PARTITION BY ci.collection_id"
+            " ORDER BY ci.created_at, ci.rowid)"
+            " AS rn FROM collection_items ci"
+            " JOIN collections c ON c.id = ci.collection_id AND c.user_id = ?"
+            " JOIN items i ON i.id = ci.item_id AND i.user_id = ?"
+            " AND i.deleted_at IS NULL"
+            f" WHERE ci.collection_id IN ({placeholders})) WHERE rn <= ?;",
+            (user_id, user_id, *ids, MAX_LISTED_ITEMS),
+        )
+        for row in item_rows:
+            by_collection.setdefault(row["collection_id"], []).append(row["item_id"])
     for collection in collections:
         item_ids = by_collection.get(collection["id"], [])
         collection["item_ids"] = item_ids
@@ -153,12 +195,25 @@ async def add_items_to_collection(
     Ids that are not the user's, that do not exist, that are in the Trash,
     or that are already in the collection are skipped: `added` counts the
     new links only. At most MAX_COLLECTION_ITEMS ids are processed per call.
+
+    A smart collection takes no items: its members are resolved by its
+    query, so the result says `smart` True and nothing is linked.
     """
     coll = await _resolve_collection(db, user_id, collection)
     if not coll:
         return {
             "found": False,
             "collection": None,
+            "added": 0,
+            "skipped": 0,
+            "item_count": 0,
+            "truncated": False,
+        }
+    if collection_kind(coll) == "smart":
+        return {
+            "found": True,
+            "smart": True,
+            "collection": coll["name"],
             "added": 0,
             "skipped": 0,
             "item_count": 0,
@@ -182,6 +237,7 @@ async def add_items_to_collection(
     added = max(after - before, 0)
     return {
         "found": True,
+        "smart": False,
         "collection": coll["name"],
         "added": added,
         "skipped": len(ids) - added,
@@ -193,12 +249,25 @@ async def add_items_to_collection(
 async def remove_items_from_collection(
     db: Database, user_id: str, collection: str, item_ids: list[str]
 ) -> dict[str, Any]:
-    """Removes items from a collection. The items themselves are never deleted."""
+    """Removes items from a collection. The items themselves are never deleted.
+
+    A smart collection holds no links: its members are resolved by its
+    query, so the result says `smart` True and nothing is removed.
+    """
     coll = await _resolve_collection(db, user_id, collection)
     if not coll:
         return {
             "found": False,
             "collection": None,
+            "removed": 0,
+            "item_count": 0,
+            "truncated": False,
+        }
+    if collection_kind(coll) == "smart":
+        return {
+            "found": True,
+            "smart": True,
+            "collection": coll["name"],
             "removed": 0,
             "item_count": 0,
             "truncated": False,
@@ -219,6 +288,7 @@ async def remove_items_from_collection(
     after = await _collection_item_count(db, user_id, coll["id"])
     return {
         "found": True,
+        "smart": False,
         "collection": coll["name"],
         "removed": max(before - after, 0),
         "item_count": after,
@@ -227,32 +297,55 @@ async def remove_items_from_collection(
 
 
 async def rename_collection(
-    db: Database, user_id: str, collection: str, new_name: str
-) -> str:
-    """Renames a collection.
+    db: Database,
+    user_id: str,
+    collection: str,
+    new_name: str,
+    *,
+    query: str | None = None,
+    tag: str | None = None,
+) -> dict[str, Any]:
+    """Renames a collection and sets its smart filter.
 
-    Returns 'renamed', 'not_found', 'invalid' (bad name) or 'exists' (the
-    name is already taken by another collection).
+    Returns {'outcome': 'renamed'} with the updated collection, or
+    {'outcome': 'not_found' | 'invalid' | 'exists'}. The 'exists' outcome
+    means the name is already taken by another collection: the two are
+    never merged into.
+
+    A query and/or a tag set the smart filter: an empty string removes it.
+    A filter that is not given stays as it is.
     """
     coll = await _resolve_collection(db, user_id, collection)
     if not coll:
-        return "not_found"
+        return {"outcome": "not_found"}
     clean = (new_name or "").strip()
     if not clean or len(clean) > MAX_COLLECTION_NAME:
-        return "invalid"
-    if clean == coll["name"]:
-        return "renamed"
-    taken = await db.query_first(
-        "SELECT id FROM collections WHERE user_id = ? AND name = ?;", (user_id, clean)
-    )
-    if taken:
-        return "exists"
-    await db.execute(
-        "UPDATE collections SET name = ?, updated_at = CURRENT_TIMESTAMP"
-        " WHERE id = ? AND user_id = ?;",
-        (clean, coll["id"], user_id),
-    )
-    return "renamed"
+        return {"outcome": "invalid"}
+    if clean != coll["name"]:
+        taken = await db.query_first(
+            "SELECT id FROM collections WHERE user_id = ? AND name = ?;",
+            (user_id, clean),
+        )
+        if taken:
+            return {"outcome": "exists"}
+    new_query = coll["query"] if query is None else (query or None)
+    new_tag = coll["tag"] if tag is None else (tag or None)
+    if (clean, new_query, new_tag) != (coll["name"], coll["query"], coll["tag"]):
+        await db.execute(
+            "UPDATE collections SET name = ?, query = ?, tag = ?,"
+            " updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?;",
+            (clean, new_query, new_tag, coll["id"], user_id),
+        )
+    stored = {
+        **coll,
+        "name": clean,
+        "query": new_query,
+        "tag": new_tag,
+    }
+    return {
+        "outcome": "renamed",
+        "collection": {**stored, "kind": collection_kind(stored)},
+    }
 
 
 async def delete_collection(

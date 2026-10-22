@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -18,7 +19,10 @@ from keepfor.models.cleanup import (
 from keepfor.models.collections import (
     MAX_COLLECTION_DESCRIPTION,
     MAX_COLLECTION_NAME,
+    MAX_COLLECTION_QUERY,
+    MAX_COLLECTION_TAG,
     MAX_COLLECTIONS_LIMIT,
+    MAX_LISTED_ITEMS,
     add_items_to_collection,
     create_collection,
     delete_collection,
@@ -37,6 +41,7 @@ from keepfor.models.highlights import (
     delete_highlight,
     item_content_length,
     list_highlights,
+    update_highlight,
 )
 from keepfor.models.items import (
     BULK_UPDATE_LIMIT,
@@ -354,6 +359,77 @@ def _bulk_update_filters(arguments: dict[str, Any]) -> dict[str, Any]:
             "empty filter would match the whole library."
         )
     return filters
+
+
+def _highlight_field(
+    arguments: dict[str, Any], field: str, max_chars: int
+) -> str | None:
+    """The new value of a highlight field.
+
+    None when the argument is absent (the field stays as it is), an empty
+    string when it is explicitly empty (the field is removed).
+    """
+    if field not in arguments:
+        return None
+    value = arguments[field]
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise _invalid(f"{field} must be a string")
+    if len(value) > max_chars:
+        raise _invalid(
+            f"A highlight {field} is limited to {max_chars} characters.",
+            max_chars=max_chars,
+        )
+    return value
+
+
+def _collection_filter(
+    arguments: dict[str, Any], field: str, max_chars: int
+) -> str | None:
+    """The value of a smart-collection filter.
+
+    None when the argument is absent (the filter stays as it is), an empty
+    string when it is explicitly empty (the filter is removed).
+    """
+    if field not in arguments:
+        return None
+    value = arguments[field]
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise _invalid(f"{field} must be a string")
+    clean = value.strip()
+    if len(clean) > max_chars:
+        raise _invalid(
+            f"A collection {field} is limited to {max_chars} characters.",
+            max_chars=max_chars,
+        )
+    return clean
+
+
+async def _smart_members(
+    db: Database,
+    env: Any,
+    user_id: str,
+    collection: dict[str, Any],
+    scope: TenantScope | None,
+) -> tuple[list[str], int]:
+    """The member ids of a smart collection, resolved through the search.
+
+    The members are the items the query finds, narrowed by the tag filter.
+    They are resolved at read time, so the collection stays current.
+    """
+    items, total = await hybrid_search(
+        db,
+        env,
+        user_id,
+        collection.get("query") or "",
+        tag=collection.get("tag"),
+        limit=MAX_LISTED_ITEMS,
+        scope=scope,
+    )
+    return [it["id"] for it in items], total
 
 
 def _digest_date(value: Any, field: str) -> str | None:
@@ -1420,11 +1496,45 @@ MCP_TOOLS = [
         "annotations": _DESTRUCTIVE,
     },
     {
+        "name": "update_highlight",
+        "description": "Edits a highlight: its note and/or its color. The quoted "
+        "text and the offsets are never changed, and the item it belongs to "
+        "is untouched. An empty note or color removes it. Use list_highlights "
+        "to read a highlight back.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "highlight_id": {
+                    "type": "string",
+                    "description": "The highlight ID to edit.",
+                },
+                "note": {
+                    "type": "string",
+                    "description": (
+                        "The new note. An empty string removes the note. "
+                        "Leave the argument out to keep it."
+                    ),
+                },
+                "color": {
+                    "type": "string",
+                    "description": (
+                        "The new color, e.g. #ffd60a. An empty string removes "
+                        "the color. Leave the argument out to keep it."
+                    ),
+                },
+            },
+            "required": ["highlight_id"],
+        },
+        "annotations": _WRITE,
+    },
+    {
         "name": "create_collection",
         "description": "Creates a collection: a named bucket of library items, "
         "optionally with a description. Idempotent: an existing collection "
-        "with the same name is returned unchanged. Use list_collections to "
-        "see the collections and what they hold.",
+        "with the same name is returned unchanged. With a query and/or a tag "
+        "the collection is a smart one: its members are the items the search "
+        "finds, resolved at read time. Use list_collections to see the "
+        "collections and what they hold.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1436,6 +1546,20 @@ MCP_TOOLS = [
                     "type": "string",
                     "description": "Optional human description of the collection.",
                 },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Optional search query. With it the collection is a "
+                        "smart one: its members are the items the search finds."
+                    ),
+                },
+                "tag": {
+                    "type": "string",
+                    "description": (
+                        "Optional tag filter. It narrows the members of a "
+                        "smart collection to the items carrying that tag."
+                    ),
+                },
             },
             "required": ["name"],
         },
@@ -1443,11 +1567,12 @@ MCP_TOOLS = [
     },
     {
         "name": "list_collections",
-        "description": "Lists the user's collections with the number of items "
-        "each holds and the ids of the items it holds (at most 20 per "
-        "collection, with items_truncated when there are more). Use "
-        "add_to_collection to put items in and remove_from_collection to "
-        "take them out.",
+        "description": "Lists the user's collections with their kind (manual or "
+        "smart), the number of items each holds and the ids of the items it "
+        "holds (at most 20 per collection, with items_truncated when there "
+        "are more). A smart collection holds the items its query finds, "
+        "resolved at read time. Use add_to_collection to put items in and "
+        "remove_from_collection to take them out.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1514,8 +1639,10 @@ MCP_TOOLS = [
     {
         "name": "rename_collection",
         "description": "Renames a collection, addressed by its current name or "
-        "id. The new name must be free; an existing collection is never "
-        "merged into.",
+        "id, and sets its smart filter. The new name must be free; an "
+        "existing collection is never merged into. A query and/or a tag turn "
+        "the collection into a smart one (its members are resolved by the "
+        "search); an empty query removes the filter.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1526,6 +1653,20 @@ MCP_TOOLS = [
                 "new_name": {
                     "type": "string",
                     "description": "The new collection name.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "The new search query. An empty string removes it. "
+                        "Leave the argument out to keep it."
+                    ),
+                },
+                "tag": {
+                    "type": "string",
+                    "description": (
+                        "The new tag filter. An empty string removes it. "
+                        "Leave the argument out to keep it."
+                    ),
                 },
             },
             "required": ["collection", "new_name"],
@@ -2275,6 +2416,19 @@ async def handle_tool_call(
             raise _not_found("Highlight not found.")
         return {"id": highlight_id, "deleted": True}
 
+    elif tool_name == "update_highlight":
+        highlight_id = arguments.get("highlight_id")
+        if not highlight_id or not isinstance(highlight_id, str):
+            raise _invalid("update_highlight requires a highlight_id")
+        note = _highlight_field(arguments, "note", MAX_HIGHLIGHT_NOTE)
+        color = _highlight_field(arguments, "color", MAX_HIGHLIGHT_COLOR)
+        highlight = await update_highlight(
+            db, user_id, highlight_id, note=note, color=color
+        )
+        if not highlight:
+            raise _not_found("Highlight not found.")
+        return {"highlight": highlight, "updated": True}
+
     elif tool_name == "create_collection":
         name = arguments.get("name")
         if not isinstance(name, str) or not name.strip():
@@ -2294,7 +2448,16 @@ async def handle_tool_call(
                     f" {MAX_COLLECTION_DESCRIPTION} characters.",
                     max_chars=MAX_COLLECTION_DESCRIPTION,
                 )
-        collection = await create_collection(db, user_id, name, description=description)
+        query = _collection_filter(arguments, "query", MAX_COLLECTION_QUERY)
+        tag = _collection_filter(arguments, "tag", MAX_COLLECTION_TAG)
+        collection = await create_collection(
+            db,
+            user_id,
+            name,
+            description=description,
+            query=query or None,
+            tag=tag or None,
+        )
         if not collection:
             raise _invalid("Invalid collection name.")
         return collection
@@ -2303,6 +2466,20 @@ async def handle_tool_call(
         limit = _int_arg(arguments.get("limit"), 20, maximum=MAX_COLLECTIONS_LIMIT)
         offset = _int_arg(arguments.get("offset"), 0)
         collections = await list_collections(db, user_id, limit=limit, offset=offset)
+        # A smart collection holds no links: its members are resolved now,
+        # through the search, so the collection stays current.
+        smart = [c for c in collections if c["kind"] == "smart"]
+        if smart:
+            resolved = await asyncio.gather(
+                *[
+                    _smart_members(db, env, user_id, collection, scope)
+                    for collection in smart
+                ]
+            )
+            for collection, (item_ids, count) in zip(smart, resolved):
+                collection["item_ids"] = item_ids
+                collection["item_count"] = count
+                collection["items_truncated"] = count > len(item_ids)
         return {
             "collections": collections,
             "count": len(collections),
@@ -2320,6 +2497,12 @@ async def handle_tool_call(
         result = await add_items_to_collection(db, user_id, collection, item_ids)
         if not result["found"]:
             raise _not_found("Collection not found.")
+        if result.get("smart"):
+            raise _invalid(
+                f"Collection '{result['collection']}' is a smart collection: its "
+                "members are resolved by its query, so no item can be added to "
+                "it. Use rename_collection to change the filter."
+            )
         return result
 
     elif tool_name == "remove_from_collection":
@@ -2332,6 +2515,12 @@ async def handle_tool_call(
         result = await remove_items_from_collection(db, user_id, collection, item_ids)
         if not result["found"]:
             raise _not_found("Collection not found.")
+        if result.get("smart"):
+            raise _invalid(
+                f"Collection '{result['collection']}' is a smart collection: its "
+                "members are resolved by its query, so no item can be removed "
+                "from it. Use rename_collection to change the filter."
+            )
         return result
 
     elif tool_name == "rename_collection":
@@ -2346,14 +2535,25 @@ async def handle_tool_call(
                 f"A collection name is limited to {MAX_COLLECTION_NAME} characters.",
                 max_chars=MAX_COLLECTION_NAME,
             )
-        outcome = await rename_collection(db, user_id, collection, new_name)
-        if outcome == "not_found":
+        query = _collection_filter(arguments, "query", MAX_COLLECTION_QUERY)
+        tag = _collection_filter(arguments, "tag", MAX_COLLECTION_TAG)
+        outcome = await rename_collection(
+            db, user_id, collection, new_name, query=query, tag=tag
+        )
+        if outcome["outcome"] == "not_found":
             raise _not_found("Collection not found.")
-        if outcome == "invalid":
+        if outcome["outcome"] == "invalid":
             raise _invalid("Invalid collection name.")
-        if outcome == "exists":
+        if outcome["outcome"] == "exists":
             raise _invalid("A collection with that name already exists.")
-        return {"collection": new_name.strip(), "renamed": True}
+        renamed = outcome["collection"]
+        return {
+            "collection": renamed["name"],
+            "renamed": True,
+            "kind": renamed["kind"],
+            "query": renamed["query"],
+            "tag": renamed["tag"],
+        }
 
     elif tool_name == "delete_collection":
         collection = arguments.get("collection")
