@@ -2449,14 +2449,14 @@ async def handle_tool_call(
                     max_chars=MAX_COLLECTION_DESCRIPTION,
                 )
         query = _collection_filter(arguments, "query", MAX_COLLECTION_QUERY)
-        tag = _collection_filter(arguments, "tag", MAX_COLLECTION_TAG)
+        filter_tag = _collection_filter(arguments, "tag", MAX_COLLECTION_TAG)
         collection = await create_collection(
             db,
             user_id,
             name,
             description=description,
             query=query or None,
-            tag=tag or None,
+            tag=filter_tag or None,
         )
         if not collection:
             raise _invalid("Invalid collection name.")
@@ -2476,10 +2476,10 @@ async def handle_tool_call(
                     for collection in smart
                 ]
             )
-            for collection, (item_ids, count) in zip(smart, resolved):
+            for collection, (item_ids, item_count) in zip(smart, resolved):
                 collection["item_ids"] = item_ids
-                collection["item_count"] = count
-                collection["items_truncated"] = count > len(item_ids)
+                collection["item_count"] = item_count
+                collection["items_truncated"] = item_count > len(item_ids)
         return {
             "collections": collections,
             "count": len(collections),
@@ -2536,17 +2536,17 @@ async def handle_tool_call(
                 max_chars=MAX_COLLECTION_NAME,
             )
         query = _collection_filter(arguments, "query", MAX_COLLECTION_QUERY)
-        tag = _collection_filter(arguments, "tag", MAX_COLLECTION_TAG)
-        outcome = await rename_collection(
-            db, user_id, collection, new_name, query=query, tag=tag
+        filter_tag = _collection_filter(arguments, "tag", MAX_COLLECTION_TAG)
+        rename_res = await rename_collection(
+            db, user_id, collection, new_name, query=query, tag=filter_tag
         )
-        if outcome["outcome"] == "not_found":
+        if rename_res["outcome"] == "not_found":
             raise _not_found("Collection not found.")
-        if outcome["outcome"] == "invalid":
+        if rename_res["outcome"] == "invalid":
             raise _invalid("Invalid collection name.")
-        if outcome["outcome"] == "exists":
+        if rename_res["outcome"] == "exists":
             raise _invalid("A collection with that name already exists.")
-        renamed = outcome["collection"]
+        renamed = rename_res["collection"]
         return {
             "collection": renamed["name"],
             "renamed": True,

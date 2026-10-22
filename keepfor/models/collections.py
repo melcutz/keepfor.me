@@ -114,17 +114,17 @@ async def create_collection(
     )
     # Read back by name: a concurrent create of the same name wins, and this
     # returns its row instead of raising on the unique constraint.
-    row = await db.query_first(
+    stored_row = await db.query_first(
         "SELECT id, name, description, query, tag, created_at, updated_at"
         " FROM collections WHERE user_id = ? AND name = ?;",
         (user_id, clean),
     )
-    if not row:
+    if not stored_row:
         return None
-    stored = dict(row)
+    stored = dict(stored_row)
     return {
         **stored,
-        "created": row["id"] == collection_id,
+        "created": stored_row["id"] == collection_id,
         "kind": collection_kind(stored),
     }
 
