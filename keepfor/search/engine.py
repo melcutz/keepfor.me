@@ -190,6 +190,19 @@ async def get_status_counts(
 # "llm-tools" answers the query "llm", "email" does not answer "ai".
 _TAG_SEPARATORS = ("-", "_", "/", ".")
 
+
+def _tag_name_expr(alias: str = "t") -> str:
+    """The lowercased tag name, its separators turned into spaces.
+
+    The tag names are matched on word boundaries and case-insensitively,
+    like the FTS tokenizer.
+    """
+    name = f"LOWER({alias}.name)"
+    for sep in _TAG_SEPARATORS:
+        name = f"REPLACE({name}, '{sep}', ' ')"
+    return name
+
+
 # The words of a query that name no content: the function words of the
 # language ("the", "in", "what") and the words of the library ("saved",
 # "my", "library"). They are in the text of every item of a library
@@ -331,6 +344,13 @@ def _query_terms(query: str) -> list[str]:
     return [t.lower() for t in clean.split() if t]
 
 
+def _content_words(terms: list[str]) -> list[str]:
+    """The terms that name content (the stopwords and the library words do not)."""
+    return [
+        t for t in terms if t not in SEARCH_STOPWORDS and t not in LIBRARY_META_WORDS
+    ]
+
+
 def _content_terms(query: str) -> list[str]:
     """The terms of a query that name content (the terms of a keyword hit).
 
@@ -340,10 +360,7 @@ def _content_terms(query: str) -> list[str]:
     item titled with it.
     """
     terms = _query_terms(query)
-    content = [
-        t for t in terms if t not in SEARCH_STOPWORDS and t not in LIBRARY_META_WORDS
-    ]
-    return content or terms
+    return _content_words(terms) or terms
 
 
 # A content word of at least this many letters matches every word that
@@ -364,6 +381,20 @@ def _keyword_match(term: str) -> str:
     if len(term) >= MIN_PREFIX_LEN:
         return f'"{term}"*'
     return f'"{term}"'
+
+
+def _tag_word_match(term: str) -> str:
+    """The SQL that matches a tag name against one word.
+
+    A word of at least MIN_PREFIX_LEN letters matches every tag word
+    that starts with it ("llm" answers the tag "llms"); a shorter word
+    matches the whole tag word ("ai" does not answer "air"). The word
+    is the parameter of the clause.
+    """
+    name = _tag_name_expr()
+    if len(term) >= MIN_PREFIX_LEN:
+        return f"instr(' ' || {name} || ' ', ' ' || ?) > 0"
+    return f"instr(' ' || {name} || ' ', ' ' || ? || ' ') > 0"
 
 
 async def search_tag_hits(
@@ -390,17 +421,7 @@ async def search_tag_hits(
     terms = _content_terms(query)
     if not terms:
         return []
-    name = "LOWER(t.name)"
-    for sep in _TAG_SEPARATORS:
-        name = f"REPLACE({name}, '{sep}', ' ')"
-    match = " OR ".join(
-        (
-            f"instr(' ' || {name} || ' ', ' ' || ?) > 0"
-            if len(term) >= MIN_PREFIX_LEN
-            else f"instr(' ' || {name} || ' ', ' ' || ? || ' ') > 0"
-        )
-        for term in terms
-    )
+    match = " OR ".join(_tag_word_match(term) for term in terms)
     sql = f"""
         SELECT it.item_id AS item_id
         FROM tags t
@@ -418,6 +439,61 @@ async def search_tag_hits(
     return [{"item_id": r["item_id"], "rank": -1.0} for r in rows]
 
 
+async def _word_hits(
+    db: Database, user_id: str, term: str, limit: int
+) -> list[dict[str, Any]]:
+    """The items that hold one content word: in the text, the title or a tag.
+
+    The text rows carry the bm25 rank and the snippet of the match; a tag
+    row carries no rank: a tag names the word, it does not hold the text
+    of it (#55).
+
+    A content word matches the words that start with it ("llm" finds
+    "LLMs"); a short word matches exactly ("ai" does not match "air").
+
+    The tag join order is pinned to the tags: without it SQLite scans the
+    live items of the user first (57 ms on a 2k-item library against
+    0.1 ms with the tag index).
+    """
+    tag_match = _tag_word_match(term)
+    sql = f"""
+        SELECT item_id, rank, snippet FROM (
+            SELECT item_id, rank,
+                   snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
+            FROM items_fts
+            WHERE items_fts MATCH ? AND user_id = ?
+              AND EXISTS (SELECT 1 FROM items i
+                          WHERE i.id = items_fts.item_id AND i.user_id = ?
+                            AND i.deleted_at IS NULL)
+            ORDER BY rank
+            LIMIT ?
+        )
+        UNION ALL
+        SELECT item_id, NULL as rank, NULL as snippet FROM (
+            SELECT it.item_id
+            FROM tags t
+            JOIN item_tags it INDEXED BY idx_item_tags_tag ON it.tag_id = t.id
+            JOIN items i ON i.id = it.item_id
+            WHERE t.user_id = ? AND i.user_id = ? AND i.deleted_at IS NULL
+              AND ({tag_match})
+            LIMIT ?);
+    """
+    rows = await db.query_all(
+        sql,
+        (
+            _keyword_match(term),
+            user_id,
+            user_id,
+            limit,
+            user_id,
+            user_id,
+            term,
+            limit,
+        ),
+    )
+    return rows
+
+
 async def search_fts(
     db: Database, user_id: str, query: str, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -428,8 +504,9 @@ async def search_fts(
     candidates per source.
 
     A content word matches the words that start with it ("llm" finds
-    "LLMs"), and a query of several content words that no item holds as
-    a whole falls back to the union of its words (#76).
+    "LLMs"). The items that hold every content word of the query come
+    first; the items that hold only some of them follow them, the ones
+    that hold more of them first (#87).
     """
     url_matches: list[dict[str, Any]] = []
     if "." in query or "/" in query or ":" in query:
@@ -452,66 +529,128 @@ async def search_fts(
 
     # Escape special FTS characters
     clean_q = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
-    fts_matches: list[dict[str, Any]] = []
-    # The tags are a keyword source too (#55): FTS5 covers the title and
-    # the text, so an item that names the concept in a tag ("llm") had no
-    # keyword hit at all. The query runs in parallel with the FTS one.
-    tag_task = asyncio.create_task(search_tag_hits(db, user_id, query, limit=limit))
     # Only the content words of the query are matched (#63): the library
     # words ("saved", "my") are in the text of every item of a library,
     # so they prove nothing about the item. A content word matches the
-    # words that start with it, so "llm" finds "LLMs" (#76). The words
-    # are matched as a whole: an item must hold every one of them, so
-    # "Alpha guide 0" finds the item that holds all three and not the
-    # items that hold one of them.
-    terms = [t for t in _content_terms(query) if t]
-    fts_terms = " ".join(_keyword_match(term) for term in terms)
-    if fts_terms:
-        sql = """
-            SELECT item_id, rank,
-                   snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
-            FROM items_fts
-            WHERE items_fts MATCH ? AND user_id = ?
-              AND EXISTS (SELECT 1 FROM items i
-                          WHERE i.id = items_fts.item_id AND i.user_id = ?
-                            AND i.deleted_at IS NULL)
-            ORDER BY rank
+    # words that start with it, so "llm" finds "LLMs" (#76).
+    raw_terms = _query_terms(query)
+    content = _content_words(raw_terms)
+    # A word that is named twice counts once: "rust rust" holds one word.
+    terms = list(dict.fromkeys(content or raw_terms))
+    if not terms:
+        return url_matches[:limit]
+
+    # The matches of every content word, in the text, the title and the
+    # tags. The words are matched one by one: the number of words an item
+    # holds decides its place in the results (#87).
+    fallback_rows: list[dict[str, Any]] = []
+    try:
+        hits = await asyncio.gather(
+            *[_word_hits(db, user_id, term, limit) for term in terms]
+        )
+    except Exception:
+        # Fallback to simple title/url LIKE search if FTS query syntax error
+        fallback_sql = """
+            SELECT id as item_id, 0.0 as rank, excerpt as snippet
+            FROM items
+            WHERE user_id = ? AND deleted_at IS NULL
+              AND (title LIKE ? OR url LIKE ?)
             LIMIT ?;
         """
-        try:
-            fts_matches = await db.query_all(sql, (fts_terms, user_id, user_id, limit))
-            if not fts_matches and len(terms) > 1:
-                # No item holds every word of the query: the union of the
-                # words still names the content, so "local LLM" finds the
-                # item whose text only says "LLMs" (#76). The strict query
-                # wins when it matches anything.
-                union = " OR ".join(_keyword_match(term) for term in terms)
-                fts_matches = await db.query_all(sql, (union, user_id, user_id, limit))
-        except Exception:
-            # Fallback to simple title/url LIKE search if FTS query syntax error
-            fallback_sql = """
-                SELECT id as item_id, 0.0 as rank, excerpt as snippet
-                FROM items
-                WHERE user_id = ? AND deleted_at IS NULL
-                  AND (title LIKE ? OR url LIKE ?)
-                LIMIT ?;
-            """
-            like_term = f"%{clean_q}%"
-            fts_matches = await db.query_all(
-                fallback_sql, (user_id, like_term, like_term, limit)
-            )
-    tag_matches = await tag_task
+        like_term = f"%{clean_q}%"
+        fallback_rows = await db.query_all(
+            fallback_sql, (user_id, like_term, like_term, limit)
+        )
+        hits = [[] for _ in terms]
 
-    seen = set()
-    combined: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    scores: dict[str, float] = {}
+    best: dict[str, float] = {}
+    snippets: dict[str, str] = {}
+    tag_ids: list[str] = []
+    matched: list[set[str]] = []
+    for rows in hits:
+        ids: set[str] = set()
+        for r in rows:
+            item_id = r["item_id"]
+            ids.add(item_id)
+            rank = r.get("rank")
+            if rank is None:
+                # A tag names the word, it does not hold the text of it.
+                tag_ids.append(item_id)
+                continue
+            # The bm25 score of a word adds up: the score of the whole
+            # query is the sum of the scores of its words.
+            scores[item_id] = scores.get(item_id, 0.0) + rank
+            snippet = r.get("snippet")
+            if snippet and (item_id not in best or rank < best[item_id]):
+                best[item_id] = rank
+                snippets[item_id] = snippet
+        matched.append(ids)
+
+    # Only the content words count towards a partial match: the library
+    # words ("saved", "my") are in the text of every item of a library,
+    # so they prove nothing (#63, #87).
+    if content:
+        for ids in matched:
+            for item_id in ids:
+                counts[item_id] = counts.get(item_id, 0) + 1
+
+    candidates: list[tuple[dict[str, Any], int]] = []
+    seen: set[str] = set()
+
+    def _add(row: dict[str, Any], count: int) -> None:
+        if row["item_id"] in seen:
+            return
+        seen.add(row["item_id"])
+        candidates.append((row, count))
+
     # The tag hits come before the text matches: they are the keyword
-    # hits the hybrid rule needs to keep a real hit (#55), so they must
-    # survive the limit even when the text matches fill it.
-    for r in url_matches + tag_matches + (fts_matches or []):
-        if r["item_id"] not in seen:
-            seen.add(r["item_id"])
-            combined.append(r)
-    return combined[:limit]
+    # hits the hybrid rule needs to keep a real hit (#55), so they win
+    # the tie with a text match that holds as many words as they do.
+    for item_id in tag_ids:
+        _add(
+            {"item_id": item_id, "rank": -1.0, "snippet": None}, counts.get(item_id, 0)
+        )
+    for item_id in sorted(scores, key=lambda i: scores[i]):
+        _add(
+            {
+                "item_id": item_id,
+                "rank": scores[item_id],
+                "snippet": snippets.get(item_id),
+            },
+            counts.get(item_id, 0),
+        )
+    for r in fallback_rows:
+        _add(r, len(terms))
+
+    if not content and len(terms) > 1:
+        # The query names no content ("my saved"): it matches as a whole,
+        # like before. The items that hold every word are the matches; the
+        # others only when none holds them all.
+        strict = set.intersection(*matched)
+        if strict:
+            candidates = [c for c in candidates if c[0]["item_id"] in strict]
+
+    # The url matches the whole query: they come first.
+    combined: list[tuple[dict[str, Any], int]] = [
+        (r, len(terms)) for r in url_matches
+    ] + candidates
+
+    out: list[tuple[dict[str, Any], int]] = []
+    unique: set[str] = set()
+    for row, count in combined:
+        if row["item_id"] in unique:
+            continue
+        unique.add(row["item_id"])
+        out.append((row, count))
+
+    # The items that hold every content word come first, the items that
+    # hold only some of them after them, the ones that hold more of them
+    # first (#87). The sort is stable: inside a tier the order of the
+    # sources holds.
+    out.sort(key=lambda pair: -pair[1])
+    return [row for row, _ in out[:limit]]
 
 
 async def search_fts_whole_words(

@@ -514,14 +514,23 @@ async def test_browse_count_matches_rendered_items_with_pinned(
 
 
 async def test_search_returns_a_pinned_match(client, db, search_setup):
-    """A query that only matches a pinned item still finds it."""
+    """A query that only matches a pinned item still finds it.
+
+    The items that hold only some of the words of the query follow it
+    (#87).
+    """
     _login(client, search_setup["session"])
     pinned_id = search_setup["alpha_ids"][0]
     await db.execute("UPDATE items SET is_pinned = 1 WHERE id = ?;", (pinned_id,))
 
     res = client.post("/search", data={"query": "Alpha guide 0", "tag": ""})
     assert res.status_code == 200
-    assert _rendered_ids(res.text) == [pinned_id]
+    rendered = _rendered_ids(res.text)
+    # The item that holds every word of the query comes first.
+    assert rendered[0] == pinned_id
+    # The items that hold "alpha" and "guide" but not "0" are the partial
+    # matches: they follow it.
+    assert set(rendered[1:]) == set(search_setup["alpha_ids"][1:])
     assert "No results" not in res.text
 
 
