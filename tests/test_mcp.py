@@ -295,7 +295,7 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 40
+    assert len(names) == 41
     assert "save_url" in names
     assert "save_note" in names
     assert "pin_item" in names
@@ -447,6 +447,7 @@ TOOL_ARGUMENTS = {
     "create_highlight": {"item_id": "ITEM", "text": "quoted", "end_offset": 6},
     "list_highlights": {"item_id": "ITEM"},
     "delete_highlight": {"highlight_id": "ITEM"},
+    "update_highlight": {"highlight_id": "ITEM", "note": "new note"},
     "create_collection": {"name": "probe-collection"},
     "list_collections": {},
     "add_to_collection": {"collection": "probe-collection", "item_ids": ["ITEM"]},
@@ -1158,6 +1159,7 @@ WRITE_ARGUMENTS = {
     },
     "delete_collection": {"collection": "probe-collection"},
     "delete_highlight": {"highlight_id": "probe-highlight"},
+    "update_highlight": {"highlight_id": "probe-highlight", "note": "new note"},
 }
 
 

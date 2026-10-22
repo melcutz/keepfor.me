@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **MCP `update_highlight`** (GitHub issue #93): edits a highlight's note and/or color. The quoted text and offsets are never changed. An empty note or color removes it. Annotated as a write tool, requires write scope. Tenant-scoped: a highlight of another user is not found.
+- **MCP smart (query-backed) collections** (GitHub issue #93): a collection can carry a `query` and/or a `tag` filter. Its members are resolved at read time through the existing hybrid search, so it stays current.
+  - `create_collection` and `rename_collection` accept optional `query` and `tag` arguments.
+  - `list_collections` returns `kind=manual|smart`, the item count, and the item ids (capped at 20 per collection, with `items_truncated`).
+  - `add_to_collection` and `remove_from_collection` reject a smart collection with a clear error.
+  - Tenant-scoped: a smart collection never resolves another user's items, and a foreign smart collection is not found.
+  - Migration `0016_smart_collections.sql` (additive): nullable `query` and `tag` columns on `collections`. Apply it before deploying: `npx wrangler d1 migrations apply keepfor-me-db --remote`.
+
 - Reader highlighting UI (GitHub issue #45):
   - `POST /items/{id}/highlights` — create a highlight with quoted text, optional note, and character offsets
   - `POST /items/{id}/highlights/{hid}/delete` — delete a highlight
