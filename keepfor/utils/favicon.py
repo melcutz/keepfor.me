@@ -17,6 +17,11 @@ visitor whether some user's library holds that domain.
 A cache miss is rate limited per user and per IP: a miss makes us fetch an
 arbitrary domain and write an R2 object for it. Over the limit the fallback is
 served, with no upstream fetch and no cache write.
+
+A site whose CDN refuses our own network (python.org answers 403 to every
+request that leaves Cloudflare) is asked for its icon through a public icon
+service instead -- the icon is public, the service just reaches it from a
+network the site does not block.
 """
 
 from __future__ import annotations
@@ -95,6 +100,25 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
+_ICON_HEADERS = {
+    "Accept": "image/*,*/*;q=0.8",
+    "User-Agent": USER_AGENT,
+}
+
+# A site's CDN can refuse our egress outright: python.org answers 403 with an
+# empty body to every request that leaves Cloudflare's network, even though
+# the icon is public (keepfor-cloud#168). Such a site is not broken, it just
+# does not serve us -- so the icon is fetched from a public icon service,
+# which reaches the site from a network it does not refuse.
+# Set FAVICON_ICON_SERVICE to "" to turn the fallback off.
+ICON_SERVICE_DEFAULT = "https://icons.duckduckgo.com/ip3/"
+
+# Statuses that mean "the site refused us", not "the site has no icon": a 404
+# (or any other answer) keeps the transparent fallback. The same set the
+# article fetcher proxies around (PROXY_FALLBACK_STATUSES), plus the 419
+# Cloudflare answers to a bot-fight challenge.
+REFUSED_STATUSES = frozenset({403, 419, 429, 520, 522, 530})
+
 
 def normalize_host(value: str | None) -> str | None:
     """Return the public hostname of a URL (or of a bare host), else None.
@@ -143,8 +167,34 @@ def _image_type(body: bytes) -> str | None:
     return None
 
 
-async def _fetch_upstream(host: str) -> tuple[bytes, str] | None:
-    """Fetch https://<host>/favicon.ico through the hardened egress fetcher."""
+async def _icon_at(url: str, policy: EgressPolicy) -> tuple[bytes, str] | None:
+    """(body, content_type) when the URL answers 200 with a raster image."""
+    result = await fetch_limited(url, _ICON_HEADERS, policy)
+    if result.status != 200 or not result.body:
+        return None
+    content_type = _image_type(result.body)
+    if content_type is None:
+        return None
+    return result.body, content_type
+
+
+def _icon_service(env: Any) -> str:
+    """The public icon service used when a site refuses our request."""
+    base = getattr(env, "FAVICON_ICON_SERVICE", ICON_SERVICE_DEFAULT)
+    if not isinstance(base, str):
+        base = ICON_SERVICE_DEFAULT
+    base = base.strip()
+    if base and not base.endswith("/"):
+        base += "/"
+    return base
+
+
+async def _fetch_upstream(host: str, env: Any = None) -> tuple[bytes, str] | None:
+    """Fetch https://<host>/favicon.ico through the hardened egress fetcher.
+
+    A site that refuses us (a CDN block on our own network) is asked for its
+    icon through a public icon service instead.
+    """
     policy = EgressPolicy(
         max_bytes=FAVICON_MAX_BYTES,
         timeout_s=FAVICON_TIMEOUT_S,
@@ -153,21 +203,29 @@ async def _fetch_upstream(host: str) -> tuple[bytes, str] | None:
     try:
         result = await fetch_limited(
             f"https://{host}/favicon.ico",
-            {
-                "Accept": "image/*,*/*;q=0.8",
-                "User-Agent": USER_AGENT,
-            },
+            _ICON_HEADERS,
             policy,
         )
+        if result.status == 200 and result.body:
+            content_type = _image_type(result.body)
+            if content_type is not None:
+                return result.body, content_type
+        if result.status not in REFUSED_STATUSES:
+            return None
+        # The site refused us: its icon is public, so a public icon service
+        # can still fetch it -- from a network the site does not block.
+        base = _icon_service(env)
+        if not base:
+            return None
+        logger.info(
+            "favicon %s refused us (%s): asking the icon service",
+            host,
+            result.status,
+        )
+        return await _icon_at(f"{base}{host}.ico", policy)
     except Exception:
         logger.warning("favicon fetch failed for %s", host, exc_info=True)
         return None
-    if result.status != 200 or not result.body:
-        return None
-    content_type = _image_type(result.body)
-    if content_type is None:
-        return None
-    return result.body, content_type
 
 
 def _bucket(env: Any) -> Any:
@@ -282,7 +340,7 @@ async def resolve_favicon(
         return cached
     if not await _consume_miss(db, headers, user_id):
         return FALLBACK_ICON, "image/png"
-    fetched = await _fetch_upstream(host)
+    fetched = await _fetch_upstream(host, env)
     if fetched is None:
         # No icon upstream: the fallback is never cached, so the site gets
         # another chance on the next request.

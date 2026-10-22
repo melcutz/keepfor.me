@@ -56,6 +56,10 @@ def _png() -> bytes:
 
 PNG = _png()
 
+# A minimal valid ICO: the 4-byte magic \x00\x00\x01\x00 that _image_type
+# detects as image/x-icon, like python.org's publicly served favicon.ico.
+ICO = b"\x00\x00\x01\x00" + b"\x00" * 12
+
 
 class FakeQueue:
     """In-test queue: records sends without delivery."""
@@ -168,12 +172,71 @@ async def test_favicon_route_serves_the_site_icon(client, db, calls):
 
 async def test_favicon_route_falls_back_when_the_site_has_no_icon(client, db, calls):
     """No icon upstream is a 200 with the fallback, never a 404."""
-    calls(status=404, body=b"")
+    recorded = calls(status=404, body=b"")
     await _sign_in(client, db)
     response = client.get("/favicons/example.com")
     assert response.status_code == 200
     assert response.content == FALLBACK_ICON
     assert response.headers["content-type"].startswith("image/png")
+    # A 404 means "this site has no icon", not "we were refused": no third
+    # party is asked about it.
+    assert recorded == ["https://example.com/favicon.ico"]
+
+
+def _refusing_site(monkeypatch, *, service_body=ICO):
+    """Mock the upstream: the site refuses us, the icon service answers."""
+    recorded: list[str] = []
+
+    async def fake_fetch(url, headers, policy, **kwargs):
+        recorded.append(url)
+        if url.endswith("/favicon.ico"):
+            return FetchResult(text="", status=403, url=url, headers={}, body=b"")
+        return FetchResult(text="", status=200, url=url, headers={}, body=service_body)
+
+    monkeypatch.setattr("keepfor.utils.favicon.fetch_limited", fake_fetch)
+    return recorded
+
+
+async def test_a_site_that_refuses_us_is_asked_through_the_icon_service(
+    client, db, monkeypatch
+):
+    """python.org's CDN answers 403 to every request from Cloudflare's network.
+
+    The icon is public, so the icon service still serves it: the card shows
+    the site's real favicon instead of the transparent fallback.
+    """
+    recorded = _refusing_site(monkeypatch)
+    await _sign_in(client, db)
+    response = client.get("/favicons/www.python.org")
+    assert response.status_code == 200
+    assert response.content == ICO
+    assert response.headers["content-type"].startswith("image/x-icon")
+    assert recorded == [
+        "https://www.python.org/favicon.ico",
+        "https://icons.duckduckgo.com/ip3/www.python.org.ico",
+    ]
+
+
+async def test_the_icon_service_can_be_turned_off(client, db, monkeypatch):
+    """FAVICON_ICON_SERVICE = "" keeps a refusing site on the fallback."""
+    recorded = _refusing_site(monkeypatch)
+    env = MockEnv()
+    env.FAVICON_ICON_SERVICE = ""
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    await _sign_in(client, db)
+    response = client.get("/favicons/www.python.org")
+    assert response.status_code == 200
+    assert response.content == FALLBACK_ICON
+    assert recorded == ["https://www.python.org/favicon.ico"]
+
+
+async def test_the_icon_service_never_serves_a_non_image(client, db, monkeypatch):
+    """A third party answers with bytes we do not recognise: the fallback."""
+    _refusing_site(monkeypatch, service_body=b"<html>not an icon</html>")
+    await _sign_in(client, db)
+    response = client.get("/favicons/www.python.org")
+    assert response.status_code == 200
+    assert response.content == FALLBACK_ICON
 
 
 async def test_favicon_route_falls_back_when_the_upstream_body_is_not_an_image(
