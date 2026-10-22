@@ -213,6 +213,11 @@
         </form>
       </div>
 
+      <!-- Highlights -->
+      <div id="highlights-section" class="mt-8">
+        {% include "partials/highlights_list.html" %}
+      </div>
+
     </article>
 
     <!-- Table of Contents drawer: hidden on screens < 1280px to avoid obscuring text -->
@@ -332,6 +337,194 @@
         drawer.classList.add('toc-ready');
       }
     } catch (_) {}
+  });
+
+  // Highlighting functionality
+  let highlightButton = null;
+  let currentSelection = null;
+
+  // Create the floating highlight button
+  function createHighlightButton() {
+    if (highlightButton) return highlightButton;
+    highlightButton = document.createElement('div');
+    highlightButton.id = 'highlight-float-btn';
+    highlightButton.className = 'fixed z-50 px-3 py-1.5 bg-[var(--brand-600)] text-white text-xs font-medium rounded-lg shadow-lg hidden transition-opacity';
+    highlightButton.innerHTML = 'Highlight';
+    highlightButton.addEventListener('click', createHighlightFromSelection);
+    document.body.appendChild(highlightButton);
+    return highlightButton;
+  }
+
+  // Show the floating button near the selection
+  function showHighlightButton(selection) {
+    const btn = createHighlightButton();
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    btn.style.top = (rect.top + window.scrollY - 40) + 'px';
+    btn.style.left = (rect.left + window.scrollX + rect.width / 2) + 'px';
+    btn.style.transform = 'translateX(-50%)';
+    btn.classList.remove('hidden');
+  }
+
+  // Hide the floating button
+  function hideHighlightButton() {
+    if (highlightButton) highlightButton.classList.add('hidden');
+  }
+
+  // Handle text selection
+  function onSelectionChange() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      hideHighlightButton();
+      currentSelection = null;
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const text = selection.toString().trim();
+
+    // Ignore empty selections or selections outside article body
+    if (!text || text.length < 2 || !articleBody.contains(range.commonAncestorContainer)) {
+      hideHighlightButton();
+      currentSelection = null;
+      return;
+    }
+
+    currentSelection = {
+      text: text,
+      range: range.cloneRange(),
+      startOffset: getTextOffset(range.startContainer, range.startOffset),
+      endOffset: getTextOffset(range.endContainer, range.endOffset),
+    };
+
+    showHighlightButton(selection);
+  }
+
+  // Get character offset within article body text content
+  function getTextOffset(node, offset) {
+    const walker = document.createTreeWalker(
+      articleBody,
+      NodeFilter.SHOW_TEXT,
+      null,
+      false
+    );
+    let currentNode = articleBody.firstChild;
+    let charCount = 0;
+
+    while (currentNode) {
+      if (currentNode === node) {
+        return charCount + offset;
+      }
+      if (currentNode.nodeType === Node.TEXT_NODE) {
+        charCount += currentNode.textContent.length;
+      }
+      currentNode = walker.nextNode();
+    }
+    return charCount;
+  }
+
+  // Create highlight from current selection
+  async function createHighlightFromSelection() {
+    if (!currentSelection) return;
+
+    const note = prompt('Add a note (optional):') || '';
+    if (note.length > 500) {
+      alert('Note must be 500 characters or less');
+      return;
+    }
+
+    const itemId = window.location.pathname.split('/').pop();
+    const formData = new FormData();
+    formData.append('text', currentSelection.text);
+    formData.append('note', note);
+    formData.append('start_offset', currentSelection.startOffset.toString());
+    formData.append('end_offset', currentSelection.endOffset.toString());
+
+    try {
+      const response = await fetch(`/items/${itemId}/highlights`, {
+        method: 'POST',
+        body: formData,
+        headers: { 'hx-request': 'true' },
+      });
+
+      if (response.ok) {
+        const html = await response.text();
+        const highlightsSection = document.getElementById('highlights-section');
+        if (highlightsSection) {
+          highlightsSection.innerHTML = html;
+        }
+        // Highlight the text in the article
+        highlightTextInArticle(currentSelection.text);
+      } else {
+        const err = await response.text();
+        alert('Failed to create highlight: ' + err);
+      }
+    } catch (e) {
+      console.error('Highlight error:', e);
+      alert('Failed to create highlight');
+    }
+
+    hideHighlightButton();
+    window.getSelection().removeAllRanges();
+    currentSelection = null;
+  }
+
+  // Highlight text in the article by wrapping with <mark>
+  function highlightTextInArticle(text) {
+    // Find the first occurrence of the text in the article body
+    const walker = document.createTreeWalker(
+      articleBody,
+      NodeFilter.SHOW_TEXT,
+      null,
+      false
+    );
+
+    let textNode = null;
+    let matchIndex = -1;
+
+    while ((textNode = walker.nextNode())) {
+      matchIndex = textNode.textContent.indexOf(text);
+      if (matchIndex >= 0) break;
+    }
+
+    if (!textNode || matchIndex < 0) return;
+
+    // Split the text node and wrap the match in <mark>
+    const before = textNode.textContent.slice(0, matchIndex);
+    const match = textNode.textContent.slice(matchIndex, matchIndex + text.length);
+    const after = textNode.textContent.slice(matchIndex + text.length);
+
+    const parent = textNode.parentNode;
+    if (before) parent.insertBefore(document.createTextNode(before), textNode);
+    const mark = document.createElement('mark');
+    mark.className = 'bg-[var(--brand-100)] rounded px-0.5';
+    mark.textContent = match;
+    parent.insertBefore(mark, textNode);
+    if (after) parent.insertBefore(document.createTextNode(after), textNode);
+    parent.removeChild(textNode);
+  }
+
+  // On load, highlight existing highlights in the article
+  function highlightExistingHighlights() {
+    const highlights = document.querySelectorAll('#highlights-list blockquote');
+    highlights.forEach(hq => {
+      const text = hq.textContent.trim();
+      if (text) highlightTextInArticle(text);
+    });
+  }
+
+  // Event listeners
+  document.addEventListener('selectionchange', onSelectionChange);
+  document.addEventListener('DOMContentLoaded', () => {
+    highlightExistingHighlights();
+  });
+
+  // Hide button on scroll/click elsewhere
+  document.addEventListener('scroll', hideHighlightButton, { passive: true });
+  document.addEventListener('mousedown', (e) => {
+    if (highlightButton && !highlightButton.contains(e.target)) {
+      hideHighlightButton();
+    }
   });
 </script>
 {% endblock %}

@@ -1,0 +1,42 @@
+{# Highlights list partial — used by reader and htmx swaps #}
+{% from "partials/icons.html" import icon %}
+{% if highlights %}
+<div id="highlights-list" class="space-y-4">
+  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-2">
+    {{ icon("highlighter", class="w-4 h-4") }}
+    <span>Highlights ({{ highlights|length }})</span>
+  </h3>
+  {% for h in highlights %}
+  <div id="highlight-{{ h.id }}" class="highlight-card p-3 bg-[var(--brand-50)] border border-[var(--brand-200)] rounded-lg">
+    <blockquote class="text-sm text-slate-700 leading-relaxed italic border-l-2 border-[var(--brand-300)] pl-3 my-2">
+      {{ h.text }}
+    </blockquote>
+    {% if h.note %}
+    <p class="text-xs text-slate-500 mb-2">{{ h.note }}</p>
+    {% endif %}
+    <div class="flex items-center justify-between">
+      <span class="text-[11px] text-slate-400">{{ h.created_at[:16].replace('T', ' ') }}</span>
+      <form action="/items/{{ item_id }}/highlights/{{ h.id }}/delete" method="POST" class="inline"
+            hx-post="/items/{{ item_id }}/highlights/{{ h.id }}/delete"
+            hx-target="#highlights-section"
+            hx-swap="innerHTML">
+        <button type="submit"
+                class="text-xs text-slate-400 hover:text-red-600 font-medium inline-flex items-center gap-1"
+                title="Delete highlight">
+          {{ icon("trash", class="w-3.5 h-3.5") }}
+          <span>Delete</span>
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div id="highlights-list" class="space-y-4">
+  <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-2">
+    {{ icon("highlighter", class="w-4 h-4") }}
+    <span>Highlights</span>
+  </h3>
+  <p class="text-sm text-slate-400 text-center py-6">No highlights yet. Select text in the article to create one.</p>
+</div>
+{% endif %}

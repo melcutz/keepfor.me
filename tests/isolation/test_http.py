@@ -18,7 +18,7 @@ async def _assert_cross_tenant_denied(
     method: str,
     path: str,
     payload: dict | None = None,
-) -> None:
+):
     harness.client.cookies.clear()
     a = harness.tenant_a
     b = harness.tenant_b
@@ -44,6 +44,7 @@ async def _assert_cross_tenant_denied(
 
     snap_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
     assert snap_after == snap_before, f"Tenant A state changed after {method} {path}!"
+    return resp
 
 
 @pytest.mark.asyncio
@@ -167,6 +168,49 @@ async def test_cross_tenant_post_delete_forever(harness: IsolationHarness):
     await _assert_cross_tenant_denied(
         harness, "POST", f"/items/{harness.tenant_a.html_item_id}/delete-forever"
     )
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_highlight(harness: IsolationHarness):
+    """Calling POST /items/{id}/highlights as tenant B fails for A's item."""
+    a = harness.tenant_a
+    resp = await _assert_cross_tenant_denied(
+        harness,
+        "POST",
+        f"/items/{a.html_item_id}/highlights",
+        payload={
+            "text": "malicious quote",
+            "start_offset": 0,
+            "end_offset": 15,
+        },
+    )
+    assert resp.status_code == 404, "A cross-tenant highlight must be a 404"
+
+    # A keeps exactly their own seeded highlight; B's quote never landed.
+    rows = await a.db.query_all(
+        "SELECT id, user_id FROM highlights WHERE item_id = ? ORDER BY id;",
+        (a.html_item_id,),
+    )
+    assert len(rows) == 1
+    assert rows[0]["user_id"] == a.user["id"]
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_post_highlight_delete(harness: IsolationHarness):
+    """Calling POST /items/{id}/highlights/{hid}/delete as tenant B fails."""
+    a = harness.tenant_a
+    resp = await _assert_cross_tenant_denied(
+        harness,
+        "POST",
+        f"/items/{a.html_item_id}/highlights/{a.highlight_id}/delete",
+    )
+    assert resp.status_code == 404, "A cross-tenant delete must be a 404"
+
+    row = await a.db.query_first(
+        "SELECT id FROM highlights WHERE id = ? AND user_id = ?;",
+        (a.highlight_id, a.user["id"]),
+    )
+    assert row is not None, "Tenant A's highlight was deleted by tenant B"
 
 
 @pytest.mark.asyncio

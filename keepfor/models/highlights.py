@@ -105,12 +105,20 @@ async def list_highlights(
     return [dict(r) for r in rows]
 
 
-async def delete_highlight(db: Database, user_id: str, highlight_id: str) -> bool:
-    """Deletes one owned highlight. The item it belongs to is never deleted."""
-    row = await db.query_first(
-        "SELECT id FROM highlights WHERE id = ? AND user_id = ?;",
-        (highlight_id, user_id),
-    )
+async def delete_highlight(
+    db: Database, user_id: str, highlight_id: str, item_id: str | None = None
+) -> bool:
+    """Deletes one owned highlight. The item it belongs to is never deleted.
+
+    With an item_id the highlight must belong to that item, so a URL naming
+    another item finds nothing.
+    """
+    sql = "SELECT id FROM highlights WHERE id = ? AND user_id = ?;"
+    params: tuple[Any, ...] = (highlight_id, user_id)
+    if item_id is not None:
+        sql = "SELECT id FROM highlights WHERE id = ? AND user_id = ? AND item_id = ?;"
+        params = (highlight_id, user_id, item_id)
+    row = await db.query_first(sql, params)
     if not row:
         return False
     await db.execute(

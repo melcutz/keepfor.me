@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Reader highlighting UI (GitHub issue #45):
+  - `POST /items/{id}/highlights` — create a highlight with quoted text, optional note, and character offsets
+  - `POST /items/{id}/highlights/{hid}/delete` — delete a highlight
+  - Text selection in the reader shows a floating "Highlight" button
+  - Highlights render inline in the article as `<mark>` elements
+  - Highlights list appears under the article with delete controls
+  - Highlights created via MCP `create_highlight` tool appear in the reader
+  - htmx support for seamless create/delete without page reload
+  - No-JS fallback redirects back to reader
+  - Tenant-scoped: users only see and manage their own highlights
+
 ### Fixed
 - **Delete stale vectors and chunks on textless re-extraction** (keepfor-cloud#160): when `should_index_text` returns `False` during extraction or re-extraction, the processor now deletes the item's existing Vectorize vectors (using the chunk IDs from the `chunks` table and the tenant namespace) and then removes the `chunks` rows. If no chunks exist, no vector call is made. Vector-delete errors are logged and do not fail extraction; chunks are only deleted after the vector delete succeeds.
 
