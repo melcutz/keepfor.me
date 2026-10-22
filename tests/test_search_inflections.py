@@ -205,11 +205,11 @@ async def test_a_short_word_does_not_match_a_longer_one(db, library):
     assert total == 0
 
 
-async def test_the_strict_query_wins_when_it_matches(library):
-    """The union of the words is a fallback, not the default.
+async def test_the_strict_matches_come_first(library):
+    """The items that hold every word of the query come first.
 
-    The items that hold every word of the query are the matches, and an
-    item that holds only one of them does not come with them.
+    The item that holds only one of them is a partial match: it comes
+    after them, not with them (#87).
     """
     db = library["db"]
     user_id = library["user"]["id"]
@@ -218,10 +218,10 @@ async def test_the_strict_query_wins_when_it_matches(library):
     results, total = await hybrid_search(
         db, MockEnv(), user_id, "rust notes", mode="keyword"
     )
-    # The library item holds "rust" but not "note": it is not a match.
-    assert library_item not in {i["id"] for i in results}
-    assert {i["id"] for i in results} == {
-        library["ids"]["tagged"],
-        library["ids"]["rust_note"],
-    }
-    assert total == 2
+    ids = [i["id"] for i in results]
+    # The items that hold "rust" and "notes" are the matches.
+    assert set(ids[:2]) == {library["ids"]["tagged"], library["ids"]["rust_note"]}
+    # The library item holds "rust" but not "note": it is a partial
+    # match and comes after them.
+    assert ids[2:] == [library_item]
+    assert total == 3
