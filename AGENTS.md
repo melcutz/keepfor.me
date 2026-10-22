@@ -2,6 +2,14 @@
 
 FastAPI read-it-later app deployed as a Cloudflare **Python Worker** (`compatibility_flags: ["python_workers"]`, Pyodide). Bindings: D1 (SQLite + FTS5), R2, Vectorize, Workers AI, Queues.
 
+## Operational Rules
+
+- Run tests and checks in the foreground only, with a bounded timeout (for example: timeout 900 uv run pytest -q). Never start a command in the background and then wait or poll on it.
+- Commit passing progress after each logical step, so work is never lost if the session is interrupted.
+- If a previous session was interrupted, first inspect git status, git diff and git log, keep what is correct, and continue from there instead of starting over.
+- For large tasks, write a plan first (files, functions, tests, ordered steps), then implement it step by step. Keep scratch files such as PLAN.md and .oc_prompt.md out of commits.
+- Keep changes scoped to the task; do not reformat or rewrite unrelated files.
+
 ## Commands
 
 ```bash
