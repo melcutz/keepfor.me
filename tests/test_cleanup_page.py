@@ -320,6 +320,8 @@ def test_classify_failure_statuses_and_reasons():
         "Extraction timed out",
         "",
         None,
+        True,
+        False,
     ):
         assert classify_failure(other) == "failed_extraction", other
 

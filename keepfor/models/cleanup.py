@@ -149,7 +149,10 @@ def classify_failure(reason_or_status: str | int | None) -> str:
             return "dead"
         return "failed_extraction"
 
-    raw = (reason_or_status or "").strip()
+    if not isinstance(reason_or_status, str):
+        return "failed_extraction"
+
+    raw = reason_or_status.strip()
     if not raw:
         return "failed_extraction"
 
