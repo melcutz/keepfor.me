@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
 from keepfor.utils.logging import logger
+from keepfor.utils.tagger import normalize_tag
 from keepfor.utils.url import canonicalize_url
 
 if TYPE_CHECKING:
@@ -53,7 +54,7 @@ async def save_item(
         scope = default_scope(db, env, user_id)
 
     clean_url = canonicalize_url(url)
-    tags = [t.strip().lower() for t in (tags or []) if t.strip()]
+    tags = [normalize_tag(t) for t in (tags or []) if normalize_tag(t)]
 
     # Check for existing item
     existing = await db.query_first(
@@ -161,7 +162,7 @@ async def save_item(
 async def add_tags_to_item(
     db: Database, user_id: str, item_id: str, tags: list[str]
 ) -> None:
-    clean_tags = list(dict.fromkeys(t.strip().lower() for t in tags if t.strip()))
+    clean_tags = list(dict.fromkeys(normalize_tag(t) for t in tags if normalize_tag(t)))
     if not clean_tags:
         return
 
@@ -214,7 +215,7 @@ async def add_tags_to_item(
 async def remove_tags_from_item(
     db: Database, user_id: str, item_id: str, tags: list[str]
 ) -> None:
-    clean_tags = list(dict.fromkeys(t.strip().lower() for t in tags if t.strip()))
+    clean_tags = list(dict.fromkeys(normalize_tag(t) for t in tags if normalize_tag(t)))
     if not clean_tags:
         return
     placeholders = ",".join("?" for _ in clean_tags)
@@ -807,14 +808,12 @@ async def suggest_tags(
     Empty `q` returns the recents list. `exclude` skips attached tags.
     """
     prefix = (
-        (q or "")
-        .strip()
-        .lower()
+        normalize_tag(q or "")
         .replace("\\", "\\\\")
         .replace("%", "\\%")
         .replace("_", "\\_")
     )
-    excluded = {e.strip().lower() for e in (exclude or []) if e.strip()}
+    excluded = {normalize_tag(e) for e in (exclude or []) if normalize_tag(e)}
     fetch_limit = limit + min(len(excluded), limit)
     rows = await db.query_all(
         """
@@ -832,7 +831,7 @@ async def suggest_tags(
     out = [
         {"name": r["name"], "count": r["count"]}
         for r in rows
-        if r["name"].lower() not in excluded
+        if normalize_tag(r["name"]) not in excluded
     ]
     return out[:limit]
 
@@ -1399,7 +1398,7 @@ async def save_note(
             saved_by,
         ),
     )
-    clean_tags = [t.strip().lower() for t in (tags or []) if t.strip()]
+    clean_tags = [normalize_tag(t) for t in (tags or []) if normalize_tag(t)]
     if clean_tags:
         await add_tags_to_item(db, user_id, item_id, clean_tags)
     await db.execute(

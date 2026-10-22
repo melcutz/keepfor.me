@@ -22,12 +22,13 @@ German citation boilerplate ("Abgerufen am ...") is never a topic. The
 language comes from the page's own <html lang> when the caller has it and
 from a stopword-ratio guess otherwise.
 
-Only `re`, `collections` and `urllib.parse` are used so this module never
-grows the Worker cold-start import graph (same rule as the lazy parser
-imports in keepfor/consumer/extractor.py).
+Only `re`, `unicodedata`, `collections` and `urllib.parse` are used so this
+module never grows the Worker cold-start import graph (same rule as the lazy
+parser imports in keepfor/consumer/extractor.py).
 """
 
 import re
+import unicodedata
 from collections import Counter
 from typing import NamedTuple
 from urllib.parse import urlparse
@@ -140,7 +141,7 @@ MAX_TAG_LENGTH = 64
 MIN_TAG_LENGTH = 2
 # Cap on the number of tag suggestions handed to the user.
 MAX_SUGGESTIONS = 5
-_VALID_TAG_RE = re.compile(r"^[a-z0-9]+(?:[ _-][a-z0-9]+)*$")
+_VALID_TAG_RE = re.compile(r"^[^\W_]+(?:[ _-][^\W_]+)*$")
 # Word tokens: Unicode letters (German umlauts and eszett are letters, not
 # noise) plus digits, keeping apostrophes and hyphens inside a word.
 _WORD_RE = re.compile(r"[^\W_]+(?:[-'][^\W_]+)?")
@@ -165,15 +166,15 @@ class Suggestion(NamedTuple):
 
 
 def normalize_tag(tag: str) -> str:
-    """Lowercase + strip (matches keepfor/models/items.py save normalization)."""
-    return tag.strip().lower()
+    """NFC-normalize, strip and lowercase a tag name."""
+    return unicodedata.normalize("NFC", tag).strip().lower()
 
 
 def validate_tag_name(raw: str) -> str | None:
     """Normalize and validate a user-supplied tag name for /tags forms.
 
     Returns the clean name, or None when invalid (empty, too short/long,
-    or containing characters outside [a-z0-9 _-]).
+    or containing characters outside Unicode letters, digits, space, _ and -).
     """
     clean = normalize_tag(raw)
     if not (MIN_TAG_LENGTH <= len(clean) <= MAX_TAG_LENGTH):

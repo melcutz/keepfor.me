@@ -124,7 +124,58 @@ async def test_blob_store_delete_prefix_paging():
     assert len(b_keys) == 10
 
     # Test bucket None
-    assert await BlobStore(None).delete_prefix("") == 0
+    assert await BlobStore(None, prefix="t/tenant_a").delete_prefix("") == 0
+
+
+@pytest.mark.asyncio
+async def test_blob_store_delete_prefix_refuses_empty_prefix():
+    """GitHub issue #79: an empty store prefix + empty rel_prefix would wipe
+    the whole bucket, so it is refused before the bucket is touched."""
+    bucket = FakeR2Bucket()
+    bucket.store["items/item1/clean.html"] = b"data"
+
+    store = BlobStore(bucket, prefix="")
+    with pytest.raises(ValueError, match="whole bucket"):
+        await store.delete_prefix("")
+
+    assert bucket.lists == []
+    assert bucket.deletes == []
+    assert bucket.store  # nothing was deleted
+
+
+@pytest.mark.asyncio
+async def test_blob_store_delete_prefix_refuses_slash_rel_prefix():
+    """A rel_prefix of "/" strips down to the empty prefix: refused too."""
+    bucket = FakeR2Bucket()
+    bucket.store["items/item1/clean.html"] = b"data"
+
+    store = BlobStore(bucket, prefix="")
+    with pytest.raises(ValueError, match="whole bucket"):
+        await store.delete_prefix("/")
+
+    assert bucket.lists == []
+    assert bucket.deletes == []
+
+
+@pytest.mark.asyncio
+async def test_blob_store_delete_prefix_keeps_scoped_prefixes():
+    """A named prefix still deletes: the store prefix, and the rel prefix."""
+    bucket = FakeR2Bucket()
+    bucket.store["t/tenant_a/items/item1/clean.html"] = b"data"
+    bucket.store["t/tenant_b/items/item2/clean.html"] = b"data"
+    bucket.store["items/item3/clean.html"] = b"data"
+
+    # Store prefix set, empty rel_prefix: the tenant's own blobs only.
+    store_a = BlobStore(bucket, prefix="t/tenant_a")
+    assert await store_a.delete_prefix("") == 1
+    assert "t/tenant_a/items/item1/clean.html" not in bucket.store
+    assert "t/tenant_b/items/item2/clean.html" in bucket.store
+
+    # No store prefix, but a named rel_prefix: still scoped.
+    store_root = BlobStore(bucket, prefix="")
+    assert await store_root.delete_prefix("items/item3") == 1
+    assert "items/item3/clean.html" not in bucket.store
+    assert "t/tenant_b/items/item2/clean.html" in bucket.store
 
 
 @pytest.mark.asyncio

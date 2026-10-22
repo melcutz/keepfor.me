@@ -147,6 +147,14 @@ async def test_cross_tenant_post_tags(harness: IsolationHarness):
 
 
 @pytest.mark.asyncio
+async def test_cross_tenant_post_trash(harness: IsolationHarness):
+    """Calling POST /items/{id}/trash as tenant B fails for tenant A's item."""
+    await _assert_cross_tenant_denied(
+        harness, "POST", f"/items/{harness.tenant_a.html_item_id}/trash"
+    )
+
+
+@pytest.mark.asyncio
 async def test_cross_tenant_post_restore(harness: IsolationHarness):
     """Calling POST /items/{id}/restore as tenant B fails for tenant A's item."""
     await _assert_cross_tenant_denied(
@@ -674,3 +682,62 @@ async def test_settings_cleanup_failed_isolation(harness: IsolationHarness):
         "DELETE FROM items WHERE id = ? AND user_id = ?;",
         ("failed_item_a", a.user["id"]),
     )
+
+
+@pytest.mark.asyncio
+async def test_cleanup_page_isolation(harness: IsolationHarness):
+    """The Clean up view lists only the caller's own candidates.
+
+    Every kind reports over user_id-scoped queries, so Tenant B's page
+    never shows Tenant A's dead links and A's counts never inflate B's
+    tabs.
+    """
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    # A dead link and an untagged item per tenant, distinct per owner.
+    for tenant, label in ((a, "a"), (b, "b")):
+        await tenant.db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, title, status,"
+            " fail_reason) VALUES (?, ?, ?, ?, ?, 'failed', ?);",
+            (
+                f"cleanup_dead_{label}",
+                tenant.user["id"],
+                f"https://example.com/cleanup-dead-{label}",
+                f"https://example.com/cleanup-dead-{label}",
+                f"Cleanup dead link {label}",
+                f"HTTP 404 returned by origin server ({label})",
+            ),
+        )
+        await tenant.db.execute(
+            "INSERT INTO items (id, user_id, url, canonical_url, title, status)"
+            " VALUES (?, ?, ?, ?, ?, 'ok');",
+            (
+                f"cleanup_bare_{label}",
+                tenant.user["id"],
+                f"https://example.com/cleanup-bare-{label}",
+                f"https://example.com/cleanup-bare-{label}",
+                f"Cleanup untagged {label}",
+            ),
+        )
+
+    resp = harness.client.get("/cleanup?kind=dead_links", cookies=b.cookies)
+    assert resp.status_code == 200
+    assert "Cleanup dead link b" in resp.text
+    assert "Cleanup dead link a" not in resp.text
+
+    resp_untagged = harness.client.get("/cleanup?kind=untagged", cookies=b.cookies)
+    assert resp_untagged.status_code == 200
+    assert "Cleanup untagged b" in resp_untagged.text
+    assert "Cleanup untagged a" not in resp_untagged.text
+
+    # Clean up the probe rows
+    for tenant, label in ((a, "a"), (b, "b")):
+        await tenant.db.execute(
+            "DELETE FROM items WHERE id IN (?, ?) AND user_id = ?;",
+            (
+                f"cleanup_dead_{label}",
+                f"cleanup_bare_{label}",
+                tenant.user["id"],
+            ),
+        )

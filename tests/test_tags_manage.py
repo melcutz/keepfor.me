@@ -104,3 +104,62 @@ async def test_delete_tag_dismisses_matching_suggestions(db):
         "SELECT status FROM suggested_tags WHERE item_id = ?;", (item_id,)
     )
     assert row["status"] == "dismissed"
+
+
+@pytest.mark.asyncio
+async def test_unicode_tags_create_rename_merge_and_nfc(db):
+    user_id = str(uuid.uuid4())
+    assert (
+        await items_model.create_tag(db, user_id, "Konsumgüterbranche")
+        == "konsumgüterbranche"
+    )
+    assert await items_model.create_tag(db, user_id, "Straße") == "straße"
+    assert await items_model.create_tag(db, user_id, "Café") == "café"
+
+    # Decomposed u + combining diaeresis resolves to the same NFC row.
+    assert (
+        await items_model.create_tag(db, user_id, "konsumgu\u0308terbranche")
+        == "konsumgüterbranche"
+    )
+    rows = await db.query_all(
+        "SELECT name FROM tags WHERE user_id = ? AND name LIKE 'konsum%';",
+        (user_id,),
+    )
+    assert [r["name"] for r in rows] == ["konsumgüterbranche"]
+
+    # Save paths also NFC-normalise tags so composed and decomposed share one row.
+    class _FakeQueue:
+        async def send(self, msg):
+            pass
+
+    class _FakeEnv:
+        QUEUE = _FakeQueue()
+
+    saved, _ = await items_model.save_item(
+        db,
+        _FakeEnv(),
+        user_id,
+        "https://a.example/unicode",
+        tags=["u\u0308bung", "übung", "straße"],
+    )
+    item_id = saved["id"]
+    await items_model.add_tags_to_item(db, user_id, item_id, ["cafe\u0301", "café"])
+    assert await items_model.get_item_tags(db, user_id, item_id) == [
+        "café",
+        "straße",
+        "übung",
+    ]
+
+    assert (
+        await items_model.rename_tag(db, user_id, "u\u0308bung", "prüfung") == "merged"
+    )
+    assert (
+        await items_model.merge_tags(
+            db, user_id, ["pru\u0308fung", "straße"], "konsumgu\u0308terbranche"
+        )
+        == "merged"
+    )
+    assert await items_model.get_item_tags(db, user_id, item_id) == [
+        "café",
+        "konsumgüterbranche",
+    ]

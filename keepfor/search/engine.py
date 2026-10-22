@@ -346,6 +346,26 @@ def _content_terms(query: str) -> list[str]:
     return content or terms
 
 
+# A content word of at least this many letters matches every word that
+# starts with it, so a word finds its inflected forms: "llm" finds
+# "LLMs", "model" finds "models" (#76). The index stems with the porter
+# tokenizer, but the tag names and the short words are matched here, so
+# the rule is spelled out.
+MIN_PREFIX_LEN = 3
+
+
+def _keyword_match(term: str) -> str:
+    """The FTS match expression of a content word.
+
+    A word of at least MIN_PREFIX_LEN letters matches every word that
+    starts with it ("llm" finds "LLMs"). A shorter word matches
+    exactly: "ai" must not match "air".
+    """
+    if len(term) >= MIN_PREFIX_LEN:
+        return f'"{term}"*'
+    return f'"{term}"'
+
+
 async def search_tag_hits(
     db: Database, user_id: str, query: str, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -359,6 +379,10 @@ async def search_tag_hits(
     Only the content words of the query count (#63): a tag named "saved"
     is no proof that the item is about what the query asks for.
 
+    A tag word that starts with a content word answers it, so the tag
+    "llms" answers "llm" (#76). A short word matches the whole tag word
+    ("ai" does not answer "air").
+
     The join order is pinned to the tags: without it SQLite scans the
     live items of the user first (57 ms on a 2k-item library against
     0.1 ms with the tag index).
@@ -370,7 +394,12 @@ async def search_tag_hits(
     for sep in _TAG_SEPARATORS:
         name = f"REPLACE({name}, '{sep}', ' ')"
     match = " OR ".join(
-        f"instr(' ' || {name} || ' ', ' ' || ? || ' ') > 0" for _ in terms
+        (
+            f"instr(' ' || {name} || ' ', ' ' || ?) > 0"
+            if len(term) >= MIN_PREFIX_LEN
+            else f"instr(' ' || {name} || ' ', ' ' || ? || ' ') > 0"
+        )
+        for term in terms
     )
     sql = f"""
         SELECT it.item_id AS item_id
@@ -397,6 +426,10 @@ async def search_fts(
     The keyword side of the search: the title and the extracted text
     (FTS5), the url (LIKE) and the tags (#55). `limit` caps the
     candidates per source.
+
+    A content word matches the words that start with it ("llm" finds
+    "LLMs"), and a query of several content words that no item holds as
+    a whole falls back to the union of its words (#76).
     """
     url_matches: list[dict[str, Any]] = []
     if "." in query or "/" in query or ":" in query:
@@ -426,8 +459,13 @@ async def search_fts(
     tag_task = asyncio.create_task(search_tag_hits(db, user_id, query, limit=limit))
     # Only the content words of the query are matched (#63): the library
     # words ("saved", "my") are in the text of every item of a library,
-    # so they prove nothing about the item.
-    fts_terms = " ".join(f'"{term}"*' for term in _content_terms(query) if term)
+    # so they prove nothing about the item. A content word matches the
+    # words that start with it, so "llm" finds "LLMs" (#76). The words
+    # are matched as a whole: an item must hold every one of them, so
+    # "Alpha guide 0" finds the item that holds all three and not the
+    # items that hold one of them.
+    terms = [t for t in _content_terms(query) if t]
+    fts_terms = " ".join(_keyword_match(term) for term in terms)
     if fts_terms:
         sql = """
             SELECT item_id, rank,
@@ -442,6 +480,13 @@ async def search_fts(
         """
         try:
             fts_matches = await db.query_all(sql, (fts_terms, user_id, user_id, limit))
+            if not fts_matches and len(terms) > 1:
+                # No item holds every word of the query: the union of the
+                # words still names the content, so "local LLM" finds the
+                # item whose text only says "LLMs" (#76). The strict query
+                # wins when it matches anything.
+                union = " OR ".join(_keyword_match(term) for term in terms)
+                fts_matches = await db.query_all(sql, (union, user_id, user_id, limit))
         except Exception:
             # Fallback to simple title/url LIKE search if FTS query syntax error
             fallback_sql = """
@@ -472,10 +517,12 @@ async def search_fts(
 async def search_fts_whole_words(
     db: Database, user_id: str, query: str, limit: int = 50
 ) -> set[str]:
-    """Ids whose title, text or tags contain a query term as a whole word.
+    """Ids whose title, text or tags name one of the query terms.
 
     FTS5 matches whole tokens (case-insensitive), so this is the keyword
-    signal of the semantic-only mode, where no keyword ranking runs.
+    signal of the semantic-only mode, where no keyword ranking runs. A
+    content word also matches the words that start with it, so "llm"
+    finds "LLMs" (#76).
 
     Only the content words of the query count (#63): the library words
     ("saved", "my") are in the text of every item of a library, so they
@@ -484,7 +531,7 @@ async def search_fts_whole_words(
     terms = _content_terms(query)
     if not terms:
         return set()
-    match = " OR ".join(f'"{t}"' for t in terms)
+    match = " OR ".join(_keyword_match(t) for t in terms)
     sql = """
         SELECT item_id FROM items_fts
         WHERE items_fts MATCH ? AND user_id = ?

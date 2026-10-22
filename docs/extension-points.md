@@ -2,7 +2,7 @@
 
 Keepfor.me 1.1.0 exposes a clean Service Provider Interface (SPI) allowing hosted, enterprise, or multi-tenant deployments to extend and customize core behavior while preserving full compatibility with upstream updates.
 
-Core defines and exports all SPI abstractions in [`keepfor.spi`](file:///home/melcutz/work/keepfor.me/keepfor/spi.py). Default single-tenant implementations live in [`keepfor.defaults`](file:///home/melcutz/work/keepfor.me/keepfor/defaults.py).
+Core defines and exports all SPI abstractions in [`keepfor.spi`](../keepfor/spi.py). Default single-tenant implementations live in [`keepfor.defaults`](../keepfor/defaults.py).
 
 ---
 
@@ -370,3 +370,25 @@ Jinja2 templates expose extension blocks that child templates can override:
   - `{% block footer_extra %}`: custom footer elements
 - `settings.html`:
   - `{% block settings_extra %}`: tenant billing, team management, or enterprise settings panels
+
+---
+
+## 8. Indexer Hooks: `should_index_text` / `should_index_title`
+
+The indexer consults these hooks before it writes a full text row, chunks or embeds (see [`keepfor.search.indexable`](../keepfor/search/indexable.py)). An item that holds no text is skipped up front instead of being written to the index and deleted after extraction.
+
+```python
+from keepfor.search.indexable import should_index_text, should_index_title
+
+item = {"url": "https://example.com/photo.jpg", "title": "Photo",
+        "content_text": "", "status": "ok"}
+
+should_index_text(item)   # False: no content index entry, no chunks, no embeddings
+should_index_title(item)  # True: a title-only FTS row would keep it findable
+```
+
+- `should_index_text(item) -> bool` decides the full text FTS row and the vector chunking. It returns `False` for a failed extraction, a binary URL extension, a body that is mostly unprintable bytes, an item without text, a bare URL (title equals the URL, no body) and a body that is nothing but a URL. It reads an `items` row or an extraction result with the keys `url`, `title`, `content_text` and `status`; missing keys are tolerated and skipped.
+- `should_index_title(item) -> bool` decides a title-only FTS row separately from content indexing. It is broader than `should_index_text`: it is open for a non-text item that carries a title, so a hosted ingest can keep such items findable by title in library search while still excluding them from vector retrieval and answers.
+
+Core's own extraction processor (`keepfor.consumer.processor`) writes the content row and the chunks only when `should_index_text` is true, and a title-only row (the title and the user's own notes, no text) when `should_index_title` is true: a saved image or a bare-URL bookmark has no text to index, but its title still finds it in the library search. The predicates must stay in sync with the answer (citation) filter of hosted deployments: both must agree on which items may be cited.
+

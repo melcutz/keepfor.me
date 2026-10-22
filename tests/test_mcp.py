@@ -965,7 +965,7 @@ async def test_find_cleanup_keeps_large_duplicate_group_small(cleanup_user):
 
 
 async def test_find_cleanup_detects_dead_links(cleanup_user):
-    """Items whose recorded extraction failed are reported as dead links."""
+    """An item whose recorded failure is an origin HTTP error is a dead link."""
     user, env, db = cleanup_user
     dead = await _save(db, env, user["id"], "https://example.com/dead")
     alive = await _save(db, env, user["id"], "https://example.com/alive")
@@ -980,6 +980,36 @@ async def test_find_cleanup_detects_dead_links(cleanup_user):
     assert "404" in report["items"][0]["reason"]
     assert report["count"] == 1
     assert alive not in {e["id"] for e in report["items"]}
+
+
+async def test_find_cleanup_separates_dead_links_from_failed_extractions(
+    cleanup_user,
+):
+    """An origin HTTP error is a dead link; every other failure is not."""
+    user, env, db = cleanup_user
+    dead = await _save(db, env, user["id"], "https://example.com/origin-dead")
+    wall = await _save(db, env, user["id"], "https://example.com/wall")
+    await db.execute_batch(
+        [
+            (
+                "UPDATE items SET status = 'failed', fail_reason = ? WHERE id = ?;",
+                (
+                    "HTTP 404 returned by origin server (https://example.com/origin-dead)",
+                    dead,
+                ),
+            ),
+            (
+                "UPDATE items SET status = 'failed', fail_reason = ? WHERE id = ?;",
+                ("login wall", wall),
+            ),
+        ]
+    )
+
+    report = await _cleanup(db, env, user)
+    assert [e["id"] for e in report["dead_links"]["items"]] == [dead]
+    assert [e["id"] for e in report["failed_extraction"]["items"]] == [wall]
+    assert report["dead_links"]["count"] == 1
+    assert report["failed_extraction"]["count"] == 1
 
 
 async def test_find_cleanup_detects_never_opened_old_items(cleanup_user):

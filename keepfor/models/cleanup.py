@@ -4,10 +4,11 @@
 """Library cleanup suggestions (read-only).
 
 Finds what a user could clean up: duplicate items (same normalized url),
-dead links (the stored extraction failed), never-opened old items, untagged
-items and near-duplicate tags. Every query is a SELECT scoped to the owning
-user_id; nothing here writes. Trashed items are invisible: the report only
-suggests cleaning up what is still in the library.
+dead links (a recorded origin HTTP error), failed extractions (every other
+recorded failure), never-opened old items, untagged items and near-duplicate
+tags. Every query is a SELECT scoped to the owning user_id; nothing here
+writes. Trashed items are invisible: the report only suggests cleaning up
+what is still in the library.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from keepfor.utils.url import url_dedupe_key
 CLEANUP_CATEGORIES = (
     "duplicates",
     "dead_links",
+    "failed_extraction",
     "never_opened",
     "untagged",
     "near_duplicate_tags",
@@ -78,20 +80,37 @@ async def _duplicates(
     return _report(entries, limit)
 
 
-async def _dead_links(
-    db: Database, user_id: str, limit: int, older_than_days: int
+async def _failed_items(
+    db: Database, user_id: str, limit: int, older_than_days: int, *, dead: bool
 ) -> dict[str, Any]:
-    """Items whose stored extraction failed (no network requests)."""
+    """Failed items split by cause: an origin HTTP error, or the rest.
+
+    A recorded "HTTP 4xx/5xx returned by origin" error is the only recorded
+    evidence a link is dead; every other failure (login wall, timeout, parse
+    error, no reason) failed the extraction, not the link. No network
+    requests: the split reads only what is already recorded.
+    """
+    dead_clause = (
+        " AND (LOWER(fail_reason) LIKE 'http 4%' OR LOWER(fail_reason) LIKE 'http 5%')"
+        if dead
+        # NOT LIKE is NULL on a NULL reason, so NULL counts as a failed
+        # extraction, not as a dead link (no recorded origin error).
+        else (
+            " AND (fail_reason IS NULL OR (LOWER(fail_reason) NOT LIKE 'http 4%'"
+            " AND LOWER(fail_reason) NOT LIKE 'http 5%'))"
+        )
+    )
     total_row = await db.query_first(
         "SELECT COUNT(*) as c FROM items"
-        " WHERE user_id = ? AND status = 'failed' AND deleted_at IS NULL;",
+        " WHERE user_id = ? AND status = 'failed' AND deleted_at IS NULL"
+        f"{dead_clause};",
         (user_id,),
     )
     total = total_row["c"] if total_row else 0
     rows = await db.query_all(
         "SELECT id, fail_reason FROM items"
         " WHERE user_id = ? AND status = 'failed' AND deleted_at IS NULL"
-        " ORDER BY created_at DESC LIMIT ?;",
+        f"{dead_clause} ORDER BY created_at DESC LIMIT ?;",
         (user_id, limit),
     )
     entries = [
@@ -99,6 +118,20 @@ async def _dead_links(
         for row in rows
     ]
     return _report(entries, limit, total)
+
+
+async def _dead_links(
+    db: Database, user_id: str, limit: int, older_than_days: int
+) -> dict[str, Any]:
+    """Items whose recorded failure is an origin HTTP error (dead links)."""
+    return await _failed_items(db, user_id, limit, older_than_days, dead=True)
+
+
+async def _failed_extraction(
+    db: Database, user_id: str, limit: int, older_than_days: int
+) -> dict[str, Any]:
+    """Items whose recorded failure is anything but an origin HTTP error."""
+    return await _failed_items(db, user_id, limit, older_than_days, dead=False)
 
 
 async def _never_opened(
@@ -203,6 +236,7 @@ async def find_cleanup(
 _CATEGORY_QUERIES = {
     "duplicates": _duplicates,
     "dead_links": _dead_links,
+    "failed_extraction": _failed_extraction,
     "never_opened": _never_opened,
     "untagged": _untagged,
     "near_duplicate_tags": _near_duplicate_tags,

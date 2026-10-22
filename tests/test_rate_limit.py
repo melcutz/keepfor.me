@@ -51,6 +51,12 @@ def test_client_ip_falls_back_when_absent():
     assert rl.client_ip({}) == rl._UNKNOWN_IP
 
 
+def test_client_ip_key_is_none_when_the_ip_is_unknown():
+    """An unknown IP must not collapse every visitor into one bucket."""
+    assert rl.client_ip_key({"cf-connecting-ip": "203.0.113.9"}) == "203.0.113.9"
+    assert rl.client_ip_key({}) is None
+
+
 @pytest.mark.asyncio
 async def test_failures_are_recorded_per_ip_and_account(db):
     user, env, session = await _setup_user(db)

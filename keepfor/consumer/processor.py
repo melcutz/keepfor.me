@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 from keepfor.consumer.extractor import article_from_reader_markdown, extract_article
 from keepfor.models.db import Database
+from keepfor.search.indexable import should_index_text, should_index_title
 from keepfor.utils.chunker import recursive_character_split
 from keepfor.utils.egress import (
     _get_env_val,
@@ -340,7 +341,23 @@ async def extract_and_store(
             ),
         )
 
-        # 5. Update FTS5 virtual table (include v2 provenance fields)
+        # 5. Update FTS5 virtual table (include v2 provenance fields).
+        # Only an item that holds readable text gets a full text entry and
+        # vector chunks (keepfor-cloud#120): a non-text item is skipped up
+        # front instead of being written here and deleted afterwards by the
+        # hosted ingest. The DELETE stays unconditional so a re-extraction
+        # that turns textless cannot leave a stale row behind.
+        index_item = {
+            "url": url,
+            "title": extracted.get("title") or "",
+            "content_text": extracted.get("content_text") or "",
+            "status": "ok",
+        }
+        index_text = should_index_text(index_item)
+        # A textless item keeps a title-only row (should_index_title): a
+        # saved image, a bare-URL bookmark or a failed extraction has no
+        # text to index, but its title still finds it in library search.
+        index_title = should_index_title(index_item)
         await db.execute(
             "DELETE FROM items_fts WHERE item_id = ? AND user_id = ?;",
             (item_id, user_id),
@@ -361,24 +378,32 @@ async def extract_and_store(
             ]
             if p
         )
-        combined_content = " ".join(
-            p
-            for p in [
-                extracted["content_text"] or "",
-                v2_fields,
-                # The summary and the page description are keyword
-                # sources too: an item that names the concept only there
-                # had no keyword hit and was dropped (#55).
-                summary,
-                extracted.get("excerpt") or "",
-            ]
-            if p
-        )
-        await db.execute(
-            "INSERT INTO items_fts (item_id, user_id, title, content_text) "
-            "VALUES (?, ?, ?, ?);",
-            (item_id, user_id, extracted["title"], combined_content),
-        )
+        if index_text:
+            combined_content = " ".join(
+                p
+                for p in [
+                    extracted["content_text"] or "",
+                    v2_fields,
+                    # The summary and the page description are keyword
+                    # sources too: an item that names the concept only there
+                    # had no keyword hit and was dropped (#55).
+                    summary,
+                    extracted.get("excerpt") or "",
+                ]
+                if p
+            )
+            await db.execute(
+                "INSERT INTO items_fts (item_id, user_id, title, content_text) "
+                "VALUES (?, ?, ?, ?);",
+                (item_id, user_id, extracted["title"], combined_content),
+            )
+        elif index_title:
+            # Title-only row: no text to index, but the title still finds it.
+            await db.execute(
+                "INSERT INTO items_fts (item_id, user_id, title, content_text) "
+                "VALUES (?, ?, ?, ?);",
+                (item_id, user_id, extracted["title"], v2_fields),
+            )
 
         # 5b. Automatic tagging (fail-open: a tagger defect must never
         # flip an extracted item to failed).
@@ -455,70 +480,99 @@ async def extract_and_store(
         except Exception as exc:
             logger.warning(f"Auto-tagging failed: item={item_id}: {exc}")
 
-        # 6. Semantic chunking & Vectorize indexing
-        chunks = recursive_character_split(
-            extracted["content_text"], target_tokens=400, overlap_tokens=50
+        # 6. Semantic chunking & Vectorize indexing (only for text items).
+        chunks = (
+            recursive_character_split(
+                extracted["content_text"], target_tokens=400, overlap_tokens=50
+            )
+            if index_text
+            else []
         )
 
         vectors = scope.vectors(env)
-        can_embed = False
-        if chunks and vectors.index is not None:
-            try:
-                decision = await providers.entitlements.check(
-                    scope.tenant_id, "embed", qty=len(chunks)
-                )
-                can_embed = decision.allowed
-            except Exception as exc:
-                logger.warning("Entitlement check for embed failed: %s", exc)
 
-        if can_embed:
-            # Batch embeddings in groups of 10
-            vectors_to_upsert = []
-            chunk_records = []
-
-            for i in range(0, len(chunks), 10):
-                batch_chunks = chunks[i : i + 10]
-                texts = [c.text for c in batch_chunks]
-                embeddings = await providers.ai.embed(env, texts)
-
-                for chunk, vector in zip(batch_chunks, embeddings):
-                    chunk_id = f"item_{item_id}_chunk_{chunk.index}"
-                    vectors_to_upsert.append(
-                        {
-                            "id": chunk_id,
-                            "values": vector,
-                            "metadata": {
-                                "item_id": item_id,
-                                "user_id": user_id,
-                                "chunk_index": chunk.index,
-                            },
-                        }
-                    )
-                    chunk_records.append(
-                        (chunk_id, item_id, user_id, chunk.index, chunk.token_count)
-                    )
-
-            # Upsert into Vectorize
-            if vectors_to_upsert:
-                await vectors.upsert(vectors_to_upsert)
+        if index_text:
+            # Text item: upsert new vectors and update chunks table
+            can_embed = False
+            if chunks and vectors.index is not None:
                 try:
-                    await providers.entitlements.record(
-                        scope.tenant_id, "embed", qty=len(vectors_to_upsert)
+                    decision = await providers.entitlements.check(
+                        scope.tenant_id, "embed", qty=len(chunks)
                     )
+                    can_embed = decision.allowed
                 except Exception as exc:
-                    logger.warning("Entitlement record for embed failed: %s", exc)
+                    logger.warning("Entitlement check for embed failed: %s", exc)
 
-            # Update D1 chunks tracking table
-            await db.execute(
-                "DELETE FROM chunks WHERE item_id = ? AND user_id = ?;",
+            if can_embed:
+                # Batch embeddings in groups of 10
+                vectors_to_upsert = []
+                chunk_records = []
+
+                for i in range(0, len(chunks), 10):
+                    batch_chunks = chunks[i : i + 10]
+                    texts = [c.text for c in batch_chunks]
+                    embeddings = await providers.ai.embed(env, texts)
+
+                    for chunk, vector in zip(batch_chunks, embeddings):
+                        chunk_id = f"item_{item_id}_chunk_{chunk.index}"
+                        vectors_to_upsert.append(
+                            {
+                                "id": chunk_id,
+                                "values": vector,
+                                "metadata": {
+                                    "item_id": item_id,
+                                    "user_id": user_id,
+                                    "chunk_index": chunk.index,
+                                },
+                            }
+                        )
+                        chunk_records.append(
+                            (chunk_id, item_id, user_id, chunk.index, chunk.token_count)
+                        )
+
+                # Upsert into Vectorize
+                if vectors_to_upsert:
+                    await vectors.upsert(vectors_to_upsert)
+                    try:
+                        await providers.entitlements.record(
+                            scope.tenant_id, "embed", qty=len(vectors_to_upsert)
+                        )
+                    except Exception as exc:
+                        logger.warning("Entitlement record for embed failed: %s", exc)
+
+                # Update D1 chunks tracking table
+                await db.execute(
+                    "DELETE FROM chunks WHERE item_id = ? AND user_id = ?;",
+                    (item_id, user_id),
+                )
+                for rec in chunk_records:
+                    await db.execute(
+                        "INSERT INTO chunks (id, item_id, user_id, chunk_index, "
+                        "token_count) VALUES (?, ?, ?, ?, ?);",
+                        rec,
+                    )
+        else:
+            # Textless item: delete stale vectors and chunks from a previous extraction
+            chunk_rows = await db.query_all(
+                "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;",
                 (item_id, user_id),
             )
-            for rec in chunk_records:
-                await db.execute(
-                    "INSERT INTO chunks (id, item_id, user_id, chunk_index, "
-                    "token_count) VALUES (?, ?, ?, ?, ?);",
-                    rec,
-                )
+            chunk_ids = [r["id"] for r in chunk_rows]
+            if chunk_ids and vectors.index is not None:
+                try:
+                    await vectors.delete(chunk_ids)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to delete stale vector embeddings for item %s: %s",
+                        item_id,
+                        exc,
+                    )
+                else:
+                    # Only delete chunks rows after vector delete succeeds
+                    await db.execute(
+                        "DELETE FROM chunks WHERE item_id = ? AND user_id = ?;",
+                        (item_id, user_id),
+                    )
 
         # 7. Publish item.extracted event
         try:
