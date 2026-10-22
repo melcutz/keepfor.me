@@ -54,8 +54,8 @@ router = APIRouter()
 # Keys are the only accepted form values; patterns never interpolate input.
 FAIL_CLEANUP_PATTERNS: dict[str, list[str]] = {
     "all": [],
-    "blocked": ["%403%", "%401%", "%forbidden%"],
-    "notfound": ["%404%", "%not found%"],
+    "blocked": ["%403%", "%401%", "%429%", "%forbidden%", "%too many requests%"],
+    "notfound": ["%404%", "%410%", "%not found%"],
     "client": ["%HTTP 4%"],
     "server": ["%HTTP 5%", "%500%", "%502%", "%503%", "%server error%"],
     "connection": [

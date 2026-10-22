@@ -25,7 +25,7 @@ An edge-native, single-tenant personal knowledge vault with dual HTML snapshots 
 ## Capabilities and Constraints
 - **Zero-Config Single-Tenant**: First user to register becomes admin; public registration is locked by default (`ALLOW_PUBLIC_SIGNUPS="false"`).
 - **Edge Architecture Limits**: Strict Cloudflare Python Worker limits (64 MiB bundle budget, no background daemon threads, asynchronous worker queue for heavy parsing and imports, remote RPC D1 batching).
-- **Frictionless Capture**: Immediate URL ingestion returning `queued`, resilient extraction via `trafilatura` and OpenGraph fallback with visible extraction status/failure reasons.
+- **Frictionless Capture**: Immediate URL ingestion returning `queued`, resilient extraction via `trafilatura` and OpenGraph fallback with a browser-UA retry on HTTP 403 and visible extraction status/failure classification (blocked fetches vs dead links vs extraction errors).
 - **FastAPI + Jinja + htmx**: UI server-rendered via Jinja2 templates and interactive htmx partial swaps; form endpoints return HTML responses; strictly same-origin (no CORS middleware needed).
 - **Data Sovereignty**: Preserves raw original HTML (`raw.html`) and sanitized reader HTML (`clean.html`) in R2 storage.
 

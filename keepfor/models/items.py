@@ -321,7 +321,11 @@ async def get_item_clean_html(
     # .get('title', url) would render a literal "None" heading: use or.
     heading = item.get("title") or item["url"]
     if item.get("status") == "failed":
+        from keepfor.models.cleanup import BLOCKED_FETCH_COPY, classify_failure
+
         reason = item.get("fail_reason") or "unknown error"
+        if classify_failure(reason) == "blocked" and BLOCKED_FETCH_COPY not in reason:
+            reason = f"{BLOCKED_FETCH_COPY} ({reason})"
         return (
             f"<h1>{heading}</h1>"
             f"<p>Content extraction failed: {reason}</p>"

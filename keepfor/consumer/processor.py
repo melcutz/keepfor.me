@@ -10,6 +10,11 @@ if TYPE_CHECKING:
     from keepfor.spi import Action, TenantScope
 
 from keepfor.consumer.extractor import article_from_reader_markdown, extract_article
+from keepfor.models.cleanup import (
+    BLOCKED_FETCH_COPY,
+    BLOCKED_HTTP_STATUSES,
+    classify_failure,
+)
 from keepfor.models.db import Database
 from keepfor.search.indexable import should_index_text, should_index_title
 from keepfor.utils.chunker import recursive_character_split
@@ -41,6 +46,15 @@ BROWSER_HEADERS = {
     "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"Windows"',
+}
+BROWSER_RETRY_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/18.2 Safari/605.1.15"
+)
+BROWSER_RETRY_HEADERS = {
+    "User-Agent": BROWSER_RETRY_USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 MAX_HTML_BYTES = 5 * 1024 * 1024  # 5MB
 FETCH_TIMEOUT = 20
@@ -74,7 +88,15 @@ class OriginHttpError(RuntimeError):
 
     def __init__(self, status_code: int, url: str):
         self.status_code = status_code
-        super().__init__(f"HTTP {status_code} returned by origin server ({url})")
+        self.classification = classify_failure(status_code)
+        if status_code in BLOCKED_HTTP_STATUSES:
+            msg = (
+                f"HTTP {status_code} returned by origin server: "
+                f"{BLOCKED_FETCH_COPY} ({url})"
+            )
+        else:
+            msg = f"HTTP {status_code} returned by origin server ({url})"
+        super().__init__(msg)
 
 
 class BlockedPageError(RuntimeError):
@@ -111,6 +133,16 @@ async def fetch_page_html(
         tenant_id=tenant_id,
         action=action,
     )
+    if res.status == 403 and action == "fetch":
+        retry_headers = {**(headers or {}), **BROWSER_RETRY_HEADERS}
+        res = await fetch_limited(
+            url,
+            headers=retry_headers,
+            policy=policy,
+            budget=budget,
+            tenant_id=tenant_id,
+            action=action,
+        )
     if res.status >= 400:
         raise OriginHttpError(res.status, res.url or url)
     return res.text
@@ -590,7 +622,10 @@ async def extract_and_store(
     except BlockedPageError as blocked:
         # Recorded, not raised: a wall is a permanent condition, so retrying
         # the queue message would burn attempts on an unauthenticated fetch.
-        reason = f"Blocked, no article content: {blocked} ({url})"
+        if classify_failure(str(blocked)) == "dead":
+            reason = f"Dead link, no article content: {blocked} ({url})"
+        else:
+            reason = f"Blocked: {BLOCKED_FETCH_COPY} ({blocked}) ({url})"
         await db.execute(
             "UPDATE items SET status = 'failed', fail_reason = ? "
             "WHERE id = ? AND user_id = ?;",
