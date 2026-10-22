@@ -10,6 +10,7 @@ counts: the Archive category looked empty in List/Compact.
 
 import re
 from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -211,7 +212,11 @@ async def test_list_view_renders_compact_rows_with_thumbnails_and_fallback(
     # Row content: title, domain, tags and date are present.
     assert "Illustrated Guide" in html
     assert "Text Only Save" in html
-    assert "example.com" in html
+    card_link = re.search(
+        r'href="(https?://[^"]+)"[^>]*title="Visit original link"', html
+    )
+    assert card_link
+    assert urlparse(card_link.group(1)).hostname == "example.com"
     assert "#keepme" in html
     assert "2026-10-22" in html
 
