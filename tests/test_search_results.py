@@ -14,7 +14,7 @@ from keepfor import app as app_module
 from keepfor.auth.service import login_user, register_user
 from keepfor.models.items import update_user_notes
 from keepfor.paths import migrations_dir
-from keepfor.search.engine import hybrid_search
+from keepfor.search.engine import highlight_query_terms, hybrid_search
 
 
 def _migration_statements(name: str) -> list[str]:
@@ -740,3 +740,47 @@ async def test_a_trashed_item_is_not_a_tag_hit(db, search_setup):
     )
     assert results == []
     assert total == 0
+
+
+async def test_search_snippet_highlights_all_terms_and_inflections(db, search_setup):
+    """Every query term and its inflections are highlighted in snippets (#97)."""
+    await _save_item(
+        db,
+        search_setup["user"]["id"],
+        title="Woodworking Tools",
+        content=(
+            "A guide to precision marking tools. "
+            "We marked the wood with marking tool gauges."
+        ),
+    )
+    for mode in ("keyword", "hybrid"):
+        results, total = await hybrid_search(
+            db, MockEnv(), search_setup["user"]["id"], "marking tool", mode=mode
+        )
+        assert total >= 1, mode
+        snippet = results[0]["snippet"]
+        assert "<mark>marking</mark>" in snippet.lower()
+        assert (
+            "<mark>tool</mark>" in snippet.lower()
+            or "<mark>tools</mark>" in snippet.lower()
+        )
+
+
+def test_highlight_query_terms_unit():
+    """Unit test for highlight_query_terms with stems and inflections (#97)."""
+    text = "We marked the board with a marking tool and gauges."
+    highlighted = highlight_query_terms(text, ["marking", "tool"])
+    assert "<mark>marked</mark>" in highlighted
+    assert "<mark>marking</mark>" in highlighted
+    assert "<mark>tool</mark>" in highlighted
+
+    # Existing mark tags are preserved without nesting
+    with_existing = "We marked the board with a <mark>marking</mark> tool and gauges."
+    assert highlight_query_terms(with_existing, ["marking", "tool"]) == highlighted
+
+    # Short terms (< 3 chars) match whole words only, not prefixes
+    short_text = "Clean air and ai tools."
+    short_highlighted = highlight_query_terms(short_text, ["ai"])
+    assert "<mark>ai</mark>" in short_highlighted
+    assert "air" in short_highlighted
+    assert "<mark>air" not in short_highlighted
