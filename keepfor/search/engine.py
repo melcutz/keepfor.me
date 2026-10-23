@@ -925,6 +925,7 @@ async def hybrid_search(
     tags_all: list[str] | None = None,
     tags_any: list[str] | None = None,
     tags_none: list[str] | None = None,
+    read_state: str | None = None,
     scope: TenantScope | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """Execute hybrid search with RRF fusion, filters, and pagination.
@@ -1074,14 +1075,19 @@ async def hybrid_search(
         status_params = tuple(status_values)
     cat_clause, cat_params = _category_clause(category, "i")
     quick_clause = " AND i.word_count < 1000" if quick else ""
+    read_params = (read_state,) if read_state else ()
+    read_clause = " AND i.read_state = ?" if read_state else ""
     sql = f"""
         SELECT {RECENT_COLUMNS}
         FROM items i
         WHERE i.id IN ({placeholders})
           AND i.user_id = ? AND i.deleted_at IS NULL
-          {status_clause}{cat_clause}{quick_clause};
+          {status_clause}{cat_clause}{quick_clause}{read_clause};
     """
-    rows = await db.query_all(sql, (*top_ids, user_id, *status_params, *cat_params))
+    rows = await db.query_all(
+        sql,
+        (*top_ids, user_id, *status_params, *cat_params, *read_params),
+    )
     item_map = {row["id"]: row for row in rows}
 
     # Fetch tags for these items
@@ -1403,6 +1409,7 @@ async def _item_filter_clause(
     domain: str | None = None,
     pinned: bool | None = None,
     item_type: str | None = None,
+    read_state: str | None = None,
     tags_all: list[str] | None = None,
     tags_any: list[str] | None = None,
     tags_none: list[str] | None = None,
@@ -1412,6 +1419,7 @@ async def _item_filter_clause(
 
     The items table must be aliased as `i`. `status` uses the UI status
     groups ('saved', 'extracting', 'failed'); see STATUS_GROUPS.
+    `read_state` is one of 'unread', 'read' or 'archived'.
     """
     extra: list[str] = [" AND i.deleted_at IS NULL"]
     params: list[Any] = []
@@ -1435,6 +1443,9 @@ async def _item_filter_clause(
     if item_type:
         extra.append(" AND i.item_type = ?")
         params.append(item_type)
+    if read_state:
+        extra.append(" AND i.read_state = ?")
+        params.append(read_state)
 
     tag_clause, tag_params = await tag_filter_clause(
         db,
@@ -1460,6 +1471,7 @@ async def match_items(
     domain: str | None = None,
     pinned: bool | None = None,
     item_type: str | None = None,
+    read_state: str | None = None,
     tags_all: list[str] | None = None,
     tags_any: list[str] | None = None,
     tags_none: list[str] | None = None,
@@ -1480,6 +1492,7 @@ async def match_items(
         domain=domain,
         pinned=pinned,
         item_type=item_type,
+        read_state=read_state,
         tags_all=tags_all,
         tags_any=tags_any,
         tags_none=tags_none,
@@ -1508,6 +1521,7 @@ async def list_items_compact(
     domain: str | None = None,
     pinned: bool | None = None,
     item_type: str | None = None,
+    read_state: str | None = None,
     tags_all: list[str] | None = None,
     tags_any: list[str] | None = None,
     tags_none: list[str] | None = None,
@@ -1519,7 +1533,8 @@ async def list_items_compact(
 
     sort: "saved" (newest first), "opened" (most recently opened first),
     "title" (alphabetical). Filters: since/until (saved date range),
-    domain (host), pinned (true/false), item_type ("note" or "url").
+    domain (host), pinned (true/false), item_type ("note" or "url"),
+    read_state ("unread", "read" or "archived").
     """
     extra, params = await _item_filter_clause(
         db,
@@ -1529,6 +1544,7 @@ async def list_items_compact(
         domain=domain,
         pinned=pinned,
         item_type=item_type,
+        read_state=read_state,
         tags_all=tags_all,
         tags_any=tags_any,
         tags_none=tags_none,

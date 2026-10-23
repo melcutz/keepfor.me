@@ -28,6 +28,23 @@ MAX_SAVE_URLS = 50
 # the trash and the restore never run them, so a restored item keeps them.
 ITEM_EXTRA_DELETES: tuple[str, ...] = ()
 
+# The read states an item can hold.
+READ_STATES = ("unread", "read", "archived")
+
+# Caps on the metadata an agent may set on an item.
+MAX_ITEM_TITLE_CHARS = 500
+MAX_ITEM_NOTES_CHARS = 10000
+
+# The chunk index of the vector that carries an item's title and notes. It
+# is negative: that vector is metadata, not a passage of the content, so
+# the reader and the passage search skip it.
+META_CHUNK_INDEX = -1
+
+
+def meta_chunk_id(item_id: str) -> str:
+    """The id of the vector that carries an item's title and notes."""
+    return f"item_{item_id}_chunk_meta"
+
 
 async def save_item(
     db: Database,
@@ -504,16 +521,17 @@ async def delete_item(
     chunk_rows = await db.query_all(
         "SELECT id FROM chunks WHERE item_id = ? AND user_id = ?;", (item_id, user_id)
     )
-    chunk_ids = [r["id"] for r in chunk_rows]
+    # The metadata vector (the title and the notes) has no chunks row: it is
+    # deleted by its stable id.
+    chunk_ids = [r["id"] for r in chunk_rows] + [meta_chunk_id(item_id)]
 
-    if chunk_ids:
-        try:
-            vectors = scope.vectors(env)
-            await vectors.delete(chunk_ids)
-        except Exception as exc:
-            logger.warning(
-                "Failed to delete vector embeddings for item %s: %s", item_id, exc
-            )
+    try:
+        vectors = scope.vectors(env)
+        await vectors.delete(chunk_ids)
+    except Exception as exc:
+        logger.warning(
+            "Failed to delete vector embeddings for item %s: %s", item_id, exc
+        )
 
     # 2. Delete R2 snapshots
     try:
@@ -1070,8 +1088,9 @@ async def bulk_update_items(
     pin: bool | None = None,
     add_tags: list[str] | None = None,
     remove_tags: list[str] | None = None,
+    read_state: str | None = None,
 ) -> int:
-    """Applies status, pin and tag changes to owned items.
+    """Applies status, pin, read state and tag changes to owned items.
 
     Every statement is scoped by user_id, so a foreign id is never
     touched. The whole update runs as one batch (one transaction): either
@@ -1099,6 +1118,23 @@ async def bulk_update_items(
                     " updated_at = CURRENT_TIMESTAMP"
                     f" WHERE user_id = ? AND id IN ({placeholders});",
                     (set_status, pin_value, user_id, *chunk),
+                )
+            )
+
+    if read_state is not None:
+        # The archive is the stronger state: marking an archived item read
+        # or unread leaves it archived.
+        chunk_size = _UPDATE_CHUNK - 1
+        for start in range(0, len(ids), chunk_size):
+            chunk = ids[start : start + chunk_size]
+            placeholders = ",".join("?" for _ in chunk)
+            statements.append(
+                (
+                    "UPDATE items SET read_state = ?,"
+                    " updated_at = CURRENT_TIMESTAMP"
+                    f" WHERE user_id = ? AND id IN ({placeholders})"
+                    " AND read_state != 'archived';",
+                    (read_state, user_id, *chunk),
                 )
             )
 
@@ -1501,6 +1537,165 @@ async def update_user_notes(
     )
     await _refresh_fts_for_item(db, user_id, item_id)
     return True
+
+
+async def _reindex_item_vectors(
+    db: Database, env: Any, user_id: str, item_id: str, *, scope: TenantScope
+) -> None:
+    """Re-embeds the title and the notes of an item into the vector index.
+
+    The content chunks stay as they are: only the metadata changed. The
+    vector id is stable, so an edit replaces the vector instead of piling
+    one up per edit.
+
+    Best-effort: a missing AI binding or a failing Vectorize must never
+    fail the update (the FTS index already holds the new text).
+    """
+    vectors = scope.vectors(env)
+    if vectors.index is None:
+        return
+    row = await db.query_first(
+        "SELECT title, user_notes FROM items WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    if not row:
+        return
+    text = "\n\n".join(p for p in (row["title"], row["user_notes"]) if p)
+    chunk_id = meta_chunk_id(item_id)
+    try:
+        if not text:
+            await vectors.delete([chunk_id])
+            return
+        from keepfor.runtime import get_providers
+
+        providers = get_providers()
+        embeddings = await providers.ai.embed(env, [text])
+        if not embeddings:
+            return
+        await vectors.upsert(
+            [
+                {
+                    "id": chunk_id,
+                    "values": embeddings[0],
+                    "metadata": {
+                        "item_id": item_id,
+                        "user_id": user_id,
+                        "chunk_index": META_CHUNK_INDEX,
+                    },
+                }
+            ]
+        )
+    except Exception as exc:
+        logger.warning("Failed to re-index the vectors of item %s: %s", item_id, exc)
+
+
+async def update_item_fields(
+    db: Database,
+    env: Any,
+    user_id: str,
+    item_id: str,
+    *,
+    title: str | None = None,
+    user_notes: str | None = None,
+    notes_mode: str = "replace",
+    read_state: str | None = None,
+    is_pinned: bool | None = None,
+    scope: TenantScope | None = None,
+) -> dict[str, Any] | None:
+    """Updates the metadata of one owned item (GitHub issue #91).
+
+    Only the fields that are passed are changed. A title or a notes change
+    re-indexes the item (FTS, and the vectors when a vector index is
+    configured), so the new text shows up in the search.
+
+    `notes_mode` is "replace" (the default) or "append". An invalid
+    argument raises ValueError; the caller turns it into its own error.
+
+    Returns the new values, or None when the item does not belong to the
+    user or is in the Trash: every statement is scoped by user_id, so a
+    foreign id is never touched.
+    """
+    if scope is None:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
+    if notes_mode not in ("replace", "append"):
+        raise ValueError("notes_mode must be one of: replace, append")
+
+    row = await db.query_first(
+        "SELECT title, user_notes, read_state, is_pinned FROM items"
+        " WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
+        (item_id, user_id),
+    )
+    if not row:
+        return None
+
+    sets: list[str] = []
+    params: list[Any] = []
+    reindex = False
+
+    if title is not None:
+        clean_title = title.strip()
+        if len(clean_title) > MAX_ITEM_TITLE_CHARS:
+            raise ValueError(
+                f"A title is limited to {MAX_ITEM_TITLE_CHARS} characters."
+            )
+        sets.append("title = ?")
+        params.append(clean_title)
+        reindex = True
+
+    if user_notes is not None:
+        if len(user_notes) > MAX_ITEM_NOTES_CHARS:
+            raise ValueError(
+                f"The notes are limited to {MAX_ITEM_NOTES_CHARS} characters."
+            )
+        existing = (row["user_notes"] or "").strip()
+        if notes_mode == "append" and existing:
+            clean_notes: str | None = f"{existing}\n\n{user_notes.strip()}"
+        else:
+            clean_notes = user_notes.strip() or None
+        if clean_notes and len(clean_notes) > MAX_ITEM_NOTES_CHARS:
+            raise ValueError(
+                f"The notes are limited to {MAX_ITEM_NOTES_CHARS} characters."
+            )
+        sets.append("user_notes = ?")
+        params.append(clean_notes)
+        reindex = True
+
+    if read_state is not None:
+        if read_state not in READ_STATES:
+            raise ValueError("read_state must be one of: " + ", ".join(READ_STATES))
+        sets.append("read_state = ?")
+        params.append(read_state)
+
+    if is_pinned is not None:
+        sets.append("is_pinned = ?")
+        params.append(1 if is_pinned else 0)
+
+    if sets:
+        sets.append("updated_at = CURRENT_TIMESTAMP")
+        await db.execute(
+            f"UPDATE items SET {', '.join(sets)} WHERE id = ? AND user_id = ?;",
+            (*params, item_id, user_id),
+        )
+
+    if reindex:
+        await _refresh_fts_for_item(db, user_id, item_id)
+        await _reindex_item_vectors(db, env, user_id, item_id, scope=scope)
+
+    updated = await db.query_first(
+        "SELECT title, user_notes, read_state, is_pinned FROM items"
+        " WHERE id = ? AND user_id = ?;",
+        (item_id, user_id),
+    )
+    return {
+        "id": item_id,
+        "title": (updated or row)["title"],
+        "user_notes": (updated or row)["user_notes"],
+        "read_state": (updated or row)["read_state"],
+        "is_pinned": bool((updated or row)["is_pinned"]),
+    }
 
 
 async def save_note(

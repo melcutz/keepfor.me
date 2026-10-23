@@ -46,6 +46,7 @@ from keepfor.models.highlights import (
 from keepfor.models.items import (
     BULK_UPDATE_LIMIT,
     MAX_SAVE_URLS,
+    READ_STATES,
     add_tags_to_item,
     bulk_update_items,
     create_tag,
@@ -61,6 +62,7 @@ from keepfor.models.items import (
     toggle_pin_item,
     trash_item,
     trash_items,
+    update_item_fields,
 )
 from keepfor.models.tags import (
     SAMPLE_LIMIT,
@@ -145,6 +147,13 @@ MAX_BULK_TAGS = 20
 
 # Cap on the trashed items one list_trash call may return.
 MAX_TRASH_LIMIT = 100
+
+# The read state changes a bulk_update call may apply to the matched items.
+BULK_ACTIONS = {
+    "mark_read": "read",
+    "mark_unread": "unread",
+    "archive": "archived",
+}
 
 # Shared tag filter arguments. Child tags count: "work" matches "work/research".
 _TAG_FILTER_PROPS = {
@@ -341,6 +350,20 @@ def _tag_filters(arguments: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _read_state_arg(value: Any) -> str | None:
+    """Validates the read_state filter: unread, read or archived."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise _invalid("read_state must be a string")
+    clean = value.strip().lower()
+    if not clean:
+        return None
+    if clean not in READ_STATES:
+        raise _invalid("read_state must be one of: " + ", ".join(READ_STATES))
+    return clean
+
+
 def _bulk_update_filters(arguments: dict[str, Any]) -> dict[str, Any]:
     """Reads and validates the bulk_update filter arguments.
 
@@ -373,6 +396,7 @@ def _bulk_update_filters(arguments: dict[str, Any]) -> dict[str, Any]:
         "domain": _text(arguments.get("domain")),
         "pinned": pinned,
         "item_type": _text(arguments.get("type")),
+        "read_state": _read_state_arg(arguments.get("read_state")),
         **_tag_filters(arguments),
     }
     if not (
@@ -382,6 +406,7 @@ def _bulk_update_filters(arguments: dict[str, Any]) -> dict[str, Any]:
         or filters["domain"]
         or filters["pinned"] is not None
         or filters["item_type"]
+        or filters["read_state"]
         or filters["tags_all"]
         or filters["tags_any"]
         or filters["tags_none"]
@@ -389,8 +414,8 @@ def _bulk_update_filters(arguments: dict[str, Any]) -> dict[str, Any]:
     ):
         raise _invalid(
             "bulk_update requires a filter (status, since, until, domain, "
-            "pinned, type, tags_all, tags_any, tags_none or untagged): an "
-            "empty filter would match the whole library."
+            "pinned, type, read_state, tags_all, tags_any, tags_none or "
+            "untagged): an empty filter would match the whole library."
         )
     return filters
 
@@ -670,6 +695,11 @@ MCP_TOOLS = [
                     "description": "Filter by multiple tags (AND).",
                 },
                 **_TAG_FILTER_PROPS,
+                "read_state": {
+                    "type": "string",
+                    "enum": list(READ_STATES),
+                    "description": "Only items in this read state.",
+                },
                 "limit": {
                     "type": "integer",
                     "default": 10,
@@ -898,6 +928,11 @@ MCP_TOOLS = [
                     "description": "Filter by multiple tags (AND).",
                 },
                 **_TAG_FILTER_PROPS,
+                "read_state": {
+                    "type": "string",
+                    "enum": list(READ_STATES),
+                    "description": "Only items in this read state.",
+                },
                 "limit": {
                     "type": "integer",
                     "default": 20,
@@ -1252,15 +1287,16 @@ MCP_TOOLS = [
     {
         "name": "bulk_update",
         "description": "Updates many library items at once: sets the status, "
-        "pins or unpins, adds or removes tags, or moves the matched items to "
-        "the Trash. Filters: status group (saved/extracting/failed), saved date "
-        "range (since/until), domain, pinned, type (note/url) and tags. At "
-        "least one filter is required. Defaults to dry_run=true, which "
-        "reports what would change without touching anything; pass "
-        "dry_run=false to apply. At most 200 items are updated per call; the "
-        "result reports total_matched, affected, truncated and the item_ids, "
-        "so a bulk trash can be undone with restore_item. Use list_items "
-        "to see what a filter matches before applying.",
+        "the read state, pins or unpins, adds or removes tags, or moves the "
+        "matched items to the Trash. Filters: status group (saved/extracting/"
+        "failed), saved date range (since/until), domain, pinned, type "
+        "(note/url), read state and tags. At least one filter is required. "
+        "Defaults to dry_run=true, which reports what would change without "
+        "touching anything; pass dry_run=false to apply. At most 200 items "
+        "are updated per call; the result reports total_matched, affected, "
+        "truncated and the item_ids, so a bulk trash can be undone with "
+        "restore_item. Use list_items to see what a filter matches before "
+        "applying.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1292,12 +1328,24 @@ MCP_TOOLS = [
                     "description": "Only notes or only saved urls.",
                 },
                 **_TAG_FILTER_PROPS,
+                "read_state": {
+                    "type": "string",
+                    "enum": list(READ_STATES),
+                    "description": "Only items in this read state.",
+                },
                 "set_status": {
                     "type": "string",
                     "enum": ["saved", "extracting", "failed"],
                     "description": "Set the status of the matched items: "
                     "'saved' (extracted), 'extracting' (queued again - it does "
                     "not re-run extraction) or 'failed'.",
+                },
+                "action": {
+                    "type": "string",
+                    "enum": list(BULK_ACTIONS),
+                    "description": "Change the read state of the matched "
+                    "items: 'mark_read', 'mark_unread' or 'archive'. An "
+                    "archived item stays archived.",
                 },
                 "pin": {
                     "type": "boolean",
@@ -1847,6 +1895,49 @@ MCP_TOOLS = [
         "annotations": _WRITE,
     },
     {
+        "name": "update_item",
+        "description": "Edits a saved item in place: fix its title, write notes, "
+        "mark it read or archived, pin or unpin it. Only the fields you pass "
+        "are changed. A title or a notes change re-indexes the item, so it "
+        "shows up in search_library. Use tag_item to change the tags of an "
+        "item and bulk_update to change the read state of many items.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_id": {
+                    "type": "string",
+                    "description": "The library item ID to update.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "The new title (replaces the old one).",
+                },
+                "user_notes": {
+                    "type": "string",
+                    "description": "The notes of the item.",
+                },
+                "notes_mode": {
+                    "type": "string",
+                    "enum": ["replace", "append"],
+                    "default": "replace",
+                    "description": "Whether user_notes replaces the old notes "
+                    "or is appended to them.",
+                },
+                "read_state": {
+                    "type": "string",
+                    "enum": list(READ_STATES),
+                    "description": "The new read state of the item.",
+                },
+                "is_pinned": {
+                    "type": "boolean",
+                    "description": "Pin (true) or unpin (false) the item.",
+                },
+            },
+            "required": ["item_id"],
+        },
+        "annotations": _WRITE,
+    },
+    {
         "name": "library_digest",
         "description": "Summarizes the library for a period: how many items "
         "were saved and opened, how many are still unread, the most used "
@@ -2053,6 +2144,7 @@ async def handle_tool_call(
             limit=limit,
             offset=offset,
             scope=scope,
+            read_state=_read_state_arg(arguments.get("read_state")),
             **_tag_filters(arguments),
         )
         return {
@@ -2156,6 +2248,7 @@ async def handle_tool_call(
             item_type=arguments.get("type"),
             limit=limit + 1,
             offset=offset,
+            read_state=_read_state_arg(arguments.get("read_state")),
             **_tag_filters(arguments),
         )
         has_more = len(items) > limit
@@ -2386,6 +2479,13 @@ async def handle_tool_call(
         trash = arguments.get("trash", False)
         if not isinstance(trash, bool):
             raise _invalid("bulk_update trash must be a boolean")
+        action = arguments.get("action")
+        if action is not None:
+            action = str(action).strip().lower()
+            if action not in BULK_ACTIONS:
+                raise _invalid(
+                    "bulk_update action must be one of: " + ", ".join(BULK_ACTIONS)
+                )
         add_tags = _as_list(arguments.get("add_tags"))
         remove_tags = _as_list(arguments.get("remove_tags"))
         if len(add_tags) > MAX_BULK_TAGS or len(remove_tags) > MAX_BULK_TAGS:
@@ -2402,16 +2502,21 @@ async def handle_tool_call(
         if (
             set_status is None
             and pin is None
+            and action is None
             and not add_tags
             and not remove_tags
             and not trash
         ):
             raise _invalid(
-                "bulk_update requires a change: set_status, pin, add_tags, "
-                "remove_tags or trash."
+                "bulk_update requires a change: set_status, action, pin, "
+                "add_tags, remove_tags or trash."
             )
         if trash and (
-            set_status is not None or pin is not None or add_tags or remove_tags
+            set_status is not None
+            or pin is not None
+            or action is not None
+            or add_tags
+            or remove_tags
         ):
             raise _invalid(
                 "bulk_update trash cannot be combined with another change: it "
@@ -2443,6 +2548,7 @@ async def handle_tool_call(
                     pin=pin,
                     add_tags=add_tags,
                     remove_tags=remove_tags,
+                    read_state=BULK_ACTIONS[action] if action else None,
                 )
         return result
 
@@ -2877,6 +2983,49 @@ async def handle_tool_call(
         if bool(target_item.get("is_pinned", 0)) != want:
             await toggle_pin_item(db, user_id, item_id)
         return {"id": item_id, "is_pinned": want}
+
+    elif tool_name == "update_item":
+        item_id = arguments.get("item_id")
+        if not item_id or not isinstance(item_id, str):
+            raise _invalid("item_id is required")
+        title = arguments.get("title")
+        if title is not None and not isinstance(title, str):
+            raise _invalid("title must be a string")
+        user_notes = arguments.get("user_notes")
+        if user_notes is not None and not isinstance(user_notes, str):
+            raise _invalid("user_notes must be a string")
+        pinned_val = arguments.get("is_pinned")
+        if pinned_val is not None and not isinstance(pinned_val, bool):
+            raise _invalid("is_pinned must be a boolean")
+        read_state = arguments.get("read_state")
+        if (
+            title is None
+            and user_notes is None
+            and read_state is None
+            and pinned_val is None
+        ):
+            raise _invalid(
+                "update_item requires a change: title, user_notes, read_state "
+                "or is_pinned."
+            )
+        try:
+            item_data = await update_item_fields(
+                db,
+                env,
+                user_id,
+                item_id,
+                title=title,
+                user_notes=user_notes,
+                notes_mode=arguments.get("notes_mode") or "replace",
+                read_state=read_state,
+                is_pinned=pinned_val,
+                scope=scope,
+            )
+        except ValueError as exc:
+            raise _invalid(str(exc)) from exc
+        if not item_data:
+            raise _not_found("Item not found.")
+        return item_data
 
     elif tool_name == "library_digest":
         since = _digest_date(arguments.get("since"), "since")

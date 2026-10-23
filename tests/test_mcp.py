@@ -296,11 +296,12 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 45
+    assert len(names) == 46
     assert "save_url" in names
     assert "save_urls" in names
     assert "save_note" in names
     assert "pin_item" in names
+    assert "update_item" in names
     # New v2 tools
     assert "search_passages" in names
     assert "read_item" in names
@@ -453,6 +454,7 @@ TOOL_ARGUMENTS = {
     "list_trash": {},
     "restore_item": {"item_ids": ["ITEM"]},
     "pin_item": {"item_id": "ITEM"},
+    "update_item": {"item_id": "ITEM", "title": "Probe Title"},
     "library_digest": {},
     "get_account": {},
     "create_highlight": {"item_id": "ITEM", "text": "quoted", "end_offset": 6},
