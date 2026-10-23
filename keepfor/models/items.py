@@ -513,7 +513,7 @@ async def trash_items(db: Database, user_id: str, item_ids: Sequence[str]) -> li
     placeholders = ",".join("?" for _ in ids)
     rows = await db.query_all(
         "SELECT id FROM items"
-        f" WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});",
+        f" WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
         (user_id, *ids),
     )
     live = [r["id"] for r in rows]
@@ -522,7 +522,7 @@ async def trash_items(db: Database, user_id: str, item_ids: Sequence[str]) -> li
         await db.execute(
             "UPDATE items SET deleted_at = CURRENT_TIMESTAMP,"
             " updated_at = CURRENT_TIMESTAMP"
-            f" WHERE user_id = ? AND id IN ({live_placeholders});",
+            f" WHERE user_id = ? AND id IN ({live_placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
             (user_id, *live),
         )
     return live
@@ -552,7 +552,7 @@ async def restore_items(
     placeholders = ",".join("?" for _ in ids)
     rows = await db.query_all(
         "SELECT id, deleted_at FROM items"
-        f" WHERE user_id = ? AND id IN ({placeholders});",
+        f" WHERE user_id = ? AND id IN ({placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
         (user_id, *ids),
     )
     trashed = {r["id"] for r in rows if r["deleted_at"]}
@@ -562,7 +562,7 @@ async def restore_items(
         restore_placeholders = ",".join("?" for _ in restored)
         await db.execute(
             "UPDATE items SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP"
-            f" WHERE user_id = ? AND id IN ({restore_placeholders});",
+            f" WHERE user_id = ? AND id IN ({restore_placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
             (user_id, *restored),
         )
     return {
