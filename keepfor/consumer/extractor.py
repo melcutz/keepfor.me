@@ -7,7 +7,30 @@ import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from keepfor.models.cleanup import (
+    BLOCKED_FETCH_COPY,
+    BLOCKED_HTTP_STATUSES,
+    DEAD_HTTP_STATUSES,
+    classify_failure,
+)
 from keepfor.utils.dates import normalize_published_date
+
+__all__ = [
+    "BLOCKED_FETCH_COPY",
+    "BLOCKED_HTTP_STATUSES",
+    "DEAD_HTTP_STATUSES",
+    "article_from_reader_markdown",
+    "classify_failure",
+    "detect_blocked_page",
+    "detect_html_language",
+    "detect_redirect_url",
+    "extract_article",
+    "extract_github_article",
+    "extract_image_url",
+    "extract_wikipedia_article",
+    "extract_youtube_article",
+    "sanitize_clean_html",
+]
 
 # NOTE: trafilatura and bs4 are imported lazily (see _load_parsers) rather
 # than at module scope. This module is reachable from the Worker entrypoint
@@ -258,8 +281,9 @@ def detect_html_language(html: str) -> str | None:
 # they are detected here and reported to the caller instead.
 _BLOCK_TITLE_RE = re.compile(
     r"^(?:redirecting|sign\s?in|log\s?in|log\s?out|login|logout|sso|"
-    r"authentication\s+required|access\s+denied|forbidden|page\s+not\s+found|"
-    r"404|403|429|not\s+found|error|too\s+many\s+requests|"
+    r"authentication\s+required|unauthorized|access\s+denied|forbidden|"
+    r"page\s+not\s+found|401|404|403|410|429|not\s+found|error|"
+    r"too\s+many\s+requests|"
     r"we\s+are\s+sorry|sorry|verifying|"
     r"just\s+a\s+moment|attention\s+required|checking\s+your\s+browser|"
     r"one\s+moment|security\s+check|ddos|bot\s+detection|"
@@ -280,6 +304,7 @@ _BLOCK_BODY_MARKERS = (
     "access denied",
     "page not found",
     "404 not found",
+    "410 gone",
     "we are sorry",
     "this content isn't available",
     "verify you are human",

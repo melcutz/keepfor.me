@@ -4,16 +4,17 @@
 """Library cleanup suggestions (read-only).
 
 Finds what a user could clean up: duplicate items (same normalized url),
-dead links (a recorded origin HTTP error), failed extractions (every other
-recorded failure), never-opened old items, untagged items and near-duplicate
-tags. Every query is a SELECT scoped to the owning user_id; nothing here
-writes. Trashed items are invisible: the report only suggests cleaning up
-what is still in the library.
+dead links (404, 410, or DNS/connection failures), failed extractions (every
+other recorded failure, including blocked fetches), never-opened old items,
+untagged items and near-duplicate tags. Every query is a SELECT scoped to the
+owning user_id; nothing here writes. Trashed items are invisible: the report
+only suggests cleaning up what is still in the library.
 """
 
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from keepfor.models.db import Database
@@ -37,6 +38,146 @@ DEFAULT_OLDER_THAN_DAYS = 90
 _MAX_REASON_CHARS = 200
 # Max ids listed for one duplicate group; the rest are only counted.
 _MAX_GROUP_IDS = 10
+
+BLOCKED_HTTP_STATUSES = frozenset({401, 403, 429})
+DEAD_HTTP_STATUSES = frozenset({404, 410})
+BLOCKED_FETCH_COPY = "The site blocked our fetch. Open the original or retry."
+
+_URL_RE = re.compile(r"https?://[^\s)]+", re.IGNORECASE)
+_HTTP_STATUS_RE = re.compile(
+    r"\b(?:http\s*(?:status|error|code)?\s*[:=]?\s*|status\s*[:=]?\s*)"
+    r"([1-5]\d{2})\b"
+    r"|^\s*([1-5]\d{2})\b"
+    r"|\b(401|403|404|410|429)\b",
+    re.IGNORECASE,
+)
+
+_DEAD_CONTENT_MARKERS = (
+    "dead link",
+    "page not found",
+    "404 not found",
+    "error 404",
+    "410 gone",
+    "this page doesn't exist",
+    "this page does not exist",
+    "page has been removed",
+    "page has been moved",
+    "this content is no longer available",
+    "the page you are looking for",
+)
+
+_DEAD_NETWORK_MARKERS = (
+    "dns",
+    "name or service not known",
+    "nodename nor servname",
+    "getaddrinfo",
+    "nxdomain",
+    "no address associated",
+    "temporary failure in name resolution",
+    "name resolution",
+    "failed to resolve",
+    "cannot resolve",
+    "could not resolve",
+    "unknown host",
+    "no such host",
+    "enotfound",
+    "eai_again",
+    "eai_noname",
+    "connection refused",
+    "connection reset",
+    "connection error",
+    "connection aborted",
+    "connection closed",
+    "connection failed",
+    "connection failure",
+    "connectionerror",
+    "connectionrefused",
+    "connectionreset",
+    "connectionaborted",
+    "connect error",
+    "failed to connect",
+    "unable to connect",
+    "cannot connect",
+    "network is unreachable",
+    "no route to host",
+    "host is unreachable",
+    "unreachable",
+    "econnrefused",
+    "econnreset",
+    "ehostunreach",
+    "enetunreach",
+)
+
+_BLOCKED_MARKERS = (
+    "the site blocked our fetch",
+    "blocked",
+    "forbidden",
+    "unauthorized",
+    "too many requests",
+    "rate limit",
+    "rate-limit",
+    "access denied",
+    "login wall",
+    "bot detection",
+    "checking your browser",
+    "verify you are human",
+    "authentication required",
+    "sign in to continue",
+    "sign in to view",
+    "log in to continue",
+    "you do not have permission",
+    "unusual traffic",
+    "security check",
+    "just a moment",
+    "attention required",
+    "ddos",
+)
+
+
+def classify_failure(reason_or_status: str | int | None) -> str:
+    """Classify a failure reason or HTTP status into 'blocked', 'dead',
+    or 'failed_extraction'.
+
+    - HTTP 401, 403, 429 and auth/bot walls -> 'blocked'
+    - HTTP 404, 410 and DNS/connection failures -> 'dead'
+    - Everything else (5xx, timeouts, parse errors, unknown) -> 'failed_extraction'
+    """
+    if isinstance(reason_or_status, int) and not isinstance(reason_or_status, bool):
+        if reason_or_status in BLOCKED_HTTP_STATUSES:
+            return "blocked"
+        if reason_or_status in DEAD_HTTP_STATUSES:
+            return "dead"
+        return "failed_extraction"
+
+    if not isinstance(reason_or_status, str):
+        return "failed_extraction"
+
+    raw = reason_or_status.strip()
+    if not raw:
+        return "failed_extraction"
+
+    low = _URL_RE.sub("", raw).lower()
+
+    match = _HTTP_STATUS_RE.search(low)
+    if match:
+        code = int(match.group(1) or match.group(2) or match.group(3))
+        if code in BLOCKED_HTTP_STATUSES:
+            return "blocked"
+        if code in DEAD_HTTP_STATUSES:
+            return "dead"
+        return "failed_extraction"
+
+    if any(marker in low for marker in _DEAD_CONTENT_MARKERS):
+        return "dead"
+
+    if "timed out" not in low and "timeout" not in low:
+        if any(marker in low for marker in _DEAD_NETWORK_MARKERS):
+            return "dead"
+
+    if any(marker in low for marker in _BLOCKED_MARKERS):
+        return "blocked"
+
+    return "failed_extraction"
 
 
 def _reason(text: str | None, fallback: str) -> str:
@@ -83,39 +224,27 @@ async def _duplicates(
 async def _failed_items(
     db: Database, user_id: str, limit: int, older_than_days: int, *, dead: bool
 ) -> dict[str, Any]:
-    """Failed items split by cause: an origin HTTP error, or the rest.
+    """Failed items split by cause: dead links vs failed extractions (and blocked).
 
-    A recorded "HTTP 4xx/5xx returned by origin" error is the only recorded
-    evidence a link is dead; every other failure (login wall, timeout, parse
-    error, no reason) failed the extraction, not the link. No network
-    requests: the split reads only what is already recorded.
+    Only HTTP 404, 410 and DNS/connection failures count as dead links;
+    blocked fetches (401, 403, 429, login/bot walls) and every other failure
+    (5xx, timeout, parse error, no reason) are folded into failed_extraction
+    so dead_links + failed_extraction always equals the Library Failed count.
+    No network requests: the split reads only what is already recorded.
     """
-    dead_clause = (
-        " AND (LOWER(fail_reason) LIKE 'http 4%' OR LOWER(fail_reason) LIKE 'http 5%')"
-        if dead
-        # NOT LIKE is NULL on a NULL reason, so NULL counts as a failed
-        # extraction, not as a dead link (no recorded origin error).
-        else (
-            " AND (fail_reason IS NULL OR (LOWER(fail_reason) NOT LIKE 'http 4%'"
-            " AND LOWER(fail_reason) NOT LIKE 'http 5%'))"
-        )
-    )
-    total_row = await db.query_first(
-        "SELECT COUNT(*) as c FROM items"
-        " WHERE user_id = ? AND status = 'failed' AND deleted_at IS NULL"
-        f"{dead_clause};",
-        (user_id,),
-    )
-    total = total_row["c"] if total_row else 0
     rows = await db.query_all(
         "SELECT id, fail_reason FROM items"
         " WHERE user_id = ? AND status = 'failed' AND deleted_at IS NULL"
-        f"{dead_clause} ORDER BY created_at DESC LIMIT ?;",
-        (user_id, limit),
+        " ORDER BY created_at DESC;",
+        (user_id,),
     )
+    matched = [
+        row for row in rows if (classify_failure(row["fail_reason"]) == "dead") == dead
+    ]
+    total = len(matched)
     entries = [
         {"id": row["id"], "reason": _reason(row["fail_reason"], "extraction failed")}
-        for row in rows
+        for row in matched[:limit]
     ]
     return _report(entries, limit, total)
 
@@ -123,14 +252,14 @@ async def _failed_items(
 async def _dead_links(
     db: Database, user_id: str, limit: int, older_than_days: int
 ) -> dict[str, Any]:
-    """Items whose recorded failure is an origin HTTP error (dead links)."""
+    """Items whose recorded failure is 404, 410, or a DNS/connection failure."""
     return await _failed_items(db, user_id, limit, older_than_days, dead=True)
 
 
 async def _failed_extraction(
     db: Database, user_id: str, limit: int, older_than_days: int
 ) -> dict[str, Any]:
-    """Items whose recorded failure is anything but an origin HTTP error."""
+    """Items whose recorded failure is blocked or another extraction failure."""
     return await _failed_items(db, user_id, limit, older_than_days, dead=False)
 
 

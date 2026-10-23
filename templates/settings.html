@@ -273,8 +273,8 @@ opencode (opencode.json):
       <select name="pattern" required
               class="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-slate-900">
         <option value="all">All failed · {{ fc.all }}</option>
-        <option value="blocked">Blocked by site (403 / 401) · {{ fc.blocked }}</option>
-        <option value="notfound">Page not found (404) · {{ fc.notfound }}</option>
+        <option value="blocked">Blocked by site (401 / 403 / 429) · {{ fc.blocked }}</option>
+        <option value="notfound">Page not found (404 / 410) · {{ fc.notfound }}</option>
         <option value="client">Other client errors (4xx) · {{ fc.client }}</option>
         <option value="server">Server errors (5xx) · {{ fc.server }}</option>
         <option value="connection">Timeouts & connection errors · {{ fc.connection }}</option>

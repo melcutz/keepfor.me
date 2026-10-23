@@ -111,9 +111,14 @@
     <article class="reader-card bg-white border border-slate-200 rounded-2xl p-6 sm:p-12 shadow-sm">
 
       {% if item.status == 'failed' %}
+      {% set is_blocked_failure = (item.fail_reason | classify_failure) == 'blocked' %}
       <div class="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
         <span class="font-semibold">Extraction failed:</span>
+        {% if is_blocked_failure and BLOCKED_FETCH_COPY not in (item.fail_reason or '') %}
+        {{ BLOCKED_FETCH_COPY }} ({{ item.fail_reason or 'blocked' }})
+        {% else %}
         {{ item.fail_reason or 'unknown error' }}
+        {% endif %}
         <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer" class="underline font-medium">Try the original link</a>.
       </div>
       {% endif %}

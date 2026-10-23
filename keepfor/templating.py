@@ -10,6 +10,7 @@ from typing import Any
 
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader
 
+from keepfor.models.cleanup import BLOCKED_FETCH_COPY, classify_failure
 from keepfor.paths import templates_dir
 from keepfor.utils.dates import normalize_published_date
 from keepfor.utils.favicon import favicon_url
@@ -19,8 +20,10 @@ jinja_env = Environment(loader=ChoiceLoader([_core_loader]), autoescape=True)
 # Templates show the published date through the same normaliser the
 # extractors use, so a raw timestamp never reaches the page.
 jinja_env.filters["published_date"] = normalize_published_date
+jinja_env.filters["classify_failure"] = classify_failure
 # Cards ask us for the favicon of a saved link: same-origin, never a 404.
 jinja_env.globals["favicon_url"] = favicon_url
+jinja_env.globals["BLOCKED_FETCH_COPY"] = BLOCKED_FETCH_COPY
 
 
 def configure_templates(
