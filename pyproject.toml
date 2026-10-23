@@ -37,15 +37,3 @@ packages = ["keepfor"]
 "templates" = "keepfor/templates"
 "static" = "keepfor/static"
 "migrations" = "keepfor/migrations"
-
-[tool.mypy]
-ignore_missing_imports = true
-
-[tool.ruff]
-line-length = 88
-
-[tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
-ignore = ["E501", "N802", "N818"]
-
-
