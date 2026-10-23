@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `add_to_collection` and `remove_from_collection` reject a smart collection with a clear error.
   - Tenant-scoped: a smart collection never resolves another user's items, and a foreign smart collection is not found.
   - Migration `0016_smart_collections.sql` (additive): nullable `query` and `tag` columns on `collections`. Apply it before deploying: `npx wrangler d1 migrations apply keepfor-me-db --remote`.
+
 - **MCP `list_trash` and `restore_item` tools** (GitHub issue #90): an agent can now list the Trash and undo its own deletes over MCP without the user opening the web Trash view.
   - `list_trash(limit=20, offset=0, query?)` (read-only) returns trashed items with `id`, `title`, `url`, `deleted_at` and `purge_at` (the 30-day automatic purge date), with optional substring filtering on title or URL.
   - `restore_item(item_ids[] ≤50)` (write-scoped) restores trashed items back into the library and categorises every requested ID into `restored`, `already_active` or `not_found` (unknown, purged, or belonging to another tenant).
