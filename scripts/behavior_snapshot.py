@@ -26,6 +26,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+SNAPSHOT_PAT = os.environ.get("KEEPFOR_SNAPSHOT_PAT", "kfm_live_PLACEHOLDER")
+
 
 def init_db(db_path: Path, migrations_dir: Path):
     """Apply schema migrations and seed initial test tenant data."""
@@ -67,7 +69,7 @@ def init_db(db_path: Path, migrations_dir: Path):
     )
 
     # Valid PAT
-    raw_pat = "kfm_live_snapshot_pat_12345"
+    raw_pat = SNAPSHOT_PAT
     token_hash = hashlib.sha256(raw_pat.encode()).hexdigest()
     conn.execute(
         "INSERT INTO personal_access_tokens "
@@ -194,7 +196,7 @@ except ImportError:
 client = TestClient(app)
 
 session_cookie = {"kfm_session": "sess_snapshot_12345"}
-pat_header = {"Authorization": "Bearer kfm_live_snapshot_pat_12345"}
+pat_header = {"Authorization": f"Bearer {SNAPSHOT_PAT}"}
 
 # Fixed list of 15 requests
 requests_spec = [
