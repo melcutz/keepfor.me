@@ -49,13 +49,16 @@ from keepfor.models.items import (
     bulk_update_items,
     create_tag,
     get_item,
+    list_trash,
     merge_tags,
     remove_tags_from_item,
     rename_tag,
+    restore_items,
     save_item,
     save_note,
     toggle_pin_item,
     trash_item,
+    trash_items,
 )
 from keepfor.models.tags import (
     SAMPLE_LIMIT,
@@ -130,6 +133,9 @@ MAX_MERGE_SOURCES = 20
 
 # Cap on the tags one bulk_update call may add or remove.
 MAX_BULK_TAGS = 20
+
+# Cap on the trashed items one list_trash call may return.
+MAX_TRASH_LIMIT = 100
 
 # Shared tag filter arguments. Child tags count: "work" matches "work/research".
 _TAG_FILTER_PROPS = {
@@ -1182,13 +1188,14 @@ MCP_TOOLS = [
     {
         "name": "bulk_update",
         "description": "Updates many library items at once: sets the status, "
-        "pins or unpins, and adds or removes tags on every item matching a "
-        "filter. Filters: status group (saved/extracting/failed), saved date "
+        "pins or unpins, adds or removes tags, or moves the matched items to "
+        "the Trash. Filters: status group (saved/extracting/failed), saved date "
         "range (since/until), domain, pinned, type (note/url) and tags. At "
         "least one filter is required. Defaults to dry_run=true, which "
         "reports what would change without touching anything; pass "
         "dry_run=false to apply. At most 200 items are updated per call; the "
-        "result reports total_matched, affected and truncated. Use list_items "
+        "result reports total_matched, affected, truncated and the item_ids, "
+        "so a bulk trash can be undone with restore_item. Use list_items "
         "to see what a filter matches before applying.",
         "inputSchema": {
             "type": "object",
@@ -1241,6 +1248,13 @@ MCP_TOOLS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Tags to remove (at most 20).",
+                },
+                "trash": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Move the matched items to the Trash "
+                    "instead of changing them. They stay restorable for 30 "
+                    "days; the result carries their ids.",
                 },
                 "dry_run": {
                     "type": "boolean",
@@ -1694,7 +1708,8 @@ MCP_TOOLS = [
         "name": "delete_item",
         "description": "Moves an item to the Trash. The item leaves the library "
         "but is not destroyed: it stays restorable for 30 days, and only the "
-        "user can delete it for good from the Trash view.",
+        "user can delete it for good from the Trash view. The result carries "
+        "the trashed item ids, so they can be passed straight to restore_item.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1706,6 +1721,53 @@ MCP_TOOLS = [
             "required": ["item_id"],
         },
         "annotations": _DESTRUCTIVE,
+    },
+    {
+        "name": "list_trash",
+        "description": "Lists the items in the Trash: the items that were "
+        "deleted but are still restorable for 30 days. Read-only: it changes "
+        "nothing. The result carries the item ids and the date every item is "
+        "purged on, so they can be passed straight to restore_item.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "default": 20,
+                    "description": "Max items to return.",
+                },
+                "offset": {
+                    "type": "integer",
+                    "default": 0,
+                    "description": "Pagination offset.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Only the items whose title or url holds it.",
+                },
+            },
+        },
+        "annotations": _READ_ONLY,
+    },
+    {
+        "name": "restore_item",
+        "description": "Restores items from the Trash back into the library. "
+        "Takes the item ids of delete_item or list_trash (at most 50 per "
+        "call). Every id is reported: restored (it was in the Trash and is "
+        "back), already_active (it was never trashed) or not_found (it does "
+        "not exist: it belongs to somebody else or it was purged for good).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "item_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "The trashed item ids to restore (at most 50).",
+                },
+            },
+            "required": ["item_ids"],
+        },
+        "annotations": _WRITE,
     },
     {
         "name": "pin_item",
@@ -2196,6 +2258,9 @@ async def handle_tool_call(
         pin = arguments.get("pin")
         if pin is not None and not isinstance(pin, bool):
             raise _invalid("bulk_update pin must be a boolean")
+        trash = arguments.get("trash", False)
+        if not isinstance(trash, bool):
+            raise _invalid("bulk_update trash must be a boolean")
         add_tags = _as_list(arguments.get("add_tags"))
         remove_tags = _as_list(arguments.get("remove_tags"))
         if len(add_tags) > MAX_BULK_TAGS or len(remove_tags) > MAX_BULK_TAGS:
@@ -2209,10 +2274,23 @@ async def handle_tool_call(
                     f"bulk_update {label} has an invalid tag name: {invalid[0]!r}. "
                     "A tag is 2-64 characters of a-z, 0-9, space, _ or -."
                 )
-        if set_status is None and pin is None and not add_tags and not remove_tags:
+        if (
+            set_status is None
+            and pin is None
+            and not add_tags
+            and not remove_tags
+            and not trash
+        ):
             raise _invalid(
-                "bulk_update requires a change: set_status, pin, add_tags or "
-                "remove_tags."
+                "bulk_update requires a change: set_status, pin, add_tags, "
+                "remove_tags or trash."
+            )
+        if trash and (
+            set_status is not None or pin is not None or add_tags or remove_tags
+        ):
+            raise _invalid(
+                "bulk_update trash cannot be combined with another change: it "
+                "moves the matched items to the Trash instead."
             )
 
         dry_run = _dry_run_flag(arguments)
@@ -2225,18 +2303,22 @@ async def handle_tool_call(
             "affected": affected,
             "truncated": total_matched > affected,
             "sample": item_ids[:SAMPLE_LIMIT],
+            "item_ids": item_ids,
             "dry_run": dry_run,
         }
         if not dry_run and item_ids:
-            await bulk_update_items(
-                db,
-                user_id,
-                item_ids,
-                set_status=STATUS_GROUPS[set_status][0] if set_status else None,
-                pin=pin,
-                add_tags=add_tags,
-                remove_tags=remove_tags,
-            )
+            if trash:
+                await trash_items(db, user_id, item_ids)
+            else:
+                await bulk_update_items(
+                    db,
+                    user_id,
+                    item_ids,
+                    set_status=STATUS_GROUPS[set_status][0] if set_status else None,
+                    pin=pin,
+                    add_tags=add_tags,
+                    remove_tags=remove_tags,
+                )
         return result
 
     elif tool_name == "set_item_tags":
@@ -2571,12 +2653,52 @@ async def handle_tool_call(
         success = await trash_item(db, user_id, item_id)
         return {
             "id": item_id,
+            "item_ids": [item_id] if success else [],
             "trashed": success,
             "message": (
                 "Moved to Trash. The user can restore it for 30 days."
                 if success
                 else "Item not found."
             ),
+        }
+
+    elif tool_name == "list_trash":
+        limit = _int_arg(arguments.get("limit"), 20, maximum=MAX_TRASH_LIMIT)
+        offset = _int_arg(arguments.get("offset"), 0)
+        query = arguments.get("query")
+        if query is not None and not isinstance(query, str):
+            raise _invalid("list_trash query must be a string")
+        rows = await list_trash(db, user_id, limit=limit, offset=offset, query=query)
+        return {
+            "items": [
+                {
+                    "id": row["id"],
+                    "title": row.get("title") or row["url"],
+                    "url": row["url"],
+                    "deleted_at": row["deleted_at"],
+                    "purge_at": row.get("purge_at"),
+                }
+                for row in rows
+            ],
+            "count": len(rows),
+            "limit": limit,
+            "offset": offset,
+        }
+
+    elif tool_name == "restore_item":
+        item_ids = [i for i in _as_list(arguments.get("item_ids")) if i]
+        if not item_ids:
+            raise _invalid("restore_item requires item_ids")
+        result = await restore_items(db, user_id, item_ids)
+        reported = (
+            len(result["restored"])
+            + len(result["already_active"])
+            + len(result["not_found"])
+        )
+        return {
+            **result,
+            "restored_count": len(result["restored"]),
+            "truncated": reported < len(set(item_ids)),
         }
 
     elif tool_name == "save_note":

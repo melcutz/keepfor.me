@@ -472,6 +472,12 @@ async def delete_item(
 # Trash (soft delete)
 # ==========================================
 
+# How long a trashed item stays restorable before the purge takes it.
+TRASH_RETENTION_DAYS = 30
+
+# Cap on the items one restore call may touch.
+RESTORE_LIMIT = 50
+
 
 async def trash_item(db: Database, user_id: str, item_id: str) -> bool:
     """Moves an item to the Trash: it leaves the library but stays restorable.
@@ -495,32 +501,102 @@ async def trash_item(db: Database, user_id: str, item_id: str) -> bool:
     return True
 
 
+async def trash_items(db: Database, user_id: str, item_ids: Sequence[str]) -> list[str]:
+    """Moves items to the Trash and returns the ids that were trashed.
+
+    Nothing is destroyed: the rows, the snapshots and the vectors stay, so a
+    restore is instant. Only the items that are still live are trashed.
+    """
+    ids = list(dict.fromkeys(i for i in (item_ids or []) if i))
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    rows = await db.query_all(
+        "SELECT id FROM items"
+        f" WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
+        (user_id, *ids),
+    )
+    live = [r["id"] for r in rows]
+    if live:
+        live_placeholders = ",".join("?" for _ in live)
+        await db.execute(
+            "UPDATE items SET deleted_at = CURRENT_TIMESTAMP,"
+            " updated_at = CURRENT_TIMESTAMP"
+            f" WHERE user_id = ? AND id IN ({live_placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
+            (user_id, *live),
+        )
+    return live
+
+
 async def restore_item(db: Database, user_id: str, item_id: str) -> bool:
     """Brings a trashed item back into the library."""
-    row = await db.query_first(
-        "SELECT id, deleted_at FROM items WHERE id = ? AND user_id = ?;",
-        (item_id, user_id),
+    result = await restore_items(db, user_id, [item_id])
+    return bool(result["restored"])
+
+
+async def restore_items(
+    db: Database, user_id: str, item_ids: Sequence[str]
+) -> dict[str, list[str]]:
+    """Restores trashed items and reports what happened to every id.
+
+    The three buckets: "restored" (the item was in the Trash and is back in
+    the library), "already_active" (the item was never trashed: there was
+    nothing to restore) and "not_found" (the id is unknown to this user: it
+    never existed, it belongs to somebody else, or it was purged for good).
+
+    At most RESTORE_LIMIT ids are processed per call.
+    """
+    ids = list(dict.fromkeys(i for i in (item_ids or []) if i))[:RESTORE_LIMIT]
+    if not ids:
+        return {"restored": [], "already_active": [], "not_found": []}
+    placeholders = ",".join("?" for _ in ids)
+    rows = await db.query_all(
+        "SELECT id, deleted_at FROM items"
+        f" WHERE user_id = ? AND id IN ({placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
+        (user_id, *ids),
     )
-    if not row or not row["deleted_at"]:
-        return False
-    await db.execute(
-        "UPDATE items SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP"
-        " WHERE id = ? AND user_id = ?;",
-        (item_id, user_id),
-    )
-    return True
+    trashed = {r["id"] for r in rows if r["deleted_at"]}
+    live = {r["id"] for r in rows if not r["deleted_at"]}
+    restored = [i for i in ids if i in trashed]
+    if restored:
+        restore_placeholders = ",".join("?" for _ in restored)
+        await db.execute(
+            "UPDATE items SET deleted_at = NULL, updated_at = CURRENT_TIMESTAMP"
+            f" WHERE user_id = ? AND id IN ({restore_placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
+            (user_id, *restored),
+        )
+    return {
+        "restored": restored,
+        "already_active": [i for i in ids if i in live],
+        "not_found": [i for i in ids if i not in trashed and i not in live],
+    }
 
 
 async def list_trash(
-    db: Database, user_id: str, limit: int = 50, offset: int = 0
+    db: Database,
+    user_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    query: str | None = None,
 ) -> list[dict[str, Any]]:
-    """The user's trashed items, most recently trashed first."""
-    rows = await db.query_all(
-        "SELECT id, url, canonical_url, title, item_type, created_at, deleted_at"
+    """The user's trashed items, most recently trashed first.
+
+    `query` keeps only the items whose title or url holds it. Every row
+    carries the `purge_at` date: the day the 30-day purge takes it.
+    """
+    sql = (
+        "SELECT id, url, canonical_url, title, item_type, created_at, deleted_at,"
+        " datetime(deleted_at, ?) AS purge_at"
         " FROM items WHERE user_id = ? AND deleted_at IS NOT NULL"
-        " ORDER BY deleted_at DESC LIMIT ? OFFSET ?;",
-        (user_id, limit, offset),
     )
+    params: list[Any] = [f"+{TRASH_RETENTION_DAYS} days", user_id]
+    clean_query = (query or "").strip()
+    if clean_query:
+        sql += " AND (title LIKE ? OR url LIKE ?)"
+        params += [f"%{clean_query}%", f"%{clean_query}%"]
+    sql += " ORDER BY deleted_at DESC LIMIT ? OFFSET ?;"
+    params += [limit, offset]
+    rows = await db.query_all(sql, params)
     return [dict(r) for r in rows]
 
 
@@ -532,7 +608,7 @@ PURGE_LIMIT = 1000
 async def list_purgeable_items(
     db: Database,
     user_id: str,
-    older_than_days: int = 30,
+    older_than_days: int = TRASH_RETENTION_DAYS,
     limit: int = PURGE_LIMIT,
 ) -> list[str]:
     """The ids of the trashed items older than the window, oldest first.
@@ -554,7 +630,7 @@ async def purge_trash(
     env: Any,
     user_id: str | None = None,
     *,
-    older_than_days: int = 30,
+    older_than_days: int = TRASH_RETENTION_DAYS,
     scope: TenantScope | None = None,
     limit: int = PURGE_LIMIT,
 ) -> int:
