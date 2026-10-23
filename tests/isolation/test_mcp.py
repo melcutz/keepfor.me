@@ -452,6 +452,48 @@ async def test_mcp_save_url_isolation(harness: IsolationHarness):
 
 
 @pytest.mark.asyncio
+async def test_mcp_save_urls_isolation(harness: IsolationHarness):
+    """MCP save_urls as Tenant B never touches Tenant A's library.
+
+    The URL of one of A's items is saved by B: it must become a new item
+    of B (the dedupe is per user), and A's item must stay untouched.
+    """
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    row = await a.db.query_first(
+        "SELECT url FROM items WHERE id = ? AND user_id = ?;",
+        (a.html_item_id, a.user["id"]),
+    )
+    a_url = row["url"]
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    resp = harness.client.post(
+        "/api/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 206,
+            "method": "tools/call",
+            "params": {
+                "name": "save_urls",
+                "arguments": {"urls": [a_url, "https://example.com/saved-by-b"]},
+            },
+        },
+        headers=b.auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "error" not in data, data
+    payload = json.loads(data["result"]["content"][0]["text"])
+    assert [r["status"] for r in payload["results"]] == ["queued", "queued"]
+    # A's item is not handed out to B: the dedupe is per user.
+    assert a.html_item_id not in data["result"]["content"][0]["text"]
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before
+
+
+@pytest.mark.asyncio
 async def test_mcp_search_library_isolation(harness: IsolationHarness):
     """MCP search_library as Tenant B never returns Tenant A's items."""
     a = harness.tenant_a

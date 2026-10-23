@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `list_trash(limit=20, offset=0, query?)` (read-only) returns trashed items with `id`, `title`, `url`, `deleted_at` and `purge_at` (the 30-day automatic purge date), with optional substring filtering on title or URL.
   - `restore_item(item_ids[] ≤50)` (write-scoped) restores trashed items back into the library and categorises every requested ID into `restored`, `already_active` or `not_found` (unknown, purged, or belonging to another tenant).
   - `delete_item` and `bulk_update` (including `bulk_update(trash=true)`) now return `item_ids` so trashed IDs can be passed straight to `restore_item`.
+
+- **MCP `save_urls`: save many URLs in one call** (GitHub issue #92): the new tool takes up to 50 URLs (plus optional `tags`, `why_saved` and `saved_by`), needs the write scope and returns one result per URL — `id`, `url`, `status` (`queued`, `exists`, `invalid` or `over_limit`) and `is_new` — plus the totals. The URLs are deduped by canonical URL, inside the request and against the library, and every new URL goes through the same save entitlement check as `save_url`: the URLs the save limit refuses come back as `over_limit` instead of failing the call, and the whole call costs one `mcp_call`. The extraction is queued, so the call does not wait for the pages, and the URLs of one call go into a single queue batch.
 - Reader highlighting UI (GitHub issue #45):
   - `POST /items/{id}/highlights` — create a highlight with quoted text, optional note, and character offsets
   - `POST /items/{id}/highlights/{hid}/delete` — delete a highlight

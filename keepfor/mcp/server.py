@@ -45,6 +45,7 @@ from keepfor.models.highlights import (
 )
 from keepfor.models.items import (
     BULK_UPDATE_LIMIT,
+    MAX_SAVE_URLS,
     add_tags_to_item,
     bulk_update_items,
     create_tag,
@@ -56,6 +57,7 @@ from keepfor.models.items import (
     restore_items,
     save_item,
     save_note,
+    save_urls,
     toggle_pin_item,
     trash_item,
     trash_items,
@@ -519,6 +521,42 @@ MCP_TOOLS = [
                 },
             },
             "required": ["url"],
+        },
+        "annotations": _WRITE,
+    },
+    {
+        "name": "save_urls",
+        "description": "Saves many URLs to the user's personal library in one "
+        "call and reports a status for each of them (queued, exists, invalid "
+        "or over_limit) plus the totals. Use this to turn a list of research "
+        "results into a reading list. The ingestion is queued, so the call "
+        "returns without waiting for the pages. For a single page use "
+        "save_url instead, for a personal note use save_note.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "urls": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (f"The webpages to save (at most {MAX_SAVE_URLS})."),
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of tags, applied to every URL.",
+                },
+                "why_saved": {
+                    "type": "string",
+                    "description": "Optional user's reason for saving these items.",
+                },
+                "saved_by": {
+                    "type": "string",
+                    "description": (
+                        "Optional name of the agent/client that saved the items."
+                    ),
+                },
+            },
+            "required": ["urls"],
         },
         "annotations": _WRITE,
     },
@@ -1865,6 +1903,31 @@ async def handle_tool_call(
             if is_new
             else "Existing URL updated with tags.",
         }
+
+    elif tool_name == "save_urls":
+        urls = arguments.get("urls")
+        if not isinstance(urls, list) or not urls:
+            raise _invalid("save_urls requires a non-empty list of urls")
+        if len(urls) > MAX_SAVE_URLS:
+            raise _invalid(
+                f"save_urls accepts at most {MAX_SAVE_URLS} urls, got {len(urls)}.",
+                max_urls=MAX_SAVE_URLS,
+                received=len(urls),
+            )
+        results = await save_urls(
+            db,
+            env,
+            user_id,
+            [str(url) for url in urls],
+            _as_list(arguments.get("tags")),
+            scope=scope,
+            why_saved=arguments.get("why_saved"),
+            saved_by=arguments.get("saved_by"),
+        )
+        totals: dict[str, int] = {"requested": len(results)}
+        for status in ("queued", "exists", "invalid", "over_limit"):
+            totals[status] = sum(1 for r in results if r["status"] == status)
+        return {"results": results, "totals": totals}
 
     elif tool_name == "search_passages":
         query = arguments.get("query", "")
