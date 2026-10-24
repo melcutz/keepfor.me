@@ -134,6 +134,34 @@ _VERBISH = frozenset(
     mention miss notice organize prefer protect prove provide pull push
     read refuse reject rethink seek seem sell send sleep solve suffer
     suppose survive throw understand visit warn write
+    see sees saw seen seeing
+    weave weaves wove woven weaving
+    build builds built building
+    change changes changed changing
+    look looks looked looking
+    think thinks thought thinking
+    know knows knew known knowing
+    find finds found finding
+    give gives gave given giving
+    take takes took taken taking
+    make makes made making
+    show shows showed shown showing
+    want wants wanted wanting
+    need needs needed needing
+    call calls called calling
+    keep keeps kept keeping
+    created creates creating
+    decided decides deciding
+    defined defines defining
+    described describes describing
+    developed develops developing
+    followed follows following
+    generated generates generating
+    improved improves improving
+    involved involves involving
+    provided provides providing
+    expected expects expecting
+    explained explains explaining
     """.split()
 )
 
@@ -141,6 +169,7 @@ MAX_TAG_LENGTH = 64
 MIN_TAG_LENGTH = 2
 # Cap on the number of tag suggestions handed to the user.
 MAX_SUGGESTIONS = 5
+MIN_SUGGESTION_SCORE = 1.5
 _VALID_TAG_RE = re.compile(r"^[^\W_]+(?:[ _-][^\W_]+)*$")
 # Word tokens: Unicode letters (German umlauts and eszett are letters, not
 # noise) plus digits, keeping apostrophes and hyphens inside a word.
@@ -321,7 +350,11 @@ def _runs(
     runs: list[list[str]] = []
     current: list[str] = []
     for word in tokens:
-        if not _is_content(word, stopwords) or word not in significant:
+        if (
+            not _is_content(word, stopwords)
+            or word in _VERBISH
+            or word not in significant
+        ):
             if current:
                 runs.append(current)
                 current = []
@@ -353,6 +386,7 @@ def suggest_new_tags(
     user_tags: list[str],
     limit: int = MAX_SUGGESTIONS,
     lang: str | None = None,
+    min_score: float = MIN_SUGGESTION_SCORE,
 ) -> list[Suggestion]:
     """Keyphrase extraction; stdlib only.
 
@@ -379,6 +413,7 @@ def suggest_new_tags(
     existing = {t for t in existing if t}
     existing_grams = {tuple(_fold(w) for w in _WORD_RE.findall(t)) for t in existing}
     existing_grams.discard(())
+    existing_words = {w for t in existing for w in _WORD_RE.findall(t)}
     slugs = slug_tokens(url or "", stopwords)
     entities = {m.group(1).lower() for m in _ENTITY_RE.finditer(f"{title} {body}")}
     entity_words = {w for e in entities for w in e.split()}
@@ -427,8 +462,20 @@ def suggest_new_tags(
         ):
             # The user's own vocabulary wins over a novel phrase near it.
             continue
+        # Drop stopword-led, stopword-ended, verb-led, and verb-ended n-grams (#97)
+        if (
+            gram[0] in stopwords
+            or gram[-1] in stopwords
+            or gram[0] in _VERBISH
+            or gram[-1] in _VERBISH
+            or not _can_head(gram[0], head_ok)
+            or not _can_head(gram[-1], head_ok)
+            or any(w in stopwords for w in gram)
+            or any(w in _VERBISH for w in gram)
+        ):
+            continue
         if len(gram) == 1:
-            if gram[0] in _VERBISH or gram[0] not in head_ok or alone[gram[0]] < 1:
+            if alone[gram[0]] < 1:
                 continue
             base = alone[gram[0]]
         else:
@@ -442,10 +489,16 @@ def suggest_new_tags(
         if any(w in slugs or _fold(w) in slugs for w in gram):
             score *= 1.5
         if text in entities:
-            score *= 1.25
+            score *= 2.0
+        elif any(w in entity_words for w in gram):
+            score *= 1.5
+        if any(w in existing_words for w in gram):
+            score *= 1.5
         if len(gram) > 1:
             # A collocation says more than the words it is made of.
             score *= 1.5
+        if score < min_score:
+            continue
         if text not in scored or score > scored[text]:
             scored[text] = score
 

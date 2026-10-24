@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import re
 from typing import TYPE_CHECKING, Any
 
 from keepfor.models.db import Database
@@ -397,6 +398,63 @@ def _tag_word_match(term: str) -> str:
     return f"instr(' ' || {name} || ' ', ' ' || ? || ' ') > 0"
 
 
+def _stems_for_term(term: str) -> set[str]:
+    """Derives root stems for prefix matching of inflections."""
+    stems = {term}
+    if len(term) > 5 and term.endswith("ing"):
+        stems.add(term[:-3])
+        if len(term) > 6 and term[-4] == term[-5]:
+            stems.add(term[:-4])
+    if len(term) > 4 and term.endswith("ed"):
+        stems.add(term[:-2])
+        if len(term) > 5 and term[-3] == term[-4]:
+            stems.add(term[:-3])
+    if len(term) > 4 and term.endswith("ies"):
+        stems.add(term[:-3] + "y")
+        stems.add(term[:-3])
+    if len(term) > 4 and term.endswith("es"):
+        stems.add(term[:-2])
+    if len(term) > 3 and term.endswith("s"):
+        stems.add(term[:-1])
+    return {s for s in stems if len(s) >= MIN_PREFIX_LEN}
+
+
+def highlight_query_terms(text: str, terms: list[str]) -> str:
+    """Highlights all query terms, stems and inflections with <mark> tags (#97).
+
+    Preserves existing <mark> tags without nesting. Short words (< 3 chars)
+    match whole words only; words >= 3 chars match their inflections and
+    stems consistent with #76.
+    """
+    if not text or not terms:
+        return text or ""
+    patterns = []
+    for t in terms:
+        t_clean = "".join(c for c in t.strip().lower() if c.isalnum())
+        if not t_clean:
+            continue
+        if len(t_clean) < MIN_PREFIX_LEN:
+            patterns.append(r"\b" + re.escape(t_clean) + r"\b")
+        else:
+            stems = _stems_for_term(t_clean)
+            if not stems:
+                patterns.append(r"\b" + re.escape(t_clean) + r"[a-zA-Z0-9]*\b")
+            else:
+                min_stem = min(stems, key=len)
+                patterns.append(r"\b" + re.escape(min_stem) + r"[a-zA-Z0-9]*\b")
+    if not patterns:
+        return text
+    combined = re.compile("|".join(dict.fromkeys(patterns)), re.IGNORECASE)
+    parts = re.split(r"(<mark>.*?</mark>)", text, flags=re.IGNORECASE | re.DOTALL)
+    out = []
+    for part in parts:
+        if part.lower().startswith("<mark>") and part.lower().endswith("</mark>"):
+            out.append(part)
+        else:
+            out.append(combined.sub(r"<mark>\g<0></mark>", part))
+    return "".join(out)
+
+
 async def search_tag_hits(
     db: Database, user_id: str, query: str, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -587,6 +645,32 @@ async def search_fts(
                 best[item_id] = rank
                 snippets[item_id] = snippet
         matched.append(ids)
+
+    # When multiple query terms exist, fetch multi-term snippets so SQLite
+    # FTS5 selects a window containing as many matched terms as possible (#97).
+    if len(terms) > 1 and scores:
+        match_all = " OR ".join(_keyword_match(t) for t in terms)
+        item_ids_list = list(scores.keys())
+        placeholders = ",".join("?" for _ in item_ids_list)
+        multi_sql = f"""
+            SELECT item_id,
+                   snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
+            FROM items_fts
+            WHERE items_fts MATCH ? AND user_id = ?
+              AND item_id IN ({placeholders});
+        """
+        try:
+            multi_rows = await db.query_all(
+                multi_sql, (match_all, user_id, *item_ids_list)
+            )
+            for mr in multi_rows:
+                if mr.get("snippet"):
+                    snippets[mr["item_id"]] = mr["snippet"]
+        except Exception as exc:
+            logger.warning("Multi-term snippet fetch failed: %s", exc)
+
+    for item_id, snip in list(snippets.items()):
+        snippets[item_id] = highlight_query_terms(snip, terms)
 
     # Only the content words count towards a partial match: the library
     # words ("saved", "my") are in the text of every item of a library,
@@ -1013,6 +1097,10 @@ async def hybrid_search(
     for tr in tag_rows:
         item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
 
+    query_terms = list(
+        dict.fromkeys(_content_words(_query_terms(query)) or _query_terms(query))
+    )
+
     # Assemble final list in RRF order
     final_items = []
     for item_id in sorted_item_ids:
@@ -1034,7 +1122,10 @@ async def hybrid_search(
                 continue
             item["tags"] = item_tags
             item["rrf_score"] = round(rrf_scores[item_id], 4)
-            item["snippet"] = snippets.get(item_id) or item["excerpt"]
+            raw_snippet = snippets.get(item_id) or item["excerpt"]
+            item["snippet"] = (
+                highlight_query_terms(raw_snippet, query_terms) if raw_snippet else ""
+            )
             final_items.append(item)
 
     return final_items[offset : offset + limit], len(final_items)

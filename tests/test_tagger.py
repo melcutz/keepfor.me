@@ -495,3 +495,35 @@ def test_a_repeated_word_is_not_a_phrase():
     assert all(len(set(s.phrase.split())) == len(s.phrase.split()) for s in out), [
         s.phrase for s in out
     ]
+
+
+def test_suggestions_drop_verb_and_stopword_led_junk_and_prefer_entities():
+    """Drop '#bookmark see' and '#woven silk'; prefer known tags & entities (#97)."""
+    article = {
+        "title": "Lyon textile history",
+        "excerpt": "The story of French silk weavers",
+        "url": "https://example.com/lyon-silk",
+        "body": (
+            "We visited the Lyon silk weavers. "
+            "They produce fancy woven silk for royal houses. "
+            "The technique of woven silk has a long history in France. "
+            "Click here to bookmark see all products from Lyon. "
+            "Bookmark see more about Lyon. "
+            "Lyon is known for its textile heritage."
+        ),
+    }
+    suggestions = tagger.suggest_new_tags(
+        title=article["title"],
+        excerpt=article["excerpt"],
+        url=article["url"],
+        body=article["body"],
+        user_tags=["textile"],
+    )
+    phrases = {s.phrase for s in suggestions}
+    assert "bookmark see" not in phrases
+    assert "woven silk" not in phrases
+    assert not any(p.startswith("woven ") for p in phrases)
+    assert not any(p.endswith(" see") for p in phrases)
+    assert "lyon" in phrases
+    assert len(suggestions) <= tagger.MAX_SUGGESTIONS
+    assert all(s.score >= tagger.MIN_SUGGESTION_SCORE for s in suggestions)
