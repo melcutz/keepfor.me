@@ -865,6 +865,89 @@ async def test_mcp_bulk_update_isolation(harness: IsolationHarness):
 
 
 @pytest.mark.asyncio
+async def test_mcp_update_item_isolation(harness: IsolationHarness):
+    """MCP update_item as Tenant B on Tenant A's item is refused as not found.
+
+    The item of Tenant A keeps its title, its notes and its read state.
+    """
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+
+    resp = await _call_as_tenant(
+        harness,
+        b,
+        "update_item",
+        {"item_id": a.html_item_id, "title": "Hijacked", "user_notes": "hijack"},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert "error" in data, data
+    assert data["error"]["data"]["type"] == "not_found"
+    assert a.html_item_id not in resp.text
+    assert a.unique_keyword not in resp.text
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, "update_item modified Tenant A"
+
+
+@pytest.mark.asyncio
+async def test_mcp_update_item_stays_on_its_own_item(harness: IsolationHarness):
+    """Tenant A updates its own item, and Tenant B's item is untouched."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    resp = await _call_as_tenant(
+        harness,
+        a,
+        "update_item",
+        {"item_id": a.html_item_id, "title": "Corrected title", "read_state": "read"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "error" not in resp.json(), resp.json()["error"]
+
+    row = await a.db.query_first(
+        "SELECT title, read_state FROM items WHERE id = ? AND user_id = ?;",
+        (a.html_item_id, a.user["id"]),
+    )
+    assert row["title"] == "Corrected title"
+    assert row["read_state"] == "read"
+
+    b_row = await b.db.query_first(
+        "SELECT title FROM items WHERE id = ? AND user_id = ?;",
+        (a.html_item_id, b.user["id"]),
+    )
+    assert b_row is None
+
+
+@pytest.mark.asyncio
+async def test_mcp_bulk_update_read_state_isolation(harness: IsolationHarness):
+    """A bulk read state action of Tenant B never touches Tenant A's items."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    snap_a_before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+
+    resp = await _call_as_tenant(
+        harness,
+        b,
+        "bulk_update",
+        {"tags_all": ["tag1"], "action": "archive", "dry_run": False},
+    )
+    assert resp.status_code == 200, resp.text
+    assert "error" not in resp.json(), resp.json()["error"]
+
+    snap_a_after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert snap_a_after == snap_a_before, "bulk_update modified Tenant A"
+
+    a_states = await a.db.query_all(
+        "SELECT read_state FROM items WHERE user_id = ?;", (a.user["id"],)
+    )
+    assert {r["read_state"] for r in a_states} == {"unread"}
+
+
+@pytest.mark.asyncio
 async def test_mcp_find_item_isolation(harness: IsolationHarness):
     """MCP find_item as Tenant B never returns Tenant A's items."""
     a = harness.tenant_a
