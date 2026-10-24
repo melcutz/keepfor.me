@@ -99,11 +99,18 @@ from keepfor.search.engine import (
     resolve_item,
     search_chunks,
 )
-from keepfor.spi import SCOPE_READ, SCOPE_WRITE, scope_grants, scopes_of
+from keepfor.spi import (
+    SCOPE_READ,
+    SCOPE_WRITE,
+    UsageSummaryProvider,
+    scope_grants,
+    scopes_of,
+    self_hosted_account,
+)
 from keepfor.utils.tagger import validate_tag_name
 
 if TYPE_CHECKING:
-    from keepfor.spi import TenantScope
+    from keepfor.spi import Providers, TenantScope
 
 # Protocol versions this server speaks, newest first. Streamable HTTP clients
 # propose one in initialize params; the server echoes it back when supported.
@@ -181,6 +188,25 @@ _RESOURCE_PROMPT_METHODS = (
 _READ_ONLY = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
 _WRITE = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True}
 _DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True}
+
+# Tools whose call is free: it costs no `mcp_call` unit. get_account reports
+# the quota, so it must stay readable when the quota is exhausted.
+FREE_TOOLS = frozenset({"get_account"})
+
+
+def is_free_tool_call(body: Any) -> bool:
+    """True when the request calls one of the free tools.
+
+    The transport asks this before it spends an `mcp_call` unit.
+    """
+    if not isinstance(body, dict):
+        return False
+    if body.get("method") != "tools/call":
+        return False
+    params = body.get("params")
+    if not isinstance(params, dict):
+        return False
+    return params.get("name") in FREE_TOOLS
 
 
 def _tool_scope(tool: dict[str, Any]) -> str:
@@ -1855,10 +1881,45 @@ MCP_TOOLS = [
         },
         "annotations": _READ_ONLY,
     },
+    {
+        "name": "get_account",
+        "description": "Returns the account of the calling user: the plan, "
+        "the end of the trial period if there is one, and the quota of every "
+        "metered action (limit, used and remaining for the current period, "
+        "plus when it resets). Read-only and free: the call itself costs no "
+        "quota unit, so it still works when the quota is exhausted. Call it "
+        "before a big job to see how much is left.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+        "annotations": _READ_ONLY,
+    },
 ]
 
 
 MCP_TOOLS_BY_NAME = {tool["name"]: tool for tool in MCP_TOOLS}
+
+
+async def _account_summary(
+    providers: Providers | None,
+    scope: TenantScope | None,
+    user: dict[str, Any],
+) -> dict[str, Any]:
+    """The account of the calling tenant: plan, trial end and quota.
+
+    The report comes from the entitlements provider. A provider without the
+    `usage_summary` hook is reported as self-hosted: no limits, no trial.
+    """
+    if providers is None:
+        from keepfor.runtime import get_providers
+
+        providers = get_providers()
+    entitlements = getattr(providers, "entitlements", None)
+    if not isinstance(entitlements, UsageSummaryProvider):
+        return self_hosted_account()
+    tenant_id = scope.tenant_id if scope is not None else user["id"]
+    return await entitlements.usage_summary(tenant_id)
 
 
 async def handle_tool_call(
@@ -1869,6 +1930,7 @@ async def handle_tool_call(
     user: dict[str, Any],
     *,
     scope: TenantScope | None = None,
+    providers: Providers | None = None,
 ) -> Any:
     user_id = user["id"]
 
@@ -2829,6 +2891,9 @@ async def handle_tool_call(
             tag=_digest_tag(arguments.get("tag")),
         )
 
+    elif tool_name == "get_account":
+        return await _account_summary(providers, scope, user)
+
     else:
         raise _not_found(f"Unknown tool: {tool_name}")
 
@@ -2840,6 +2905,7 @@ async def process_mcp_request(
     user: dict[str, Any],
     *,
     scope: TenantScope | None = None,
+    providers: Providers | None = None,
 ) -> dict[str, Any] | None:
     """Handles an incoming JSON-RPC 2.0 MCP message.
 
@@ -2851,11 +2917,14 @@ async def process_mcp_request(
     if "method" not in body or "id" not in body:
         return None
 
-    if scope is None:
+    if providers is None:
         from keepfor.runtime import get_providers
-        from keepfor.spi import Principal
 
         providers = get_providers()
+
+    if scope is None:
+        from keepfor.spi import Principal
+
         if providers.scope:
             # A token without scope info is never rejected, it is treated as
             # unrestricted ("*").
@@ -2948,7 +3017,7 @@ async def process_mcp_request(
             }
         try:
             res = await handle_tool_call(
-                tool_name, arguments, db, env, user, scope=scope
+                tool_name, arguments, db, env, user, scope=scope, providers=providers
             )
             return {
                 "jsonrpc": "2.0",

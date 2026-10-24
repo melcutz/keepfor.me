@@ -154,6 +154,10 @@ class Decision:
     allowed: bool
     reason: str = ""  # "", "limit", "read_only", "suspended", "unverified"
     upgrade_url: str | None = None
+    # Quota of a refusal: how much is left in the current period and when it
+    # resets. A hosted provider reports them, core leaves them unset.
+    remaining: int | None = None
+    resets_at: str | None = None
 
 
 @runtime_checkable
@@ -161,6 +165,26 @@ class Entitlements(Protocol):
     async def check(self, tenant_id: str, action: Action, qty: int = 1) -> Decision: ...
 
     async def record(self, tenant_id: str, action: Action, qty: int = 1) -> None: ...
+
+
+@runtime_checkable
+class UsageSummaryProvider(Protocol):
+    """Optional Entitlements extension: the quota report of one tenant.
+
+    A hosted provider implements `usage_summary` on its Entitlements object.
+    The method is optional: a provider without it is reported as
+    self-hosted (no limits, no trial).
+    """
+
+    async def usage_summary(self, tenant_id: str) -> dict[str, Any]: ...
+
+
+def self_hosted_account() -> dict[str, Any]:
+    """The account of a self-hosted instance: no limits, no trial.
+
+    A fresh dict every time: the shape is never shared between callers.
+    """
+    return {"plan": "self-hosted", "trial_ends_at": None, "metrics": {}}
 
 
 class EntitlementDenied(Exception):  # noqa: N818

@@ -149,6 +149,8 @@ class Decision:
     allowed: bool
     reason: str = ""  # "", "limit", "read_only", "suspended", "unverified"
     upgrade_url: str | None = None
+    remaining: int | None = None  # quota left in the current period
+    resets_at: str | None = None  # when that period resets
 
 @runtime_checkable
 class Entitlements(Protocol):
@@ -157,6 +159,36 @@ class Entitlements(Protocol):
 ```
 
 Supported `Action` values: `"save_item"`, `"import"`, `"summarize"`, `"embed"`, `"ask"`, `"digest"`, `"fetch"`, `"reader_proxy"`, `"mcp_call"`, `"export"`.
+
+`remaining` and `resets_at` are optional: a refusal that reports them tells the
+agent how much is left and when the period resets.
+
+### Optional: the quota report (`usage_summary`)
+
+An `Entitlements` provider may implement one more method:
+
+```python
+async def usage_summary(self, tenant_id: str) -> dict[str, Any]: ...
+```
+
+It returns the account of the tenant:
+
+```python
+{
+    "plan": "trial",
+    "trial_ends_at": "2026-11-01T00:00:00Z",
+    "metrics": {
+        "mcp_call": {"limit": 100, "used": 12, "remaining": 88,
+                     "resets_at": "2026-11-01T00:00:00Z"},
+    },
+}
+```
+
+The MCP `get_account` tool serves exactly this report. The method is
+**optional**: a provider without it (or a core self-hosted instance) is
+reported as `{"plan": "self-hosted", "trial_ends_at": None, "metrics": {}}` —
+no limits, no trial. Adding it does not break an existing provider, so
+`CORE_API_VERSION` does not change.
 
 ### Example Custom Implementation
 

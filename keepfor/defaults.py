@@ -16,6 +16,7 @@ from keepfor.spi import (
     Principal,
     TenantScope,
     scopes_of,
+    self_hosted_account,
 )
 
 if TYPE_CHECKING:
@@ -147,6 +148,10 @@ class AllowAllEntitlements:
 
     async def record(self, tenant_id: str, action: Action, qty: int = 1) -> None:
         pass
+
+    async def usage_summary(self, tenant_id: str) -> dict[str, Any]:
+        """The self-hosted account: no plan limits, no trial."""
+        return self_hosted_account()
 
 
 class NoopEventBus:
