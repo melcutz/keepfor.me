@@ -296,8 +296,9 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     )
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
-    assert len(names) == 43
+    assert len(names) == 44
     assert "save_url" in names
+    assert "save_urls" in names
     assert "save_note" in names
     assert "pin_item" in names
     # New v2 tools
@@ -419,6 +420,7 @@ def test_heavy_extraction_libs_are_not_imported_at_module_load():
 # Minimal valid arguments per tool. "ITEM" is replaced by a real item id.
 TOOL_ARGUMENTS = {
     "save_url": {"url": "https://example.com/probe-item"},
+    "save_urls": {"urls": ["https://example.com/probe-batch"]},
     "save_note": {"title": "note", "content": "body"},
     "search_library": {"query": "alpha"},
     "search_passages": {"query": "alpha"},

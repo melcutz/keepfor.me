@@ -10,13 +10,16 @@ from typing import TYPE_CHECKING, Any
 from keepfor.models.db import Database
 from keepfor.utils.logging import logger
 from keepfor.utils.tagger import normalize_tag
-from keepfor.utils.url import canonicalize_url
+from keepfor.utils.url import canonicalize_url, extract_url
 
 if TYPE_CHECKING:
     from keepfor.spi import TenantScope
 
 # D1 allows 100 bound parameters per query; the user_id takes one of them.
 _ID_CHUNK = 90
+
+# Cap on the URLs one save_urls call may carry.
+MAX_SAVE_URLS = 50
 
 
 # Extra per-item rows removed by the permanent delete, beyond what the item
@@ -38,6 +41,7 @@ async def save_item(
     why_saved: str | None = None,
     source_context: str | None = None,
     saved_by: str | None = None,
+    queue_messages: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     """Saves a URL to the user library with canonicalization and deduplication.
     Returns (item_dict, is_new).
@@ -47,6 +51,9 @@ async def save_item(
     - why_saved: User's reason for saving
     - source_context: Context from the conversation/task that led to saving
     - saved_by: Name of the agent/client that saved the item
+
+    queue_messages: when a list is given, the extraction message is collected
+    in it instead of being sent, so a batch save can send them all at once.
     """
     if scope is None:
         from keepfor.defaults import default_scope
@@ -132,7 +139,12 @@ async def save_item(
     # queue delivery, tests) extract inline so items never stick in 'queued'.
     queue = getattr(env, "QUEUE", None) if env is not None else None
     if queue is not None:
-        await queue.send({"item_id": item_id, "url": clean_url, "user_id": user_id})
+        message = {"item_id": item_id, "url": clean_url, "user_id": user_id}
+        if queue_messages is None:
+            await queue.send(message)
+        else:
+            # A batch save collects the messages and sends them as one batch.
+            queue_messages.append(message)
         logger.info(
             f"Enqueued extraction: item={item_id}, url={clean_url}, user_id={user_id}"
         )
@@ -157,6 +169,87 @@ async def save_item(
         "status": "queued",
         "tags": tags,
     }, True
+
+
+async def save_urls(
+    db: Database,
+    env: Any,
+    user_id: str,
+    urls: list[str],
+    tags: list[str] | None = None,
+    *,
+    scope: TenantScope | None = None,
+    why_saved: str | None = None,
+    saved_by: str | None = None,
+) -> list[dict[str, Any]]:
+    """Saves many URLs in one call and reports a status for each of them.
+
+    Every URL goes through save_item, so the canonicalization, the dedupe
+    and the save entitlement are the ones of a single save. A URL the save
+    limit refuses comes back as "over_limit" instead of failing the call.
+
+    Returns one result per input URL: {id, url, status, is_new}.
+    """
+    from keepfor.spi import EntitlementDenied
+
+    if scope is None:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
+    results: list[dict[str, Any]] = []
+    messages: list[dict[str, Any]] = []
+    for raw in urls:
+        url = extract_url(raw)
+        if not url:
+            results.append(
+                {"id": None, "url": raw, "status": "invalid", "is_new": False}
+            )
+            continue
+        try:
+            item, is_new = await save_item(
+                db,
+                env,
+                user_id,
+                url,
+                tags,
+                scope=scope,
+                why_saved=why_saved,
+                saved_by=saved_by,
+                queue_messages=messages,
+            )
+        except EntitlementDenied:
+            results.append(
+                {"id": None, "url": url, "status": "over_limit", "is_new": False}
+            )
+            continue
+        results.append(
+            {
+                "id": item["id"],
+                "url": item["url"],
+                "status": "queued" if is_new else "exists",
+                "is_new": is_new,
+            }
+        )
+
+    if messages:
+        await _send_extraction_batch(env, messages)
+    return results
+
+
+async def _send_extraction_batch(env: Any, messages: list[dict[str, Any]]) -> None:
+    """Sends the extraction messages of a batch save as one queue batch."""
+    queue = getattr(env, "QUEUE", None) if env is not None else None
+    if queue is None:
+        return
+    # The binding spells the batch call camelCase; send_batch is the shape
+    # the test doubles use.
+    send_batch = getattr(queue, "sendBatch", None) or getattr(queue, "send_batch", None)
+    if send_batch is not None:
+        await send_batch([{"body": message} for message in messages])
+        return
+    for message in messages:
+        await queue.send(message)
 
 
 async def add_tags_to_item(

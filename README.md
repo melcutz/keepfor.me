@@ -185,26 +185,27 @@ working.
 ## Connecting AI Agents (Remote MCP)
 
 Keepfor.me hosts a remote Streamable HTTP MCP server at `https://app.keepfor.me/api/mcp`,
-exposing 40 tools for capturing, finding, reading and tagging your library:
+exposing 41 tools for capturing, finding, reading and tagging your library:
 1. `save_url`: Save any webpage to your library.
-2. `save_note`: Save a note, snippet or prompt template.
-3. `search_library`: Hybrid search across text and meaning.
-4. `search_passages`: Passage-level search with permanent snapshot URLs.
-5. `find_item`: Look up an item id by title or url (no search, no embeddings).
-6. `get_item`: Read metadata and excerpt by id, url or exact title.
-7. `read_item`: Paginated full-text reading.
-8. `list_items`: Compact paginated browse with sorting and filters.
-9. `reading_history`: What you saved and opened, with date filters.
-10. `related_items`: Items similar to a given item or text.
-11. `list_tags` / `create_tag` / `describe_tag` / `update_tag` / `rename_tag` / `merge_tags` / `delete_tag`: Full tag management.
-12. `tag_item` / `tag_items` / `set_item_tags` / `retag_by_query`: Tagging, in bulk and safely (dry-run by default).
-13. `bulk_update`: Update status, pin and tags on every item matching a filter (dry-run by default).
-14. `suggest_tags` / `search_tags` / `tag_stats` / `related_tags` / `tag_cleanup`: Tag vocabulary tools.
-15. `find_cleanup`: Read-only cleanup report (duplicate urls, dead links, never-opened old items, untagged items, near-duplicate tags).
-16. `delete_item` / `pin_item`: Remove or pin an item.
-17. `library_digest`: A compact recap — saves, opens, top tags, unread highlights.
-18. `create_highlight` / `list_highlights` / `delete_highlight`: Quote a passage of an item, anchored by character offsets.
-19. `create_collection` / `list_collections` / `add_to_collection` / `remove_from_collection` / `rename_collection` / `delete_collection`: Named buckets of library items.
+2. `save_urls`: Save many webpages to your library in one call, with a status for each URL.
+3. `save_note`: Save a note, snippet or prompt template.
+4. `search_library`: Hybrid search across text and meaning.
+5. `search_passages`: Passage-level search with permanent snapshot URLs.
+6. `find_item`: Look up an item id by title or url (no search, no embeddings).
+7. `get_item`: Read metadata and excerpt by id, url or exact title.
+8. `read_item`: Paginated full-text reading.
+9. `list_items`: Compact paginated browse with sorting and filters.
+10. `reading_history`: What you saved and opened, with date filters.
+11. `related_items`: Items similar to a given item or text.
+12. `list_tags` / `create_tag` / `describe_tag` / `update_tag` / `rename_tag` / `merge_tags` / `delete_tag`: Full tag management.
+13. `tag_item` / `tag_items` / `set_item_tags` / `retag_by_query`: Tagging, in bulk and safely (dry-run by default).
+14. `bulk_update`: Update status, pin and tags on every item matching a filter (dry-run by default).
+15. `suggest_tags` / `search_tags` / `tag_stats` / `related_tags` / `tag_cleanup`: Tag vocabulary tools.
+16. `find_cleanup`: Read-only cleanup report (duplicate urls, dead links, never-opened old items, untagged items, near-duplicate tags).
+17. `delete_item` / `pin_item`: Remove or pin an item.
+18. `library_digest`: A compact recap — saves, opens, top tags, unread highlights.
+19. `create_highlight` / `list_highlights` / `delete_highlight`: Quote a passage of an item, anchored by character offsets.
+20. `create_collection` / `list_collections` / `add_to_collection` / `remove_from_collection` / `rename_collection` / `delete_collection`: Named buckets of library items.
 
 The server is stateless (no sessions, plain JSON responses, no SSE stream) and
 authenticates with the same Personal Access Tokens as the REST API.
@@ -250,48 +251,49 @@ curl https://app.keepfor.me/api/mcp \
 
 ### Available MCP Tools (Server 0.2.0)
 
-The MCP server exposes 40 tools. The tools that change many items at once take a `dry_run` flag: it is only accepted as a JSON boolean (omitted means `true`, a preview), and anything else is rejected rather than applied.
+The MCP server exposes 41 tools. The tools that change many items at once take a `dry_run` flag: it is only accepted as a JSON boolean (omitted means `true`, a preview), and anything else is rejected rather than applied.
 
 1. **`save_url`** — Save any webpage to your library. Accepts optional `agent_summary`, `why_saved`, `source_context`, `saved_by` for agent research provenance.
-2. **`save_note`** — Save a personal note, code snippet, or prompt template. Accepts the same optional provenance fields.
-3. **`search_library`** — Hybrid search across text and meaning (item-level results with snippets).
-4. **`search_passages`** — Passage-level hybrid search over semantic chunks with `max_chars` budget. Returns `chunk_id`, char offsets, and permanent `snapshot_url` (R2 archive) that survives link rot.
-5. **`read_item`** — Token-efficient paginated reading of full content. Returns `text`, `next_cursor`, `total_chunks`, `outline`.
-6. **`get_item`** — Retrieve metadata and excerpt, addressed by `item_id`, `url` or exact `title`. By default caps `content_text` to excerpt and reports `truncated` and `content_length`; use `include_content=true` for full text.
-7. **`list_items`** — Compact paginated browse (`id`, `title`, `url`, `saved_at`, `tags` — no body). Sorts by `saved`, `opened` or `title`; filters by `since`/`until`, `domain`, `pinned`, `type` and tags.
-8. **`find_item`** — Find item ids by exact/prefix title or exact/normalized url. No search, no embeddings: the cheap path from a title you know to an `item_id` you can read.
-9. **`reading_history`** — Reading history with date filtering (`since`/`until`), event types (`saved`/`opened`), and optional query/tag filters.
-10. **`related_items`** — Nearest neighbors by vector similarity from an `item_id` or raw `text`, with one-line reasons.
-11. **`list_tags`** — Every tag with its item count and last-used date. Sorts by `count`, `name` or `recent`; filters by `prefix` and `min_count`.
-12. **`create_tag`** — Create a tag with optional `description`, `color` and `parent` (hierarchy, e.g. `work/research`).
-13. **`describe_tag`** — A tag's metadata, parent, children and item count.
-14. **`update_tag`** — Edit a tag's description, color or parent.
-15. **`rename_tag`** — Rename a tag; every item carrying it is updated.
-16. **`merge_tags`** — Fold several tags into one target tag (at most 20 source tags per call).
-17. **`delete_tag`** — Remove a tag from items. Items are never deleted. `dry_run=true` by default: returns the affected count and a sample; `dry_run=false` applies.
-18. **`tag_item`** — Add or remove tags on a single item.
-19. **`tag_items`** — Add/remove tags across many items. `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
-20. **`retag_by_query`** — Tag items matching a title/url query (plus tag filters). `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
-21. **`bulk_update`** — Update the status, the pin state and the tags of every item matching a filter (status group, saved date range, domain, pinned, type, tags). `dry_run=true` by default: it reports `total_matched`, `affected` and `truncated` without writing anything. At most 200 items are updated per call, and an empty filter or an empty change is rejected. The whole update is applied in one transaction, and tag names follow the `create_tag` rules (2-64 characters of `a-z`, `0-9`, space, `_` or `-`).
-22. **`set_item_tags`** — Replace the whole tag set of one item.
-23. **`suggest_tags`** — Suggest tags for an item or for free text, drawn from your existing vocabulary first.
-24. **`search_tags`** — Fuzzy search over tag names and descriptions (`machinelearning` finds `machine-learning`).
-25. **`tag_stats`** — Tag usage statistics for the library.
-26. **`related_tags`** — Tags that co-occur with a tag on the same items.
-27. **`tag_cleanup`** — Near-duplicate tags, unused tags and untagged items worth a look.
-28. **`find_cleanup`** — Read-only cleanup report: duplicate items (same normalized url), dead links (recorded extraction failures — no network requests), never-opened old items, untagged items and near-duplicate tags. Takes `categories`, `older_than_days` and a per-category `limit` (max 100); each category reports the candidates, a count and a `truncated` flag. The item categories list one id with a reason; the group categories list one entry per group — `duplicates` gives the group's ids (capped at 10), its size and whether the id list was truncated, `near_duplicate_tags` gives the group's tag names — so `limit` caps groups and one url saved 300 times stays a small response.
-29. **`delete_item`** — Move an item to the Trash. The item leaves the library but is not destroyed: it stays restorable for 30 days, and only the user can delete it for good from the Trash view.
-30. **`pin_item`** — Pin or unpin an item to/from the top shelf.
-31. **`library_digest`** — Read-only recap of the library for a period: saves, opens, top tags and unread highlights. Takes optional `since`, `until` and `tag`; every list in the response is capped.
-32. **`create_highlight`** — Quote a passage of an item and anchor it with the character offsets it covers inside `content_text`. `start_offset` defaults to `0`, `end_offset` to `start_offset + len(text)`; an end offset past the end of the item's content is refused.
-33. **`list_highlights`** — The highlights of one item, ordered by their position in the text, with the quoted text, offsets, optional note and color.
-34. **`delete_highlight`** — Remove one highlight. The item it belongs to is never deleted.
-35. **`create_collection`** — Create a named bucket of library items, with an optional description. Creating one with an existing name returns it unchanged.
-36. **`list_collections`** — Your collections with their item count and item ids (at most 20 per collection, with `items_truncated` when there are more).
-37. **`add_to_collection`** — Put items in a collection, addressed by name or id. At most 100 items per call; the result reports `added`, `skipped` and `truncated`.
-38. **`remove_from_collection`** — Take items out of a collection. The items themselves are never deleted.
-39. **`rename_collection`** — Rename a collection. Renaming onto a name that is already taken is refused, never merged.
-40. **`delete_collection`** — Delete a collection and its links. The items it held are never deleted; use `remove_from_collection` to empty it.
+2. **`save_urls`** — Save up to 50 webpages to your library in one call, with a status per URL (`queued`, `exists`, `invalid`, `over_limit`) and the totals. Needs the write scope. The URLs are deduped by canonical URL, every new URL goes through the same save check as `save_url` (the ones the save limit refuses come back as `over_limit`), and the extraction is queued, so the call does not wait for the pages.
+3. **`save_note`** — Save a personal note, code snippet, or prompt template. Accepts the same optional provenance fields.
+4. **`search_library`** — Hybrid search across text and meaning (item-level results with snippets).
+5. **`search_passages`** — Passage-level hybrid search over semantic chunks with `max_chars` budget. Returns `chunk_id`, char offsets, and permanent `snapshot_url` (R2 archive) that survives link rot.
+6. **`read_item`** — Token-efficient paginated reading of full content. Returns `text`, `next_cursor`, `total_chunks`, `outline`.
+7. **`get_item`** — Retrieve metadata and excerpt, addressed by `item_id`, `url` or exact `title`. By default caps `content_text` to excerpt and reports `truncated` and `content_length`; use `include_content=true` for full text.
+8. **`list_items`** — Compact paginated browse (`id`, `title`, `url`, `saved_at`, `tags` — no body). Sorts by `saved`, `opened` or `title`; filters by `since`/`until`, `domain`, `pinned`, `type` and tags.
+9. **`find_item`** — Find item ids by exact/prefix title or exact/normalized url. No search, no embeddings: the cheap path from a title you know to an `item_id` you can read.
+10. **`reading_history`** — Reading history with date filtering (`since`/`until`), event types (`saved`/`opened`), and optional query/tag filters.
+11. **`related_items`** — Nearest neighbors by vector similarity from an `item_id` or raw `text`, with one-line reasons.
+12. **`list_tags`** — Every tag with its item count and last-used date. Sorts by `count`, `name` or `recent`; filters by `prefix` and `min_count`.
+13. **`create_tag`** — Create a tag with optional `description`, `color` and `parent` (hierarchy, e.g. `work/research`).
+14. **`describe_tag`** — A tag's metadata, parent, children and item count.
+15. **`update_tag`** — Edit a tag's description, color or parent.
+16. **`rename_tag`** — Rename a tag; every item carrying it is updated.
+17. **`merge_tags`** — Fold several tags into one target tag (at most 20 source tags per call).
+18. **`delete_tag`** — Remove a tag from items. Items are never deleted. `dry_run=true` by default: returns the affected count and a sample; `dry_run=false` applies.
+19. **`tag_item`** — Add or remove tags on a single item.
+20. **`tag_items`** — Add/remove tags across many items. `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
+21. **`retag_by_query`** — Tag items matching a title/url query (plus tag filters). `dry_run=true` by default. At most 100 items per call; the result reports `total_matched` and `truncated`.
+22. **`bulk_update`** — Update the status, the pin state and the tags of every item matching a filter (status group, saved date range, domain, pinned, type, tags). `dry_run=true` by default: it reports `total_matched`, `affected` and `truncated` without writing anything. At most 200 items are updated per call, and an empty filter or an empty change is rejected. The whole update is applied in one transaction, and tag names follow the `create_tag` rules (2-64 characters of `a-z`, `0-9`, space, `_` or `-`).
+23. **`set_item_tags`** — Replace the whole tag set of one item.
+24. **`suggest_tags`** — Suggest tags for an item or for free text, drawn from your existing vocabulary first.
+25. **`search_tags`** — Fuzzy search over tag names and descriptions (`machinelearning` finds `machine-learning`).
+26. **`tag_stats`** — Tag usage statistics for the library.
+27. **`related_tags`** — Tags that co-occur with a tag on the same items.
+28. **`tag_cleanup`** — Near-duplicate tags, unused tags and untagged items worth a look.
+29. **`find_cleanup`** — Read-only cleanup report: duplicate items (same normalized url), dead links (recorded extraction failures — no network requests), never-opened old items, untagged items and near-duplicate tags. Takes `categories`, `older_than_days` and a per-category `limit` (max 100); each category reports the candidates, a count and a `truncated` flag. The item categories list one id with a reason; the group categories list one entry per group — `duplicates` gives the group's ids (capped at 10), its size and whether the id list was truncated, `near_duplicate_tags` gives the group's tag names — so `limit` caps groups and one url saved 300 times stays a small response.
+30. **`delete_item`** — Move an item to the Trash. The item leaves the library but is not destroyed: it stays restorable for 30 days, and only the user can delete it for good from the Trash view.
+31. **`pin_item`** — Pin or unpin an item to/from the top shelf.
+32. **`library_digest`** — Read-only recap of the library for a period: saves, opens, top tags and unread highlights. Takes optional `since`, `until` and `tag`; every list in the response is capped.
+33. **`create_highlight`** — Quote a passage of an item and anchor it with the character offsets it covers inside `content_text`. `start_offset` defaults to `0`, `end_offset` to `start_offset + len(text)`; an end offset past the end of the item's content is refused.
+34. **`list_highlights`** — The highlights of one item, ordered by their position in the text, with the quoted text, offsets, optional note and color.
+35. **`delete_highlight`** — Remove one highlight. The item it belongs to is never deleted.
+36. **`create_collection`** — Create a named bucket of library items, with an optional description. Creating one with an existing name returns it unchanged.
+37. **`list_collections`** — Your collections with their item count and item ids (at most 20 per collection, with `items_truncated` when there are more).
+38. **`add_to_collection`** — Put items in a collection, addressed by name or id. At most 100 items per call; the result reports `added`, `skipped` and `truncated`.
+39. **`remove_from_collection`** — Take items out of a collection. The items themselves are never deleted.
+40. **`rename_collection`** — Rename a collection. Renaming onto a name that is already taken is refused, never merged.
+41. **`delete_collection`** — Delete a collection and its links. The items it held are never deleted; use `remove_from_collection` to empty it.
 
 All tools declare MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`). They are advisory hints for the client, and the server uses them to enforce the scopes of a token (see below). A token is never rejected for missing scope information: no scope information means full access. Each description says when to use a tool versus its siblings. List-type responses include `limit`, `offset`/`cursor`, and a `fields` projection; the default `list_items` page stays under 4 KB.
 
