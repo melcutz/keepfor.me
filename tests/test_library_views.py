@@ -9,6 +9,8 @@ counts: the Archive category looked empty in List/Compact.
 """
 
 import re
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -148,3 +150,113 @@ async def test_no_view_hides_pinned_items_with_css(client, db, library):
         if "is-pinned" in rule and "display" in rule and "none" in rule
     ]
     assert not hiding, f"a CSS rule hides pinned items: {hiding}"
+
+
+class _ImgCollector(HTMLParser):
+    """Collects ``<img>`` attributes and ``<style>`` blocks."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.imgs: list[dict[str, str | None]] = []
+        self.styles: list[str] = []
+        self._in_style = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "img":
+            self.imgs.append(dict(attrs))
+        elif tag == "style":
+            self._in_style = True
+
+    def handle_data(self, data: str) -> None:
+        if self._in_style:
+            self.styles.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "style":
+            self._in_style = False
+
+
+def _parse_page(html: str) -> tuple[list[dict[str, str | None]], str]:
+    parser = _ImgCollector()
+    parser.feed(html)
+    parser.close()
+    return parser.imgs, "".join(parser.styles)
+
+
+async def test_list_view_renders_compact_rows_with_thumbnails_and_fallback(
+    client, db, library
+):
+    """List view uses a 48x48 thumbnail (or favicon) and hides hero images (#96)."""
+    await db.execute(
+        "UPDATE items SET title = ?, image_url = ?, excerpt = ?, summary = ?,"
+        " user_notes = ?, created_at = '2026-10-22 10:00:00' WHERE id = ?;",
+        (
+            "Illustrated Guide",
+            "https://example.com/thumb.jpg",
+            "Long excerpt text",
+            "Short summary",
+            "Personal note",
+            library["pinned"],
+        ),
+    )
+    await db.execute(
+        "UPDATE items SET title = ?, created_at = '2026-10-21 09:00:00' WHERE id = ?;",
+        ("Text Only Save", library["plain"]),
+    )
+
+    client.cookies["kfm_session"] = library["session"]
+    res = client.get("/", params={"view": "list"})
+    assert res.status_code == 200
+    html = res.text
+
+    # Row content: title, domain, tags and date are present.
+    assert "Illustrated Guide" in html
+    assert "Text Only Save" in html
+    card_link = re.search(
+        r'href="(https?://[^"]+)"[^>]*title="Visit original link"', html
+    )
+    assert card_link
+    assert urlparse(card_link.group(1)).hostname == "example.com"
+    assert "#keepme" in html
+    assert "2026-10-22" in html
+
+    # All card images use loading=lazy and explicit integer width/height.
+    imgs, css = _parse_page(html)
+    assert imgs
+    for img in imgs:
+        assert img.get("loading") == "lazy", img
+        assert (img.get("width") or "").isdigit() and int(img["width"]) > 0, img
+        assert (img.get("height") or "").isdigit() and int(img["height"]) > 0, img
+
+    thumb_imgs = [
+        img for img in imgs if "card-thumb-img" in (img.get("class") or "").split()
+    ]
+    assert len(thumb_imgs) == 1
+    assert thumb_imgs[0]["src"] == "https://example.com/thumb.jpg"
+    assert thumb_imgs[0]["width"] == "48"
+    assert thumb_imgs[0]["height"] == "48"
+
+    # List view CSS hides the full-width cover, excerpt, note and summary details,
+    # sizes the thumbnail slot to 3rem (48px) and keeps the row padding compact.
+    assert "#items-list.view-list .card-cover" in css
+    assert "#items-list.view-list .card-thumb" in css
+    assert "width: 3rem; height: 3rem" in css
+    assert (
+        "#items-list.view-list .card-thumb .card-thumb-img { display: block; }" in css
+    )
+    assert "#items-list.view-list .item-card { padding: 0.5rem 0.75rem; }" in css
+
+    # Grid view (cards) keeps the cover image and hides the list-only thumbnail.
+    cards_res = client.get("/", params={"view": "cards"})
+    assert cards_res.status_code == 200
+    cards_imgs, _ = _parse_page(cards_res.text)
+    cover_imgs = [
+        img
+        for img in cards_imgs
+        if img.get("src") == "https://example.com/thumb.jpg"
+        and "card-thumb-img" not in (img.get("class") or "").split()
+    ]
+    assert len(cover_imgs) == 1
+    assert cover_imgs[0]["width"] == "640"
+    assert cover_imgs[0]["height"] == "360"
+    assert "#items-list.view-cards .card-cover" not in css

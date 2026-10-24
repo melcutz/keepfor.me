@@ -9,7 +9,7 @@
          class="bulk-select hidden absolute top-3 right-3 z-20 w-4 h-4 accent-slate-900 bg-white rounded-sm shadow ring-1 ring-slate-300">
   {% if item.image_url %}
   <div class="card-cover mb-3 -mx-5 -mt-5 overflow-hidden rounded-t-xl">
-    <img src="{{ item.image_url }}" alt="" loading="lazy"
+    <img src="{{ item.image_url }}" alt="" loading="lazy" width="640" height="360"
          class="w-full aspect-video object-cover bg-slate-100"
          onerror="this.closest('.card-cover').remove()">
   </div>
@@ -21,18 +21,23 @@
   {% set path = ('/' + '/'.join(parts[3:])) if parts|length > 3 else '' %}
   {% set short_url = domain + (path | truncate(60, True, '…')) %}
   {% set fallback = tag_styles.get(item.tags[0] if item.tags else '', ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-  <span class="relative w-6 h-6 shrink-0 mt-0.5 ring-1 ring-slate-200 rounded-md overflow-hidden bg-slate-100">
+  <span class="card-thumb relative w-6 h-6 shrink-0 mt-0.5 ring-1 ring-slate-200 rounded-md overflow-hidden bg-slate-100">
     <span class="absolute inset-0 rounded-md text-[11px] font-extrabold flex items-center justify-center {{ fallback[0] }}">{{ ((item.site_name or domain) ~ '')[0] if (item.site_name or domain) else '?' }}</span>
     {# Favicons come from our own route: it answers 200 with the site's icon
        or with a transparent fallback, so the console never sees a 404 and
        this letter tile shows through when the site has no icon. #}
     {% set favicon = favicon_url(item.canonical_url or item.url) %}
     {% if favicon %}
-    <img src="{{ favicon }}" alt="" loading="lazy" class="absolute inset-0 w-6 h-6 rounded-md object-cover">
+    <img src="{{ favicon }}" alt="" loading="lazy" width="24" height="24" class="card-favicon absolute inset-0 w-6 h-6 rounded-md object-cover">
+    {% endif %}
+    {% if item.image_url %}
+    <img src="{{ item.image_url }}" alt="" loading="lazy" width="48" height="48"
+         class="card-thumb-img hidden absolute inset-0 w-full h-full object-cover bg-slate-100"
+         onerror="this.remove()">
     {% endif %}
   </span>
     <div class="card-body flex-1 min-w-0 pr-4">
-      <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mb-1.5 min-w-0">
+      <div class="card-meta flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mb-1.5 min-w-0">
         <span class="font-medium text-slate-700 whitespace-nowrap truncate max-w-full">{{ item.site_name or item.canonical_url.split('/')[2] }}</span>
         <span>•</span>
         {% if item.word_count %}
@@ -70,11 +75,11 @@
       </div>
 
       {% if item.title %}
-      <h3 class="text-base md:text-[17px] font-semibold text-slate-900 leading-snug tracking-[-0.01em] group-hover:text-[var(--brand-accent)] transition break-words">
+      <h3 class="card-title text-base md:text-[17px] font-semibold text-slate-900 leading-snug tracking-[-0.01em] group-hover:text-[var(--brand-accent)] transition break-words">
         <a href="/items/{{ item.id }}" class="block line-clamp-2">{{ item.title }}</a>
       </h3>
       {% else %}
-      <h3 class="text-base font-medium text-slate-600 leading-snug transition break-words">
+      <h3 class="card-title text-base font-medium text-slate-600 leading-snug transition break-words">
         <a href="/items/{{ item.id }}" class="block truncate break-all" title="{{ raw }}">{{ short_url }}</a>
       </h3>
       {% endif %}
@@ -93,7 +98,7 @@
       {% endif %}
 
       {% if item.user_notes %}
-      <p class="mt-2 text-xs text-slate-600 bg-amber-50/70 border border-amber-100 rounded-lg px-2.5 py-1.5">
+      <p class="card-note mt-2 text-xs text-slate-600 bg-amber-50/70 border border-amber-100 rounded-lg px-2.5 py-1.5">
         <span class="font-semibold text-amber-800">Note:</span> {{ item.user_notes }}
       </p>
       {% endif %}

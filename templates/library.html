@@ -122,7 +122,7 @@
           border-top: 1px solid #f0eee6;
           opacity: 1;
         }
-        #items-list.view-list > * { min-width: 0; }
+        #items-list.view-list > *, #items-list.view-compact > * { margin: 0 !important; min-width: 0; }
         #items-list .item-card { min-width: 0; overflow: hidden; }
         /* Non-cards views: capped whole column (toolbar + pills + rows). */
         /* width:100% keeps a definite size so auto margins center instead
@@ -132,11 +132,64 @@
         /* Pinned items live in the feed in every view: the feed is the
            single source of items, so the counts always match the list. */
         #items-list .item-card.is-pinned { border-color: #fbbf24; }
-        #items-list.view-list, #items-list.view-compact { display: flex; flex-direction: column; gap: 1rem; max-width: 64rem; }
+        #items-list.view-list, #items-list.view-compact { display: flex; flex-direction: column; gap: 0.5rem; max-width: 64rem; }
+        /* List: compact rows with a 48x48 thumbnail (or favicon fallback),
+           title, domain, date and tags at <=72px per row on desktop (#96). */
+        #items-list.view-list .item-card { padding: 0.5rem 0.75rem; }
+        #items-list.view-list .card-cover,
+        #items-list.view-list .card-excerpt,
+        #items-list.view-list .card-note,
+        #items-list.view-list details { display: none !important; }
+        #items-list.view-list .card-main { align-items: center; gap: 0.75rem; }
+        #items-list.view-list .card-thumb { width: 3rem; height: 3rem; margin-top: 0; border-radius: 0.5rem; }
+        #items-list.view-list .card-thumb .card-favicon { width: 100%; height: 100%; }
+        #items-list.view-list .card-thumb .card-thumb-img { display: block; }
+        #items-list.view-list .card-body {
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr);
+          align-items: center;
+          column-gap: 0.5rem;
+          row-gap: 0.125rem;
+          padding-right: 0.5rem;
+        }
+        #items-list.view-list .card-title {
+          grid-column: 1 / -1;
+          grid-row: 1;
+          font-size: 0.9375rem;
+          line-height: 1.35;
+        }
+        #items-list.view-list .card-title a {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        #items-list.view-list .card-meta {
+          grid-row: 2;
+          margin-bottom: 0;
+          flex-wrap: nowrap;
+          overflow: hidden;
+        }
+        #items-list.view-list .card-tags {
+          grid-row: 2;
+          margin-top: 0;
+          flex-wrap: nowrap;
+          overflow: hidden;
+        }
+        #items-list.view-list .card-tags > span,
+        #items-list.view-list .card-tags input[name="add"] {
+          padding-top: 0.125rem;
+          padding-bottom: 0.125rem;
+        }
+        @media (max-width: 639px) {
+          #items-list.view-list .card-main { flex-wrap: wrap; }
+          #items-list.view-list .card-actions { flex: 1 1 100%; justify-content: flex-end; }
+        }
         #items-list.view-compact { gap: 0.25rem; }
         #items-list.view-compact .item-card { padding: 0.5rem 0.75rem; }
         #items-list.view-compact .card-cover,
         #items-list.view-compact .card-excerpt,
+        #items-list.view-compact .card-note,
         #items-list.view-compact .card-actions,
         #items-list.view-compact .card-tags,
         #items-list.view-compact details { display: none !important; }
