@@ -825,3 +825,68 @@ def test_match_existing_tags_exempts_short_and_generic_existing_tags():
     # Hard-blocked tags must never match
     for blocked in ["www", "http", "https", "com", "2024"]:
         assert blocked not in all_matched
+
+
+def test_slug_tokens_filters_short_and_junk():
+    url = "https://example.com/ai/retrieved-april-2024-ux"
+    tokens = tagger.slug_tokens(url)
+    for excluded in ["retrieved", "april", "2024", "ai", "ux", "com"]:
+        assert excluded not in tokens
+    assert "example" in tokens
+
+    archived_tokens = tagger.slug_tokens("https://example.com/archived-documentation")
+    assert "archived" not in archived_tokens
+    assert "documentation" in archived_tokens
+
+
+def test_suggest_new_tags_url_slug_noise_regression():
+    url = "https://example.com/ai/retrieved-april-2024-ux"
+    suggestions = tagger.suggest_new_tags(
+        title="Distributed Systems and Database Patterns",
+        excerpt="An engineering guide exploring systems architecture.",
+        url=url,
+        body=(
+            "Distributed systems require reliable architecture. Database patterns "
+            "help scale distributed systems across modern cloud infrastructure."
+        ),
+        user_tags=[],
+    )
+    phrases = [s.phrase for s in suggestions]
+    assert len(phrases) > 0
+
+    for word in ["retrieved", "archived", "april", "ai", "ux", "2024"]:
+        assert word not in phrases
+        assert not any(word in p.split() for p in phrases)
+
+    suggestions_with_noise_text = tagger.suggest_new_tags(
+        title="AI Engineering in April 2024",
+        excerpt="Retrieved from archived reports on UX engineering.",
+        url=url,
+        body=(
+            "AI and UX engineering teams published findings in April 2024. "
+            "Retrieved archived reports examine distributed systems and "
+            "database patterns. Distributed systems require database patterns."
+        ),
+        user_tags=[],
+    )
+    noisy_phrases = [s.phrase for s in suggestions_with_noise_text]
+    for word in ["retrieved", "archived", "april", "ai", "ux", "2024"]:
+        assert word not in noisy_phrases
+        assert not any(word in p.split() for p in noisy_phrases)
+
+
+def test_match_existing_tags_matches_short_and_generic_via_url_slug():
+    tags = ["ai", "ux", "archive", "www", "2024"]
+    res = tagger.match_existing_tags(
+        title="Distributed Systems Overview",
+        excerpt="An overview of modern computing.",
+        url="https://example.com/ai/ux-archive-2024",
+        body="A detailed discussion of compute clusters.",
+        user_tags=tags,
+    )
+    all_matched = set(res.auto_apply + res.suggest_only)
+    assert "ai" in all_matched
+    assert "ux" in all_matched
+    assert "archive" in all_matched
+    assert "www" not in all_matched
+    assert "2024" not in all_matched
