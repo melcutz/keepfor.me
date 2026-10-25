@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
@@ -398,6 +399,51 @@ async def get_item(
     return item
 
 
+async def get_items_by_ids(
+    db: Database, user_id: str, item_ids: Sequence[str]
+) -> list[dict[str, Any]]:
+    """Fetch non-trashed items in <=50-ID batches in `item_ids` order."""
+    from keepfor.search.engine import RECENT_COLUMNS_BARE
+
+    clean_ids = list(dict.fromkeys(i for i in item_ids if i))
+    if not clean_ids:
+        return []
+    rows: list[Any] = []
+    tag_rows: list[Any] = []
+    for i in range(0, len(clean_ids), 50):
+        chunk = clean_ids[i : i + 50]
+        placeholders = ",".join("?" for _ in chunk)
+        item_sql = (
+            f"SELECT {RECENT_COLUMNS_BARE} FROM items "
+            f"WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});"
+        )
+        tag_sql = (
+            "SELECT it.item_id, t.name AS tag_name "
+            "FROM item_tags it "
+            "JOIN items i ON i.id = it.item_id AND i.user_id = ? "
+            "JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id "
+            f"WHERE it.item_id IN ({placeholders}) "
+            "ORDER BY t.name ASC;"
+        )
+        c_rows, c_tags = await asyncio.gather(
+            db.query_all(item_sql, (user_id, *chunk)),
+            db.query_all(tag_sql, (user_id, *chunk)),
+        )
+        rows.extend(c_rows)
+        tag_rows.extend(c_tags)
+    if not rows:
+        return []
+    tags_by_id: dict[str, list[str]] = {}
+    for tr in tag_rows:
+        tags_by_id.setdefault(tr["item_id"], []).append(tr["tag_name"])
+    by_id: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        item = dict(r)
+        item["tags"] = tags_by_id.get(r["id"], [])
+        by_id[r["id"]] = item
+    return [by_id[iid] for iid in item_ids if iid in by_id]
+
+
 async def get_item_clean_html(
     db: Database,
     env: Any,
@@ -405,6 +451,7 @@ async def get_item_clean_html(
     item_id: str,
     *,
     scope: TenantScope | None = None,
+    item: dict[str, Any] | None = None,
 ) -> str | None:
     """Get clean reader HTML from R2, or format the stored content text."""
     if scope is None:
@@ -413,7 +460,8 @@ async def get_item_clean_html(
         scope = default_scope(db, env, user_id)
 
     # Verify ownership
-    item = await get_item(db, user_id, item_id)
+    if item is None:
+        item = await get_item(db, user_id, item_id)
     if not item:
         return None
 

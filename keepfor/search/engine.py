@@ -943,9 +943,25 @@ async def hybrid_search(
         :MAX_TAG_FILTERS
     ]
     # Child tags count: a filter on "work" also matches "work/research".
-    all_sets = await expand_tag_names(db, user_id, tags_all or [])
-    any_sets = await expand_tag_names(db, user_id, tags_any or [])
-    none_sets = await expand_tag_names(db, user_id, tags_none or [])
+    all_sets: dict[str, set[str]] = {}
+    any_sets: dict[str, set[str]] = {}
+    none_sets: dict[str, set[str]] = {}
+    expand_tasks = []
+
+    async def _expand(tag_list, target_dict):
+        if tag_list:
+            target_dict.update(await expand_tag_names(db, user_id, tag_list))
+
+    if tags_all:
+        expand_tasks.append(_expand(tags_all, all_sets))
+    if tags_any:
+        expand_tasks.append(_expand(tags_any, any_sets))
+    if tags_none:
+        expand_tasks.append(_expand(tags_none, none_sets))
+
+    if expand_tasks:
+        await asyncio.gather(*expand_tasks)
+
     any_names = {n for names in any_sets.values() for n in names}
     none_names = {n for names in none_sets.values() for n in names}
     if not query:
@@ -1084,13 +1100,6 @@ async def hybrid_search(
           AND i.user_id = ? AND i.deleted_at IS NULL
           {status_clause}{cat_clause}{quick_clause}{read_clause};
     """
-    rows = await db.query_all(
-        sql,
-        (*top_ids, user_id, *status_params, *cat_params, *read_params),
-    )
-    item_map = {row["id"]: row for row in rows}
-
-    # Fetch tags for these items
     tag_sql = f"""
         SELECT it.item_id, t.name as tag_name
         FROM item_tags it
@@ -1098,7 +1107,13 @@ async def hybrid_search(
         JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
         WHERE it.item_id IN ({placeholders});
     """
-    tag_rows = await db.query_all(tag_sql, (user_id, *top_ids))
+    rows, tag_rows = await asyncio.gather(
+        db.query_all(
+            sql, (*top_ids, user_id, *status_params, *cat_params, *read_params)
+        ),
+        db.query_all(tag_sql, (user_id, *top_ids)),
+    )
+    item_map = {row["id"]: row for row in rows}
     item_tags_map: dict[str, list[str]] = {}
     for tr in tag_rows:
         item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])

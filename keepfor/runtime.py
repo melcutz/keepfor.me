@@ -32,6 +32,12 @@ def reset_providers() -> None:
     """Reset the process-wide providers instance (useful for test isolation)."""
     global _providers
     _providers = None
+    try:
+        from keepfor.utils.favicon import clear_favicon_mem_cache
+
+        clear_favicon_mem_cache()
+    except Exception:
+        pass
 
 
 def is_multi_tenant() -> bool:

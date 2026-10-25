@@ -19,24 +19,16 @@
             <span>All Items</span>
             <span id="sidebar-total" class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">{{ status_counts["all"] or items|length }}</span>
           </a>
-          {% for t in tags %}
-          {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-          {% if t.name in active_tags %}
-          {% set rest = active_tags|reject('equalto', t.name)|list %}
-          <a href="{% if rest %}/?tag={{ rest|join(',') }}{% else %}/{{ view_q }}{% endif %}{{ view_a if rest else '' }}" draggable="true" data-tag-source="{{ t.name }}" aria-label="Remove #{{ t.name }} filter" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 text-slate-900">
-            <span class="w-2 h-2 rounded-full {{ ts[1] }} shrink-0"></span>
-            <span>#{{ t.name }} <span aria-hidden="true">&times;</span></span>
-            <span class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">{{ t.count }}</span>
-          </a>
-          {% else %}
-          {% set added = (active_tags + [t.name])|reject('equalto', '__untagged__')|list %}
-          <a href="/?tag={{ added|join(',') }}{{ view_a }}" draggable="true" data-tag-source="{{ t.name }}" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100">
-            <span class="w-2 h-2 rounded-full {{ ts[1] }} shrink-0"></span>
-            <span>#{{ t.name }}</span>
-            <span class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">{{ t.count }}</span>
-          </a>
-          {% endif %}
-          {% endfor %}
+          {%- for t in tags -%}
+          {%- set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
+          {%- if t.name in active_tags -%}
+          {%- set rest = active_tags|reject('equalto', t.name)|list %}
+          <a href="{% if rest %}/?tag={{ rest|join(',') }}{%- else -%}/{{ view_q }}{%- endif -%}{{ view_a if rest else '' }}" draggable="true" data-tag-source="{{ t.name }}" aria-label="Remove #{{ t.name }} filter" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 text-slate-900"><span class="w-2 h-2 rounded-full {{ ts[1] }} shrink-0"></span><span>#{{ t.name }} <span aria-hidden="true">&times;</span></span><span class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">{{ t.count }}</span></a>
+          {%- else -%}
+          {%- set added = (active_tags + [t.name])|reject('equalto', '__untagged__')|list %}
+          <a href="/?tag={{ added|join(',') }}{{ view_a }}" draggable="true" data-tag-source="{{ t.name }}" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100"><span class="w-2 h-2 rounded-full {{ ts[1] }} shrink-0"></span><span>#{{ t.name }}</span><span class="ml-auto text-slate-500 bg-slate-100 rounded-md px-1.5">{{ t.count }}</span></a>
+          {%- endif -%}
+          {%- endfor -%}
           {% if active_untagged %}
           <a href="/{{ view_q }}" aria-label="Remove untagged filter" class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-200 text-slate-900">
             <span class="w-2 h-2 rounded-full bg-slate-400 shrink-0"></span>
@@ -199,20 +191,16 @@
       <div id="mobile-tags" class="md:hidden -mx-4 px-4 overflow-x-auto">
         <div class="flex gap-1.5 w-max py-1">
           <a href="/{{ view_q }}" class="shrink-0 px-3 py-2 md:py-1 rounded-full text-xs font-medium {% if not active_tags and not active_untagged %}bg-slate-900 text-white{% else %}bg-white border border-slate-200 text-slate-600{% endif %}">All · <span id="mobile-total">{{ status_counts["all"] or items|length }}</span></a>
-          {% for t in tags %}
-          {% set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
-          {% if t.name in active_tags %}
-          {% set rest = active_tags|reject('equalto', t.name)|list %}
-          <a href="{% if rest %}/?tag={{ rest|join(',') }}{% else %}/{{ view_q }}{% endif %}{{ view_a if rest else '' }}" data-tag-source="{{ t.name }}" aria-label="Remove #{{ t.name }} filter" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium bg-slate-900 text-white">
-            <span class="w-1.5 h-1.5 rounded-full {{ ts[1] }} shrink-0"></span>#{{ t.name }} <span aria-hidden="true">&times;</span>
-          </a>
-          {% else %}
-          {% set added = (active_tags + [t.name])|reject('equalto', '__untagged__')|list %}
-          <a href="/?tag={{ added|join(',') }}{{ view_a }}" data-tag-source="{{ t.name }}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600">
-            <span class="w-1.5 h-1.5 rounded-full {{ ts[1] }} shrink-0"></span>#{{ t.name }} · {{ t.count }}
-          </a>
-          {% endif %}
-          {% endfor %}
+          {%- for t in tags -%}
+          {%- set ts = tag_styles.get(t.name, ('bg-slate-100 text-slate-600', 'bg-slate-400')) %}
+          {%- if t.name in active_tags -%}
+          {%- set rest = active_tags|reject('equalto', t.name)|list %}
+          <a href="{% if rest %}/?tag={{ rest|join(',') }}{%- else -%}/{{ view_q }}{%- endif -%}{{ view_a if rest else '' }}" data-tag-source="{{ t.name }}" aria-label="Remove #{{ t.name }} filter" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium bg-slate-900 text-white"><span class="w-1.5 h-1.5 rounded-full {{ ts[1] }} shrink-0"></span>#{{ t.name }} <span aria-hidden="true">&times;</span></a>
+          {%- else -%}
+          {%- set added = (active_tags + [t.name])|reject('equalto', '__untagged__')|list %}
+          <a href="/?tag={{ added|join(',') }}{{ view_a }}" data-tag-source="{{ t.name }}" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium bg-white border border-slate-200 text-slate-600"><span class="w-1.5 h-1.5 rounded-full {{ ts[1] }} shrink-0"></span>#{{ t.name }} · {{ t.count }}</a>
+          {%- endif -%}
+          {%- endfor -%}
           {% if active_untagged %}
           <a href="/{{ view_q }}" aria-label="Remove untagged filter" class="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 md:py-1 rounded-full text-xs font-medium bg-slate-900 text-white">Untagged <span aria-hidden="true">&times;</span></a>
           {% else %}
@@ -240,9 +228,7 @@
             </span>
           </div>
           <input type="hidden" id="active-tag-input" name="tag" value="{{ active_tags|join(',') if active_tags else (active_tag or '') }}">
-          <datalist id="tag-suggest-all">
-            {% for t in tags %}<option value="{{ t.name }}"></option>{% endfor %}
-          </datalist>
+          <datalist id="tag-suggest-all"></datalist>
           <input type="hidden" id="active-status-input" name="status" value="{{ active_status or '' }}">
           <input type="hidden" id="active-page-input" name="page" value="{{ page }}">
           <input type="hidden" id="active-perpage-input" name="per_page" value="{{ per_page }}">
@@ -535,6 +521,28 @@
   // column. Every view lists the same items. The layout goes into URLs,
   // so only the three known values are accepted: the value in a URL is a
   // constant, never the raw query string.
+  // Lazy datalist population
+  var datalistPopulated = false;
+  document.addEventListener('focusin', function(e) {
+    if (datalistPopulated) return;
+    if (e.target && e.target.tagName === 'INPUT' && e.target.getAttribute('list') === 'tag-suggest-all') {
+      datalistPopulated = true;
+      var datalist = document.getElementById('tag-suggest-all');
+      if (!datalist) return;
+      var sources = document.querySelectorAll('[data-tag-source]');
+      var seen = {};
+      var html = '';
+      for (var i = 0; i < sources.length; i++) {
+        var name = sources[i].getAttribute('data-tag-source');
+        if (name && !seen[name]) {
+          seen[name] = true;
+          html += '<option value="' + name.replace(/"/g, '&quot;') + '"></option>';
+        }
+      }
+      datalist.innerHTML = html;
+    }
+  });
+
   var VIEWS = ["cards", "list", "compact"];
   var itemsList = document.getElementById('items-list');
   var viewInput = document.getElementById('active-view-input');
