@@ -88,7 +88,7 @@ FALLBACK_MAX_AGE = 3600
 # Bounded in-memory isolate cache to avoid repeated R2 reads within the same Worker isolate.
 FAVICON_MEM_CACHE_MAX = 512
 FAVICON_MEM_CACHE_TTL = 3600.0  # 1 hour
-_FAVICON_MEM_CACHE: dict[tuple[int, str], tuple[bytes, str, float]] = {}
+_FAVICON_MEM_CACHE: dict[str, tuple[bytes, str, float]] = {}
 
 
 def clear_favicon_mem_cache() -> None:
@@ -253,16 +253,15 @@ def _bucket(env: Any) -> Any:
 async def _cache_get(bucket: Any, key: str) -> tuple[bytes, str] | None:
     if bucket is None:
         return None
-    cache_key = (id(bucket), key)
     now = time.time()
-    cached = _FAVICON_MEM_CACHE.get(cache_key)
+    cached = _FAVICON_MEM_CACHE.get(key)
     if cached is not None:
         body, ct, exp = cached
         if exp > now:
             # Refresh LRU position on cache hit
-            _FAVICON_MEM_CACHE[cache_key] = _FAVICON_MEM_CACHE.pop(cache_key)
+            _FAVICON_MEM_CACHE[key] = _FAVICON_MEM_CACHE.pop(key)
             return body, ct
-        _FAVICON_MEM_CACHE.pop(cache_key, None)
+        _FAVICON_MEM_CACHE.pop(key, None)
 
     try:
         obj = await bucket.get(key)
@@ -279,7 +278,7 @@ async def _cache_get(bucket: Any, key: str) -> tuple[bytes, str] | None:
         content_type = str(payload["ct"])
         if len(_FAVICON_MEM_CACHE) >= FAVICON_MEM_CACHE_MAX:
             _FAVICON_MEM_CACHE.pop(next(iter(_FAVICON_MEM_CACHE)), None)
-        _FAVICON_MEM_CACHE[cache_key] = (
+        _FAVICON_MEM_CACHE[key] = (
             body,
             content_type,
             now + FAVICON_MEM_CACHE_TTL,
@@ -292,7 +291,7 @@ async def _cache_get(bucket: Any, key: str) -> tuple[bytes, str] | None:
 async def _cache_put(bucket: Any, key: str, body: bytes, content_type: str) -> None:
     if bucket is None:
         return
-    _FAVICON_MEM_CACHE.pop((id(bucket), key), None)
+    _FAVICON_MEM_CACHE.pop(key, None)
     try:
         # Base64 in a text blob: R2's binary put differs between runtimes,
         # its text put does not.
