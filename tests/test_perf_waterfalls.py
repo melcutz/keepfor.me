@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
+from keepfor.app import app
+from keepfor.auth.service import login_user, register_user
 from keepfor.models.db import Database
 from keepfor.models.items import (
     get_item,
@@ -73,6 +76,7 @@ async def test_favicon_memory_cache_avoids_repeated_r2_reads():
     import base64
     import json
     import time
+
     from keepfor.utils.favicon import (
         FALLBACK_ICON,
         clear_favicon_mem_cache,
@@ -130,10 +134,11 @@ async def test_favicon_memory_cache_eviction_and_expiration():
     import base64
     import json
     import time
+
     from keepfor.utils.favicon import (
+        _FAVICON_MEM_CACHE,
         FALLBACK_ICON,
         FAVICON_MEM_CACHE_MAX,
-        _FAVICON_MEM_CACHE,
         clear_favicon_mem_cache,
         resolve_favicon,
     )
@@ -190,3 +195,57 @@ async def test_favicon_memory_cache_eviction_and_expiration():
     # Last item is present
     assert f"favicons/site-{FAVICON_MEM_CACHE_MAX + 9}.com" in _FAVICON_MEM_CACHE
     clear_favicon_mem_cache()
+
+
+@pytest.fixture
+def client(db, monkeypatch):
+    def mock_get_db(request):
+        return db
+
+    class FakeQueue:
+        async def send(self, message: dict):
+            pass
+
+    class MockEnv:
+        def __init__(self):
+            self.QUEUE = FakeQueue()
+
+    monkeypatch.setattr("keepfor.deps.get_db", mock_get_db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: MockEnv())
+
+    return TestClient(app)
+
+
+@pytest.mark.asyncio
+async def test_html_payload_optimizations(client, db):
+    user_record = await register_user(db, "test@example.com", "password")
+    user_id = user_record["id"]
+
+    # 160 tags total, 20 items with 2 tags each, 1 archived item with 120 tags
+    tags = [f"tag-{i}" for i in range(160)]
+    await save_note(db, None, user_id, "Archived Note", "Content", tags=tags[40:])
+    await db.execute(
+        "UPDATE items SET read_state = 'archived', updated_at = '2000-01-01 00:00:00', created_at = '2000-01-01 00:00:00' WHERE title = 'Archived Note'"
+    )
+
+    for i in range(20):
+        item_tags = tags[i * 2 : (i + 1) * 2]
+        await save_note(db, None, user_id, f"Note {i}", "Content", tags=item_tags)
+
+    user, session_id = await login_user(db, "test@example.com", "password")
+    client.cookies.set("kfm_session", session_id)
+
+    res = client.get("/")
+    html = res.text
+
+    assert "Archived Note" not in html, "Archived Note should not be on page 1"
+    assert (
+        '<script defer src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js"></script>'
+        in html
+    )
+    assert '<svg id="kfm-svg-sprite"' in html
+    assert '<use href="#kfm-icon-' in html
+    assert '<datalist id="tag-suggest-all"></datalist>' in html
+
+    html_size = len(html.encode("utf-8"))
+    assert html_size < 360000, f"HTML payload is {html_size} bytes, expected < 360000"

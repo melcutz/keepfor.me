@@ -17,8 +17,8 @@
   <link rel="dns-prefetch" href="https://cdn.tailwindcss.com">
   <link rel="dns-prefetch" href="https://unpkg.com">
   <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
-  <script src="https://unpkg.com/htmx.org@2.0.3"></script>
-  {% from "partials/icons.html" import icon %}
+  <script defer src="https://unpkg.com/htmx.org@2.0.3/dist/htmx.min.js"></script>
+  {% from "partials/icons.html" import icon, icon_sprite %}
   <style>
     :root {
       --bg-canvas: #fcfbf8;
@@ -205,6 +205,7 @@
   {% block head_extra %}{% endblock %}
 </head>
 <body class="h-full flex flex-col font-sans">
+  {{ icon_sprite() }}
   {% block banner %}{% endblock %}
   <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:bg-slate-900 focus:text-white focus:rounded-md focus:text-xs focus:font-semibold focus:shadow-md">Skip to content</a>
   {% if current_user %}
