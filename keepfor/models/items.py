@@ -402,29 +402,35 @@ async def get_item(
 async def get_items_by_ids(
     db: Database, user_id: str, item_ids: Sequence[str]
 ) -> list[dict[str, Any]]:
-    """Fetch non-trashed items in 2 queries (items + tags) in `item_ids` order."""
+    """Fetch non-trashed items in <=50-ID batches in `item_ids` order."""
     from keepfor.search.engine import RECENT_COLUMNS_BARE
 
     clean_ids = list(dict.fromkeys(i for i in item_ids if i))
     if not clean_ids:
         return []
-    placeholders = ",".join("?" for _ in clean_ids)
-    item_sql = (
-        f"SELECT {RECENT_COLUMNS_BARE} FROM items "
-        f"WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});"
-    )
-    tag_sql = (
-        "SELECT it.item_id, t.name AS tag_name "
-        "FROM item_tags it "
-        "JOIN items i ON i.id = it.item_id AND i.user_id = ? "
-        "JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id "
-        f"WHERE it.item_id IN ({placeholders}) "
-        "ORDER BY t.name ASC;"
-    )
-    rows, tag_rows = await asyncio.gather(
-        db.query_all(item_sql, (user_id, *clean_ids)),
-        db.query_all(tag_sql, (user_id, *clean_ids)),
-    )
+    rows: list[Any] = []
+    tag_rows: list[Any] = []
+    for i in range(0, len(clean_ids), 50):
+        chunk = clean_ids[i : i + 50]
+        placeholders = ",".join("?" for _ in chunk)
+        item_sql = (
+            f"SELECT {RECENT_COLUMNS_BARE} FROM items "
+            f"WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});"
+        )
+        tag_sql = (
+            "SELECT it.item_id, t.name AS tag_name "
+            "FROM item_tags it "
+            "JOIN items i ON i.id = it.item_id AND i.user_id = ? "
+            "JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id "
+            f"WHERE it.item_id IN ({placeholders}) "
+            "ORDER BY t.name ASC;"
+        )
+        c_rows, c_tags = await asyncio.gather(
+            db.query_all(item_sql, (user_id, *chunk)),
+            db.query_all(tag_sql, (user_id, *chunk)),
+        )
+        rows.extend(c_rows)
+        tag_rows.extend(c_tags)
     if not rows:
         return []
     tags_by_id: dict[str, list[str]] = {}

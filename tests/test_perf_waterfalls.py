@@ -54,6 +54,13 @@ async def test_get_items_by_ids_batches_in_two_queries_and_preserves_order(
     # Exactly 2 queries: 1 for items IN (...), 1 for item_tags IN (...)
     assert len(counting_db.queries) == 2
 
+    # Verify >50 IDs chunks into multiple batches of <=50 IDs (D1 parameter cap)
+    counting_db.queries.clear()
+    many_ids = [n3["id"], *[f"missing-{i}" for i in range(55)], n1["id"]]
+    chunked_items = await get_items_by_ids(counting_db, "u1", many_ids)
+    assert [it["id"] for it in chunked_items] == [n3["id"], n1["id"]]
+    assert len(counting_db.queries) == 4
+
 
 @pytest.mark.asyncio
 async def test_get_item_clean_html_reuses_preloaded_item(db: Database):
