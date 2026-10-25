@@ -285,6 +285,28 @@ def validate_tag_name(raw: str) -> str | None:
     return clean
 
 
+HARD_BLOCKED_TAGS = frozenset({"www", "http", "https", "com"})
+
+
+def is_hard_blocked_tag(tag: str) -> bool:
+    """True when a tag is always blocked, even for a user's existing tags.
+
+    Hard-blocked: www, http, https, com, and pure-number tokens (e.g. 2024, 123).
+    """
+    clean = normalize_tag(tag)
+    if not clean:
+        return True
+    if clean in HARD_BLOCKED_TAGS or clean.isdigit():
+        return True
+    tokens = _WORD_RE.findall(clean)
+    if not tokens:
+        return True
+    if len(tokens) == 1:
+        w = tokens[0]
+        return w in HARD_BLOCKED_TAGS or w.isdigit()
+    return all(w in HARD_BLOCKED_TAGS or w.isdigit() for w in tokens)
+
+
 def is_junk_tag(tag: str) -> bool:
     """True when a tag is noise/junk and must not be offered as a suggestion.
 
@@ -299,7 +321,9 @@ def is_junk_tag(tag: str) -> bool:
     clean = normalize_tag(tag)
     if not clean:
         return True
-    if len(clean) <= 2 or clean.isdigit():
+    if is_hard_blocked_tag(clean):
+        return True
+    if len(clean) <= 2:
         return True
     tokens = _WORD_RE.findall(clean)
     if not tokens:
@@ -367,6 +391,23 @@ def slug_tokens(url: str, stopwords: frozenset[str] = STOPWORDS) -> set[str]:
     } - stopwords
 
 
+def _match_slug_tokens(url: str) -> set[str]:
+    """Lowercase alphanumeric tokens from URL path + host for existing tag matching.
+
+    Looser than slug_tokens: retains short tokens (>= 2 chars) and generic words
+    so existing user tags (e.g. 'ai', 'ux') match via the URL slug, while still
+    excluding hard-blocked tokens (e.g. 'www', 'http', pure digits).
+    """
+    try:
+        parts = urlparse(url)
+    except Exception:
+        return set()
+    text = f"{parts.netloc} {parts.path}".lower().replace("-", " ").replace("_", " ")
+    return {
+        w for w in _WORD_RE.findall(text) if len(w) >= 2 and not is_hard_blocked_tag(w)
+    }
+
+
 def detect_language(text: str) -> str:
     """Guess the document language from its stopwords (no model, no deps).
 
@@ -406,10 +447,10 @@ def match_existing_tags(
     """
     auto: list[str] = []
     suggest: list[str] = []
-    slugs = slug_tokens(url or "", stopwords_for(lang, f"{title} {excerpt} {body}"))
+    slugs = _match_slug_tokens(url or "")
     for raw in user_tags:
         tag = normalize_tag(raw)
-        if not tag:
+        if not tag or is_hard_blocked_tag(tag):
             continue
         title_hits = _count_whole_word(title or "", tag)
         excerpt_hits = _count_whole_word(excerpt or "", tag)

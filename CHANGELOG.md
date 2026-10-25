@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tenant-scoped: users only see and manage their own highlights
 
 ### Fixed
+- **Exempt existing user tags from short-token and generic URL filtering** (GitHub issue #110):
+  - A user's existing tags (e.g. `ai`, `ux`, `css`, `may`, `archive`) are exempt from short-token (<=2 chars) and generic/stopword rules when relevant to an item.
+  - Hard-blocked tags (`www`, `http`, `https`, `com`, and pure-number tokens) are always excluded from suggestions, even if present in the user's existing tags.
+  - New tag suggestions retain all noise filtering from #109, preserving existing-tags-first ordering and the cap of 5 suggestions.
 - **Filter out junk from tag suggestions and existing tags** (keepfor-cloud issue #196):
   - Tag suggester filters out generic verbs and past participles (retrieved, archived, accessed, published, updated, posted...), month and day names and abbreviations (april, apr, monday, mon...), URL fragments (www, http, https, com, org, net, html...), short tokens (length <= 2), and pure numbers.
   - Existing junk tags are excluded from suggestions in `suggest_tags_for_item` and `suggest_tags_for_text` while preserving the existing-tags-first ordering and the cap of 5 suggestions.
