@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tenant-scoped: users only see and manage their own highlights
 
 ### Fixed
+- **Filter out junk from tag suggestions and existing tags** (keepfor-cloud issue #196):
+  - Tag suggester filters out generic verbs and past participles (retrieved, archived, accessed, published, updated, posted...), month and day names and abbreviations (april, apr, monday, mon...), URL fragments (www, http, https, com, org, net, html...), short tokens (length <= 2), and pure numbers.
+  - Existing junk tags are excluded from suggestions in `suggest_tags_for_item` and `suggest_tags_for_text` while preserving the existing-tags-first ordering and the cap of 5 suggestions.
 - **Highlight all search terms and drop junk tag suggestions** (GitHub issue #97):
   - Every query term and its inflections and stems are highlighted in search snippets and excerpts with `<mark>` tags, consistent with plural and inflected matching. Multi-term queries fetch snippets containing matched terms, and existing mark tags are preserved without nesting.
   - Tag suggester drops stopword-led, stopword-ended, verb-led, and verb-ended n-grams (such as "#bookmark see" and "#woven silk"), as well as n-grams containing verbs or stopwords. Suggestions prioritize known tags and extracted entities, return at most 5 candidates, and require a minimum score threshold of 1.5.
