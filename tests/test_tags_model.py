@@ -378,6 +378,109 @@ async def test_suggest_tags_for_item_caps_total_and_prefers_vocabulary(db):
 
 
 @pytest.mark.asyncio
+async def test_suggest_tags_for_item_filters_junk_existing_tags(db):
+    user_id = str(uuid.uuid4())
+    junk_existing = [
+        "www",
+        "http",
+        "retrieved",
+        "published",
+        "april",
+        "monday",
+        "2024",
+        "ai",
+        "go",
+    ]
+    for tag in junk_existing:
+        await create_tag(db, user_id, tag)
+    await create_tag(db, user_id, "databases")
+
+    item_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, title,"
+        " content_text, status)"
+        " VALUES (?, ?, ?, ?, ?, ?, 'ok');",
+        (
+            item_id,
+            user_id,
+            "https://example.com/databases-guide",
+            "https://example.com/databases-guide",
+            "Databases Guide",
+            (
+                "Published on Monday in April 2024. Retrieved from http www. "
+                "Go explore databases today. Databases provide persistence "
+                "for AI systems."
+            ),
+        ),
+    )
+    suggestions = await tags_model.suggest_tags_for_item(db, user_id, item_id)
+    names = [s["name"] for s in suggestions]
+
+    # Verify no junk tags offered, even though they exist in user's tags
+    for j in junk_existing:
+        assert j not in names, f"junk tag '{j}' should not be suggested"
+
+    # Verify valid existing tag is suggested with reason 'existing'
+    assert "databases" in names
+    db_sugg = next(s for s in suggestions if s["name"] == "databases")
+    assert db_sugg["reason"] == "existing"
+
+    # Verify cap of 5 holds
+    assert 1 <= len(suggestions) <= 5
+
+
+@pytest.mark.asyncio
+async def test_suggest_tags_for_text_filters_junk_existing_tags(db):
+    user_id = str(uuid.uuid4())
+    for tag in ["www", "2024", "retrieved", "python"]:
+        await create_tag(db, user_id, tag)
+
+    suggestions = await tags_model.suggest_tags_for_text(
+        db, user_id, "Retrieved python programming tutorial from www in 2024"
+    )
+    names = [s["name"] for s in suggestions]
+
+    assert "python" in names
+    assert "www" not in names
+    assert "2024" not in names
+    assert "retrieved" not in names
+    assert 1 <= len(suggestions) <= 5
+
+
+@pytest.mark.asyncio
+async def test_suggest_tags_existing_tags_first_and_cap_of_five(db):
+    user_id = str(uuid.uuid4())
+    existing_tags = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"]
+    for t in existing_tags:
+        await create_tag(db, user_id, t)
+    # Also add a junk tag to verify it is omitted
+    await create_tag(db, user_id, "www")
+
+    item_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, title,"
+        " content_text, status)"
+        " VALUES (?, ?, ?, ?, ?, ?, 'ok');",
+        (
+            item_id,
+            user_id,
+            "https://example.com/greek",
+            "https://example.com/greek",
+            "Alpha Beta Gamma Delta Epsilon Zeta",
+            (
+                "Alpha beta gamma delta epsilon zeta www. "
+                "Novel keyphrase one. Novel keyphrase two. Novel keyphrase three."
+            ),
+        ),
+    )
+    suggestions = await tags_model.suggest_tags_for_item(db, user_id, item_id)
+
+    assert len(suggestions) == 5
+    assert all(s["reason"] == "existing" for s in suggestions)
+    assert "www" not in [s["name"] for s in suggestions]
+
+
+@pytest.mark.asyncio
 async def test_expand_tag_names_includes_children(db):
     user_id = str(uuid.uuid4())
     await create_tag(db, user_id, "work")
