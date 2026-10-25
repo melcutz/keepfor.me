@@ -85,6 +85,17 @@ ICON_MAX_AGE = 30 * 86400  # a cached icon is refreshed after a month
 # before asking again (the next ask may come from a signed-in visitor).
 FALLBACK_MAX_AGE = 3600
 
+# Bounded in-memory isolate cache to avoid repeated R2 reads within the same Worker isolate.
+FAVICON_MEM_CACHE_MAX = 512
+FAVICON_MEM_CACHE_TTL = 3600.0  # 1 hour
+_FAVICON_MEM_CACHE: dict[tuple[int, str], tuple[bytes, str, float]] = {}
+
+
+def clear_favicon_mem_cache() -> None:
+    """Clear the in-memory isolate cache for favicons (used in tests)."""
+    _FAVICON_MEM_CACHE.clear()
+
+
 # Cache-miss rate limit. Every miss makes the Worker fetch an arbitrary
 # domain and write an R2 object for it, so the misses are capped per user and
 # per IP. 60 misses per 10 minutes is far more than a human browsing a
@@ -242,6 +253,17 @@ def _bucket(env: Any) -> Any:
 async def _cache_get(bucket: Any, key: str) -> tuple[bytes, str] | None:
     if bucket is None:
         return None
+    cache_key = (id(bucket), key)
+    now = time.time()
+    cached = _FAVICON_MEM_CACHE.get(cache_key)
+    if cached is not None:
+        body, ct, exp = cached
+        if exp > now:
+            # Refresh LRU position on cache hit
+            _FAVICON_MEM_CACHE[cache_key] = _FAVICON_MEM_CACHE.pop(cache_key)
+            return body, ct
+        _FAVICON_MEM_CACHE.pop(cache_key, None)
+
     try:
         obj = await bucket.get(key)
         if obj is None:
@@ -250,10 +272,19 @@ async def _cache_get(bucket: Any, key: str) -> tuple[bytes, str] | None:
         if payload.get("fallback"):
             # A fallback entry from an older release: never served, refetched.
             return None
-        age = time.time() - float(payload.get("ts", 0))
+        age = now - float(payload.get("ts", 0))
         if age > ICON_MAX_AGE:
             return None  # stale: look again
-        return base64.b64decode(payload["b64"]), str(payload["ct"])
+        body = base64.b64decode(payload["b64"])
+        content_type = str(payload["ct"])
+        if len(_FAVICON_MEM_CACHE) >= FAVICON_MEM_CACHE_MAX:
+            _FAVICON_MEM_CACHE.pop(next(iter(_FAVICON_MEM_CACHE)), None)
+        _FAVICON_MEM_CACHE[cache_key] = (
+            body,
+            content_type,
+            now + FAVICON_MEM_CACHE_TTL,
+        )
+        return body, content_type
     except Exception:
         return None
 
@@ -261,6 +292,7 @@ async def _cache_get(bucket: Any, key: str) -> tuple[bytes, str] | None:
 async def _cache_put(bucket: Any, key: str, body: bytes, content_type: str) -> None:
     if bucket is None:
         return
+    _FAVICON_MEM_CACHE.pop((id(bucket), key), None)
     try:
         # Base64 in a text blob: R2's binary put differs between runtimes,
         # its text put does not.

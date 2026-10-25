@@ -66,3 +66,122 @@ async def test_get_item_clean_html_reuses_preloaded_item(db: Database):
     assert html is not None
     assert "Paragraph one." in html
     assert len(counting_db.queries) == 0
+
+
+@pytest.mark.asyncio
+async def test_favicon_memory_cache_avoids_repeated_r2_reads():
+    import base64
+    import json
+    import time
+    from keepfor.utils.favicon import (
+        FALLBACK_ICON,
+        clear_favicon_mem_cache,
+        resolve_favicon,
+    )
+
+    clear_favicon_mem_cache()
+    png_bytes = FALLBACK_ICON + b"extra"
+    r2_calls = 0
+
+    class FakeObj:
+        async def text(self) -> str:
+            return json.dumps(
+                {
+                    "ct": "image/png",
+                    "b64": base64.b64encode(png_bytes).decode("ascii"),
+                    "ts": time.time(),
+                }
+            )
+
+    class FakeBucket:
+        async def get(self, key: str):
+            nonlocal r2_calls
+            r2_calls += 1
+            return FakeObj()
+
+        async def put(self, key: str, payload: str, meta: dict):
+            pass
+
+    class FakeEnv:
+        BUCKET = FakeBucket()
+
+    b1, ct1 = await resolve_favicon("example.org", FakeEnv(), may_fetch=True)
+    assert b1 == png_bytes
+    assert ct1 == "image/png"
+    assert r2_calls == 1
+
+    # Second call for same host hits in-memory isolate cache -> 0 new R2 reads!
+    b2, ct2 = await resolve_favicon("example.org", FakeEnv(), may_fetch=True)
+    assert b2 == png_bytes
+    assert ct2 == "image/png"
+    assert r2_calls == 1
+    clear_favicon_mem_cache()
+
+
+@pytest.mark.asyncio
+async def test_favicon_memory_cache_eviction_and_expiration():
+    import base64
+    import json
+    import time
+    from keepfor.utils.favicon import (
+        FALLBACK_ICON,
+        FAVICON_MEM_CACHE_MAX,
+        _FAVICON_MEM_CACHE,
+        clear_favicon_mem_cache,
+        resolve_favicon,
+    )
+
+    clear_favicon_mem_cache()
+    png_bytes = FALLBACK_ICON + b"extra"
+
+    class FakeObj:
+        async def text(self) -> str:
+            return json.dumps(
+                {
+                    "ct": "image/png",
+                    "b64": base64.b64encode(png_bytes).decode("ascii"),
+                    "ts": time.time(),
+                }
+            )
+
+    class FakeBucket:
+        def __init__(self):
+            self.calls = 0
+
+        async def get(self, key: str):
+            self.calls += 1
+            return FakeObj()
+
+        async def put(self, key: str, payload: str, meta: dict):
+            pass
+
+    bucket = FakeBucket()
+
+    class FakeEnv:
+        BUCKET = bucket
+
+    # Test TTL expiration:
+    await resolve_favicon("site-ttl.org", FakeEnv(), may_fetch=True)
+    assert bucket.calls == 1
+    cache_key = (id(bucket), "favicons/site-ttl.org")
+    assert cache_key in _FAVICON_MEM_CACHE
+    # Manually expire entry in mem cache
+    b, ct, _ = _FAVICON_MEM_CACHE[cache_key]
+    _FAVICON_MEM_CACHE[cache_key] = (b, ct, time.time() - 1.0)
+    await resolve_favicon("site-ttl.org", FakeEnv(), may_fetch=True)
+    assert bucket.calls == 2
+
+    # Test LRU capacity bound:
+    clear_favicon_mem_cache()
+    for i in range(FAVICON_MEM_CACHE_MAX + 10):
+        await resolve_favicon(f"site-{i}.com", FakeEnv(), may_fetch=True)
+    assert len(_FAVICON_MEM_CACHE) == FAVICON_MEM_CACHE_MAX
+    # First 10 items should have been evicted
+    for i in range(10):
+        assert (id(bucket), f"favicons/site-{i}.com") not in _FAVICON_MEM_CACHE
+    # Last item is present
+    assert (
+        id(bucket),
+        f"favicons/site-{FAVICON_MEM_CACHE_MAX + 9}.com",
+    ) in _FAVICON_MEM_CACHE
+    clear_favicon_mem_cache()
