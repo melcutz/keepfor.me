@@ -552,6 +552,7 @@ async def suggest_tags_for_item(
     """Suggestions for an item drawn from the existing tag vocabulary first."""
     from keepfor.utils.tagger import (
         MAX_SUGGESTIONS,
+        is_junk_tag,
         match_existing_tags,
         suggest_new_tags,
     )
@@ -564,25 +565,34 @@ async def suggest_tags_for_item(
     if not item:
         return []
     user_tags = [r["name"] for r in await _list_user_tag_names(db, user_id)]
+    clean_user_tags = [t for t in user_tags if not is_junk_tag(t)]
     match = match_existing_tags(
         item.get("title") or "",
         item.get("excerpt") or "",
         item.get("url") or "",
         item.get("content_text") or "",
-        user_tags,
+        clean_user_tags,
     )
-    out: list[dict[str, Any]] = [
-        {"name": t, "reason": "existing"} for t in match.auto_apply
-    ]
-    out += [{"name": t, "reason": "existing"} for t in match.suggest_only]
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for t in match.auto_apply:
+        if t not in seen and not is_junk_tag(t):
+            out.append({"name": t, "reason": "existing"})
+            seen.add(t)
+    for t in match.suggest_only:
+        if t not in seen and not is_junk_tag(t):
+            out.append({"name": t, "reason": "existing"})
+            seen.add(t)
     for s in suggest_new_tags(
         item.get("title") or "",
         item.get("excerpt") or "",
         item.get("url") or "",
         item.get("content_text") or "",
-        user_tags,
+        clean_user_tags,
     ):
-        out.append({"name": s.phrase, "reason": "new", "score": s.score})
+        if s.phrase not in seen and not is_junk_tag(s.phrase):
+            out.append({"name": s.phrase, "reason": "new", "score": s.score})
+            seen.add(s.phrase)
     return out[:MAX_SUGGESTIONS]
 
 
@@ -592,18 +602,28 @@ async def suggest_tags_for_text(
     """Suggestions for arbitrary text drawn from the existing vocabulary first."""
     from keepfor.utils.tagger import (
         MAX_SUGGESTIONS,
+        is_junk_tag,
         match_existing_tags,
         suggest_new_tags,
     )
 
     user_tags = [r["name"] for r in await _list_user_tag_names(db, user_id)]
-    match = match_existing_tags("", "", "", text, user_tags)
-    out: list[dict[str, Any]] = [
-        {"name": t, "reason": "existing"} for t in match.auto_apply
-    ]
-    out += [{"name": t, "reason": "existing"} for t in match.suggest_only]
-    for s in suggest_new_tags("", "", "", text, user_tags):
-        out.append({"name": s.phrase, "reason": "new", "score": s.score})
+    clean_user_tags = [t for t in user_tags if not is_junk_tag(t)]
+    match = match_existing_tags("", "", "", text, clean_user_tags)
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for t in match.auto_apply:
+        if t not in seen and not is_junk_tag(t):
+            out.append({"name": t, "reason": "existing"})
+            seen.add(t)
+    for t in match.suggest_only:
+        if t not in seen and not is_junk_tag(t):
+            out.append({"name": t, "reason": "existing"})
+            seen.add(t)
+    for s in suggest_new_tags("", "", "", text, clean_user_tags):
+        if s.phrase not in seen and not is_junk_tag(s.phrase):
+            out.append({"name": s.phrase, "reason": "new", "score": s.score})
+            seen.add(s.phrase)
     return out[:MAX_SUGGESTIONS]
 
 
