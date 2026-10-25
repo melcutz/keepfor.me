@@ -35,9 +35,76 @@ from urllib.parse import urlparse
 
 # URL noise words: they leak out of links in extracted prose and are
 # meaningless in every language.
-_URL_NOISE = frozenset(
-    "https http www com org net html htm php aspx url href amp nbsp".split()
+_URL_FRAGMENTS = frozenset(
+    """
+    http https www www2 com org net edu gov mil int
+    html htm php aspx asp jsp cgi
+    url href amp nbsp ftp cdn uri src xml json css js
+    """.split()
 )
+_URL_NOISE = _URL_FRAGMENTS
+
+# Month names and abbreviations (English and German). Citation/metadata noise.
+_MONTHS = frozenset(
+    """
+    january jan
+    february feb
+    march mar
+    april apr
+    may
+    june jun
+    july jul
+    august aug
+    september sep sept
+    october oct
+    november nov
+    december dec
+    januar februar märz mär mai juni juli august
+    september oktober november dezember okt dez
+    """.split()
+)
+
+# Day names and abbreviations (English and German). Date noise.
+_DAYS = frozenset(
+    """
+    monday mon
+    tuesday tue tues
+    wednesday wed
+    thursday thu thur thurs
+    friday fri
+    saturday sat
+    sunday sun
+    montag dienstag mittwoch donnerstag freitag samstag sonnabend sonntag
+    mo di mi do fr sa so
+    """.split()
+)
+
+# Generic verbs and past participles that leak from citation boilerplate,
+# publishing metadata or web actions.
+_GENERIC_VERBS = frozenset(
+    """
+    retrieved retrieve retrieves retrieving
+    archived archive archives archiving
+    accessed access accesses accessing
+    published publish publishes publishing
+    updated update updates updating
+    posted post posts posting
+    modified modify modifies modifying
+    edited edit edits editing
+    viewed view views viewing
+    downloaded download downloads downloading
+    uploaded upload uploads uploading
+    cited cite cites citing
+    shared share shares sharing
+    recorded record records recording
+    printed print prints printing
+    subscribed subscribe subscribes subscribing
+    submitted submit submits submitting
+    abgerufen aufgerufen archiviert zitiert
+    """.split()
+)
+
+_JUNK_WORDS = frozenset(_GENERIC_VERBS | _MONTHS | _DAYS | _URL_FRAGMENTS | _URL_NOISE)
 
 # Compact stopword list (~240 words). Embedded so there is no data file to
 # bundle and no NLTK download at runtime.
@@ -65,6 +132,8 @@ STOPWORDS = (
     """.split()
     )
     | _URL_NOISE
+    | _MONTHS
+    | _DAYS
 )
 
 # German function words: articles, pronouns, prepositions, conjunctions,
@@ -115,7 +184,7 @@ BOILERPLATE_DE = frozenset(
     dezember
     """.split()
 )
-STOPWORDS_DE |= BOILERPLATE_DE | _URL_NOISE
+STOPWORDS_DE |= BOILERPLATE_DE | _URL_NOISE | _MONTHS | _DAYS
 
 # The stopword lists the tagger knows about, by language code.
 LANGUAGE_STOPWORDS = {"en": STOPWORDS, "de": STOPWORDS_DE}
@@ -124,8 +193,9 @@ LANGUAGE_STOPWORDS = {"en": STOPWORDS, "de": STOPWORDS_DE}
 # noun-phrase core by dropping these from either end. Only unambiguous
 # verbs are listed: a word that is also a common noun ("research", "work",
 # "show") stays, because it may legitimately head a tag.
-_VERBISH = frozenset(
-    """
+_VERBISH = (
+    frozenset(
+        """
     allow appear arrive avoid become believe borrow breathe choose come
     create decide define delete deny depend describe develop disappear
     discuss eat emerge enable encourage ensure enter establish examine
@@ -163,6 +233,8 @@ _VERBISH = frozenset(
     expected expects expecting
     explained explains explaining
     """.split()
+    )
+    | _GENERIC_VERBS
 )
 
 MAX_TAG_LENGTH = 64
@@ -213,6 +285,44 @@ def validate_tag_name(raw: str) -> str | None:
     return clean
 
 
+def is_junk_tag(tag: str) -> bool:
+    """True when a tag is noise/junk and must not be offered as a suggestion.
+
+    Filters out:
+    - Generic verbs and past participles (retrieved, archived, accessed,
+      published, updated, posted...)
+    - Month names and abbreviations (april, apr...)
+    - Day names and abbreviations (monday, mon...)
+    - URL fragments (www, http, https, com, org, net, html...)
+    - Very short tokens (length <= 2) and pure numbers
+    """
+    clean = normalize_tag(tag)
+    if not clean:
+        return True
+    if len(clean) <= 2 or clean.isdigit():
+        return True
+    tokens = _WORD_RE.findall(clean)
+    if not tokens:
+        return True
+    if len(tokens) == 1:
+        w = tokens[0]
+        return len(w) <= 2 or w.isdigit() or w in _JUNK_WORDS
+    # Multi-token tag: junk if all tokens are short/digits/junk words, or if it
+    # starts/ends with a junk word or number, or contains a URL fragment.
+    if all(len(w) <= 2 or w.isdigit() or w in _JUNK_WORDS for w in tokens):
+        return True
+    if (
+        tokens[0] in _JUNK_WORDS
+        or tokens[-1] in _JUNK_WORDS
+        or tokens[0].isdigit()
+        or tokens[-1].isdigit()
+    ):
+        return True
+    if any(w in _URL_FRAGMENTS for w in tokens):
+        return True
+    return False
+
+
 def _fold(word: str) -> str:
     """Naive singular fold for matching only (never for storage)."""
     if len(word) > 4 and word.endswith("ies"):
@@ -250,7 +360,11 @@ def slug_tokens(url: str, stopwords: frozenset[str] = STOPWORDS) -> set[str]:
     except Exception:
         return set()
     text = f"{parts.netloc} {parts.path}".lower().replace("-", " ").replace("_", " ")
-    return {w for w in _WORD_RE.findall(text) if len(w) >= 2} - stopwords
+    return {
+        w
+        for w in _WORD_RE.findall(text)
+        if len(w) > 2 and not w.isdigit() and w not in _JUNK_WORDS
+    } - stopwords
 
 
 def detect_language(text: str) -> str:
@@ -321,7 +435,13 @@ def _segments(text: str) -> list[str]:
 
 def _is_content(word: str, stopwords: frozenset[str]) -> bool:
     """True for a word that may carry meaning (not a stopword, not a number)."""
-    return word not in stopwords and len(word) >= 2 and not word.isdigit()
+    return (
+        word not in stopwords
+        and len(word) > 2
+        and not word.isdigit()
+        and word not in _VERBISH
+        and word not in _JUNK_WORDS
+    )
 
 
 def _trim(run: list[str], head_ok: set[str]) -> list[str]:
@@ -340,7 +460,7 @@ def _trim(run: list[str], head_ok: set[str]) -> list[str]:
 
 def _can_head(word: str, head_ok: set[str]) -> bool:
     """True when the word may end (or start) a tag."""
-    return word not in _VERBISH and word in head_ok
+    return word not in _VERBISH and word not in _JUNK_WORDS and word in head_ok
 
 
 def _runs(
@@ -472,6 +592,8 @@ def suggest_new_tags(
             or not _can_head(gram[-1], head_ok)
             or any(w in stopwords for w in gram)
             or any(w in _VERBISH for w in gram)
+            or is_junk_tag(text)
+            or any(is_junk_tag(w) for w in gram)
         ):
             continue
         if len(gram) == 1:
@@ -506,6 +628,8 @@ def suggest_new_tags(
     kept: list[Suggestion] = []
     kept_grams: list[tuple[str, ...]] = []
     for text, score in ranked:
+        if is_junk_tag(text):
+            continue
         folded = tuple(_fold(w) for w in text.split())
         if any(_is_subsequence(folded, other) for other in kept_grams):
             # Already covered by a longer suggestion ("vacuum" under

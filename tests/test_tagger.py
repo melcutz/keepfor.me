@@ -527,3 +527,246 @@ def test_suggestions_drop_verb_and_stopword_led_junk_and_prefer_entities():
     assert "lyon" in phrases
     assert len(suggestions) <= tagger.MAX_SUGGESTIONS
     assert all(s.score >= tagger.MIN_SUGGESTION_SCORE for s in suggestions)
+
+
+def test_is_junk_tag_filters_generic_verbs_and_participles():
+    verbs = [
+        "retrieved",
+        "retrieve",
+        "retrieves",
+        "retrieving",
+        "archived",
+        "archive",
+        "archives",
+        "archiving",
+        "accessed",
+        "access",
+        "accesses",
+        "accessing",
+        "published",
+        "publish",
+        "publishes",
+        "publishing",
+        "updated",
+        "update",
+        "updates",
+        "updating",
+        "posted",
+        "post",
+        "posts",
+        "posting",
+        "modified",
+        "edited",
+        "viewed",
+        "downloaded",
+        "uploaded",
+        "cited",
+        "shared",
+        "recorded",
+        "printed",
+        "subscribed",
+        "submitted",
+        "abgerufen",
+        "aufgerufen",
+        "archiviert",
+        "zitiert",
+    ]
+    for v in verbs:
+        assert tagger.is_junk_tag(v) is True, f"expected {v} to be junk"
+        assert tagger.is_junk_tag(f"  {v.upper()}  ") is True
+
+
+def test_is_junk_tag_filters_months():
+    months = [
+        "january",
+        "jan",
+        "february",
+        "feb",
+        "march",
+        "mar",
+        "april",
+        "apr",
+        "may",
+        "june",
+        "jun",
+        "july",
+        "jul",
+        "august",
+        "aug",
+        "september",
+        "sep",
+        "sept",
+        "october",
+        "oct",
+        "november",
+        "nov",
+        "december",
+        "dec",
+        "januar",
+        "februar",
+        "märz",
+        "mär",
+        "mai",
+        "juni",
+        "juli",
+        "oktober",
+        "okt",
+        "dezember",
+        "dez",
+    ]
+    for m in months:
+        assert tagger.is_junk_tag(m) is True, f"expected {m} to be junk"
+
+
+def test_is_junk_tag_filters_days():
+    days = [
+        "monday",
+        "mon",
+        "tuesday",
+        "tue",
+        "tues",
+        "wednesday",
+        "wed",
+        "thursday",
+        "thu",
+        "thur",
+        "thurs",
+        "friday",
+        "fri",
+        "saturday",
+        "sat",
+        "sunday",
+        "sun",
+        "montag",
+        "dienstag",
+        "mittwoch",
+        "donnerstag",
+        "freitag",
+        "samstag",
+        "sonnabend",
+        "sonntag",
+    ]
+    for d in days:
+        assert tagger.is_junk_tag(d) is True, f"expected {d} to be junk"
+
+
+def test_is_junk_tag_filters_url_fragments():
+    fragments = [
+        "www",
+        "www2",
+        "http",
+        "https",
+        "com",
+        "org",
+        "net",
+        "edu",
+        "gov",
+        "mil",
+        "int",
+        "html",
+        "htm",
+        "php",
+        "aspx",
+        "asp",
+        "jsp",
+        "cgi",
+        "url",
+        "href",
+        "amp",
+        "nbsp",
+        "ftp",
+        "cdn",
+        "uri",
+        "src",
+        "xml",
+        "json",
+        "css",
+        "js",
+    ]
+    for frag in fragments:
+        assert tagger.is_junk_tag(frag) is True, f"expected {frag} to be junk"
+
+
+def test_is_junk_tag_filters_short_tokens_and_numbers():
+    short_or_nums = ["", "a", "b", "ai", "go", "to", "in", "1", "42", "2024", "999"]
+    for s in short_or_nums:
+        assert tagger.is_junk_tag(s) is True, f"expected '{s}' to be junk"
+
+
+def test_is_junk_tag_filters_multi_token_junk():
+    junk_combos = [
+        "april 2024",
+        "retrieved 2024",
+        "accessed april",
+        "www example",
+        "site com",
+        "article 2024",
+        "2024 article",
+        "published monday",
+        "http link",
+    ]
+    for j in junk_combos:
+        assert tagger.is_junk_tag(j) is True, f"expected '{j}' to be junk"
+
+
+def test_is_junk_tag_allows_valid_tags():
+    valid = [
+        "python",
+        "machine-learning",
+        "parallel vacuum",
+        "data science",
+        "kubernetes",
+        "distributed systems",
+    ]
+    for v in valid:
+        assert tagger.is_junk_tag(v) is False, f"expected '{v}' to be valid"
+
+
+def test_suggest_new_tags_filters_junk_classes_and_caps_at_five():
+    article = {
+        "title": "Vector databases and distributed systems in 2024",
+        "excerpt": "Published on Monday, April 15, 2024. Retrieved from https://www.example.com/guide.html",
+        "url": "https://www.example.com/vector-databases-guide.html",
+        "body": (
+            "Vector databases are essential for AI applications. "
+            "A vector database indexes high-dimensional vectors efficiently. "
+            "Distributed systems scale vector database clusters. "
+            "Published by author. Updated frequently. Accessed 42 times. "
+            "Retrieved on Friday. Archived in October. Posted on blog. "
+            "Visit www com or http net html for info. Go to site 2024."
+        ),
+    }
+    suggestions = tagger.suggest_new_tags(
+        title=article["title"],
+        excerpt=article["excerpt"],
+        url=article["url"],
+        body=article["body"],
+        user_tags=[],
+    )
+    phrases = {s.phrase for s in suggestions}
+
+    # Verify no generic verbs/participles
+    for verb in ["published", "updated", "retrieved", "archived", "posted", "accessed"]:
+        assert verb not in phrases
+        assert not any(verb in p.split() for p in phrases)
+
+    # Verify no months or days
+    for date_word in ["april", "october", "monday", "friday"]:
+        assert date_word not in phrases
+        assert not any(date_word in p.split() for p in phrases)
+
+    # Verify no URL fragments
+    for frag in ["www", "http", "https", "com", "net", "html"]:
+        assert frag not in phrases
+        assert not any(frag in p.split() for p in phrases)
+
+    # Verify no short tokens or pure numbers
+    for token in ["ai", "go", "42", "2024", "15"]:
+        assert token not in phrases
+        assert not any(token == p or token in p.split() for p in phrases)
+
+    # Verify valid keyphrases made it
+    assert "vector database" in phrases or "vector databases" in phrases
+    # Verify max 5 suggestions
+    assert len(suggestions) <= 5
+    assert len(suggestions) > 0
