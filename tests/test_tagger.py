@@ -770,3 +770,58 @@ def test_suggest_new_tags_filters_junk_classes_and_caps_at_five():
     # Verify max 5 suggestions
     assert len(suggestions) <= 5
     assert len(suggestions) > 0
+
+
+def test_is_hard_blocked_tag():
+    blocked = [
+        "www",
+        "http",
+        "https",
+        "com",
+        "2024",
+        "123",
+        "42",
+        "0",
+        "  WWW  ",
+        "http www",
+    ]
+    for b in blocked:
+        assert tagger.is_hard_blocked_tag(b) is True, (
+            f"expected '{b}' to be hard-blocked"
+        )
+
+    allowed = [
+        "ai",
+        "ux",
+        "css",
+        "may",
+        "archive",
+        "retrieved",
+        "published",
+        "monday",
+        "april",
+        "python",
+        "go",
+    ]
+    for a in allowed:
+        assert tagger.is_hard_blocked_tag(a) is False, f"expected '{a}' to be allowed"
+
+
+def test_match_existing_tags_exempts_short_and_generic_existing_tags():
+    tags = ["ai", "ux", "css", "may", "archive", "www", "http", "https", "com", "2024"]
+    res = tagger.match_existing_tags(
+        title="Modern CSS and AI in Web Development",
+        excerpt="An archive published in May exploring UX and layout.",
+        url="https://example.com/2024/css-ai-guide",
+        body="Details on css, ai, ux, and archive techniques.",
+        user_tags=tags,
+    )
+    all_matched = set(res.auto_apply + res.suggest_only)
+    assert "ai" in all_matched
+    assert "css" in all_matched
+    assert "ux" in all_matched
+    assert "may" in all_matched
+    assert "archive" in all_matched
+    # Hard-blocked tags must never match
+    for blocked in ["www", "http", "https", "com", "2024"]:
+        assert blocked not in all_matched
