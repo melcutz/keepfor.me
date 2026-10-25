@@ -402,7 +402,7 @@ async def get_item(
 async def get_items_by_ids(
     db: Database, user_id: str, item_ids: Sequence[str]
 ) -> list[dict[str, Any]]:
-    """Fetch multiple non-trashed items in 2 queries (items + tags) in `item_ids` order."""
+    """Fetch non-trashed items in 2 queries (items + tags) in `item_ids` order."""
     from keepfor.search.engine import RECENT_COLUMNS_BARE
 
     clean_ids = list(dict.fromkeys(i for i in item_ids if i))

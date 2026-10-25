@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+
 from keepfor.app import app
 from keepfor.auth.service import login_user, register_user
 from keepfor.models.db import Database
@@ -109,7 +110,7 @@ async def test_favicon_memory_cache_avoids_repeated_r2_reads():
     class FakeEnv:
         def __init__(self):
             # In Cloudflare Workers Python (Pyodide), FFI binding wrappers on env
-            # (e.g. env.BUCKET) are re-wrapped per request, yielding distinct object identities.
+            # (e.g. env.BUCKET) are re-wrapped per request with distinct identities.
             self.BUCKET = FakeBucket()
 
     env1 = FakeEnv()
@@ -121,7 +122,7 @@ async def test_favicon_memory_cache_avoids_repeated_r2_reads():
     assert ct1 == "image/png"
     assert r2_calls == 1
 
-    # Second call with distinct FakeEnv / FakeBucket instance hits isolate cache -> 0 new R2 reads!
+    # Second call with distinct FakeEnv / FakeBucket hits isolate cache (0 new R2 reads)
     b2, ct2 = await resolve_favicon("example.org", env2, may_fetch=True)
     assert b2 == png_bytes
     assert ct2 == "image/png"
@@ -225,7 +226,9 @@ async def test_html_payload_optimizations(client, db):
     tags = [f"tag-{i}" for i in range(160)]
     await save_note(db, None, user_id, "Archived Note", "Content", tags=tags[40:])
     await db.execute(
-        "UPDATE items SET read_state = 'archived', updated_at = '2000-01-01 00:00:00', created_at = '2000-01-01 00:00:00' WHERE title = 'Archived Note'"
+        "UPDATE items SET read_state = 'archived', "
+        "updated_at = '2000-01-01 00:00:00', created_at = '2000-01-01 00:00:00' "
+        "WHERE title = 'Archived Note'"
     )
 
     for i in range(20):

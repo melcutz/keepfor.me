@@ -85,7 +85,7 @@ ICON_MAX_AGE = 30 * 86400  # a cached icon is refreshed after a month
 # before asking again (the next ask may come from a signed-in visitor).
 FALLBACK_MAX_AGE = 3600
 
-# Bounded in-memory isolate cache to avoid repeated R2 reads within the same Worker isolate.
+# Bounded in-memory isolate cache to avoid repeated R2 reads within an isolate.
 FAVICON_MEM_CACHE_MAX = 512
 FAVICON_MEM_CACHE_TTL = 3600.0  # 1 hour
 _FAVICON_MEM_CACHE: dict[str, tuple[bytes, str, float]] = {}
