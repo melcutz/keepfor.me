@@ -45,6 +45,7 @@ from keepfor.models.items import (
     dismiss_suggestion,
     get_item,
     get_item_clean_html,
+    get_items_by_ids,
     list_pending_suggestions,
     list_rules,
     list_trash,
@@ -296,20 +297,33 @@ async def library_page(
     clean_view = view_param or "list"
     limit = per_page if per_page in PER_PAGE_OPTIONS else 20
     tag_list, untagged_only = parse_tag_filter(tag)
-    items, total = await hybrid_search(
-        db,
-        env,
-        user["id"],
-        query=q or "",
-        tags=tag_list,
-        untagged=untagged_only,
-        limit=limit,
-        offset=(max(page, 1) - 1) * limit,
-        status=clean_status,
-        category=clean_category,
-        quick=bool(quick),
-        scope=scope,
+    search_res, tags, status_counts, import_status = await asyncio.gather(
+        hybrid_search(
+            db,
+            env,
+            user["id"],
+            query=q or "",
+            tags=tag_list,
+            untagged=untagged_only,
+            limit=limit,
+            offset=(max(page, 1) - 1) * limit,
+            status=clean_status,
+            category=clean_category,
+            quick=bool(quick),
+            scope=scope,
+        ),
+        list_user_tags(db, user["id"]),
+        get_status_counts(
+            db,
+            user["id"],
+            category=clean_category,
+            tags=tag_list,
+            untagged=untagged_only,
+            quick=bool(quick),
+        ),
+        user_import_status(db, user["id"], limit=1),
     )
+    items, total = search_res
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
         items, total = await hybrid_search(
@@ -327,18 +341,6 @@ async def library_page(
             scope=scope,
         )
         pager = _pager_context(pager["page"], pager["per_page"], total)
-    tags, status_counts, import_status = await asyncio.gather(
-        list_user_tags(db, user["id"]),
-        get_status_counts(
-            db,
-            user["id"],
-            category=clean_category,
-            tags=tag_list,
-            untagged=untagged_only,
-            quick=bool(quick),
-        ),
-        user_import_status(db, user["id"], limit=1),
-    )
     tag_styles = tag_styles_for([t["name"] for t in tags])
 
     pager_qs = urlencode(
@@ -423,21 +425,33 @@ async def search_htmx(
     # The mode selector was removed from the UI: always run hybrid. The
     # param stays accepted so old clients and /api/search keep working.
     tag_list, untagged_only = parse_tag_filter(clean_tag)
-    items, total = await hybrid_search(
-        db,
-        env,
-        user["id"],
-        query=query,
-        mode="hybrid",
-        tags=tag_list,
-        untagged=untagged_only,
-        limit=per_page if per_page in PER_PAGE_OPTIONS else 20,
-        offset=(max(page, 1) - 1) * (per_page if per_page in PER_PAGE_OPTIONS else 20),
-        status=clean_status,
-        category=clean_category,
-        quick=quick_flag,
-        scope=scope,
+    limit = per_page if per_page in PER_PAGE_OPTIONS else 20
+    search_res, scoped_counts = await asyncio.gather(
+        hybrid_search(
+            db,
+            env,
+            user["id"],
+            query=query,
+            mode="hybrid",
+            tags=tag_list,
+            untagged=untagged_only,
+            limit=limit,
+            offset=(max(page, 1) - 1) * limit,
+            status=clean_status,
+            category=clean_category,
+            quick=quick_flag,
+            scope=scope,
+        ),
+        get_status_counts(
+            db,
+            user["id"],
+            category=clean_category,
+            tags=tag_list,
+            untagged=untagged_only,
+            quick=quick_flag,
+        ),
     )
+    items, total = search_res
     pager = _pager_context(page, per_page, total)
     if pager["page"] != page:
         items, total = await hybrid_search(
@@ -478,14 +492,6 @@ async def search_htmx(
     # Status pills re-count within the active category/tags scope (not the
     # text query: that would multiply FTS/vector work per group). OOB swap
     # keeps them live across htmx interactions without a full reload.
-    scoped_counts = await get_status_counts(
-        db,
-        user["id"],
-        category=clean_category,
-        tags=tag_list,
-        untagged=untagged_only,
-        quick=quick_flag,
-    )
     pills_html = (
         '<div id="status-filters" hx-swap-oob="true">'
         + jinja_env.get_template("partials/status_pills.html").render(
@@ -575,12 +581,14 @@ async def reader_page(
     if flash_cookie in ("read", "unread"):
         read_flash = flash_cookie
 
-    clean_html = await get_item_clean_html(
-        db, env, user["id"], item_id, scope=deps.get_scope(request)
+    clean_html, suggestions, highlights = await asyncio.gather(
+        get_item_clean_html(
+            db, env, user["id"], item_id, scope=deps.get_scope(request), item=item
+        ),
+        list_pending_suggestions(db, user["id"], item_id=item_id),
+        list_highlights(db, user["id"], item_id),
     )
     tag_styles = tag_styles_for(item.get("tags") or [])
-    suggestions = await list_pending_suggestions(db, user["id"], item_id=item_id)
-    highlights = await list_highlights(db, user["id"], item_id)
     template = jinja_env.get_template("reader.html")
     html = template.render(
         current_user=user,
@@ -885,17 +893,21 @@ async def tags_page(request: Request):
     if not user:
         return RedirectResponse(url="/auth/login", status_code=303)
     db = deps.get_db(request)
-    tags = await list_user_tags(db, user["id"])
+    tags, suggestions, rules, suggested_rules = await asyncio.gather(
+        list_user_tags(db, user["id"]),
+        list_pending_suggestions(db, user["id"]),
+        list_rules(db, user["id"]),
+        suggest_rules(db, user["id"]),
+    )
     tag_styles = tag_styles_for([t["name"] for t in tags])
-    suggestions = await list_pending_suggestions(db, user["id"])
     template = jinja_env.get_template("tags.html")
     html = template.render(
         current_user=user,
         tags=tags,
         tag_styles=tag_styles,
         suggestions=suggestions,
-        rules=await list_rules(db, user["id"]),
-        suggested_rules=await suggest_rules(db, user["id"]),
+        rules=rules,
+        suggested_rules=suggested_rules,
         active_nav="tags",
     )
     return HTMLResponse(content=html)
@@ -1483,8 +1495,8 @@ async def cleanup_page(request: Request, kind: str = "duplicates", page: int = 1
     start = (page - 1) * CLEANUP_PAGE_SIZE
     page_ids = ids[start : start + CLEANUP_PAGE_SIZE]
     has_more = len(ids) > start + CLEANUP_PAGE_SIZE
-    # One get_item per row, run together: the D1 round trips do not add up.
-    rows = await asyncio.gather(*(get_item(db, user["id"], iid) for iid in page_ids))
+    # Fetch in exactly two batched queries
+    rows = await get_items_by_ids(db, user["id"], page_ids)
     items = [item for item in rows if item]
     tag_styles = tag_styles_for([t for item in items for t in (item.get("tags") or [])])
 
