@@ -46,6 +46,9 @@ def create_app(
     extra_middleware: Sequence[tuple[Any, dict[str, Any]]] = (),
     title: str = "Keepfor.me API & UI",
 ) -> FastAPI:
+    from keepfor.utils.favicon import clear_favicon_mem_cache
+
+    clear_favicon_mem_cache()
     prov = (providers or Providers()).resolved()
     runtime.set_providers(prov)
 

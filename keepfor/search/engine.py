@@ -943,7 +943,9 @@ async def hybrid_search(
         :MAX_TAG_FILTERS
     ]
     # Child tags count: a filter on "work" also matches "work/research".
-    all_sets, any_sets, none_sets = {}, {}, {}
+    all_sets: dict[str, set[str]] = {}
+    any_sets: dict[str, set[str]] = {}
+    none_sets: dict[str, set[str]] = {}
     expand_tasks = []
 
     async def _expand(tag_list, target_dict):
