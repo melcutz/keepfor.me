@@ -1777,6 +1777,19 @@ async def search_chunks(
     return passages, total
 
 
+def _strip_markdown(text: str) -> str:
+    """Strips common Markdown syntax into plain text."""
+    if not text:
+        return ""
+    s = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)
+    s = re.sub(r"^\s{0,3}#{1,6}\s+", "", s, flags=re.MULTILINE)
+    s = re.sub(r"(\*\*|__)(.*?)\1", r"\2", s)
+    s = re.sub(r"(\*|_)(.*?)\1", r"\2", s)
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    return s
+
+
 async def read_item_chunks(
     db: Database,
     env: Any,
@@ -1812,6 +1825,8 @@ async def read_item_chunks(
     if not chunk_rows:
         # No chunks stored, fall back to content_text
         content = item.get("content_text") or item.get("excerpt") or ""
+        if format == "text":
+            content = _strip_markdown(content)
         return {
             "text": content,
             "next_cursor": None,
@@ -1877,9 +1892,12 @@ async def read_item_chunks(
     # Update outline with previews
     for i, chunk_text in enumerate(text_chunks):
         if i < len(outline):
-            outline[i]["preview"] = chunk_text[:100]
+            preview = _strip_markdown(chunk_text) if format == "text" else chunk_text
+            outline[i]["preview"] = preview[:100]
 
     text = "\n\n".join(result_chunks)
+    if format == "text":
+        text = _strip_markdown(text)
 
     return {
         "text": text,
@@ -1907,7 +1925,7 @@ async def reading_history(
 ) -> tuple[list[dict[str, Any]], int]:
     """Returns reading history with date filtering.
 
-    Uses created_at (saved) and item_opens (opened) tables.
+    Uses created_at (saved), item_opens (opened), and highlights (highlighted).
     Supports hybrid search over history with optional query and tag filter.
     """
     # Build base query
@@ -1960,7 +1978,13 @@ async def reading_history(
             params.extend([fts_terms, user_id])
 
     if event == "saved":
-        # Just saved items
+        count_row = await db.query_first(
+            f"SELECT COUNT(*) AS n FROM items i"
+            f" WHERE i.user_id = ? AND i.deleted_at IS NULL"
+            f" {since_clause}{until_clause}{tag_clause}{query_clause};",
+            tuple(params),
+        )
+        total = int(count_row["n"] or 0) if count_row else 0
         sql = f"""
             SELECT i.id, i.title, i.url, i.created_at as event_time,
                    'saved' as event_type, i.item_type
@@ -1970,8 +1994,7 @@ async def reading_history(
             ORDER BY i.created_at DESC
             LIMIT ? OFFSET ?;
         """
-        params.extend([limit, offset])
-        rows = await db.query_all(sql, tuple(params))
+        rows = await db.query_all(sql, (*params, limit, offset))
     elif event == "opened":
         # Item opens
         opens_since = ""
@@ -1984,7 +2007,15 @@ async def reading_history(
             opens_until = " AND datetime(io.opened_at) <= datetime(?)"
             opens_params.append(until)
         opens_params.extend(params[1 + int(bool(since)) + int(bool(until)) :])
-        opens_params.extend([limit, offset])
+        count_row = await db.query_first(
+            f"SELECT COUNT(*) AS n FROM item_opens io"
+            f" JOIN items i ON i.id = io.item_id AND i.user_id = io.user_id"
+            f" AND i.deleted_at IS NULL"
+            f" WHERE io.user_id = ?{opens_since}{opens_until}"
+            f"{tag_clause}{query_clause};",
+            tuple(opens_params),
+        )
+        total = int(count_row["n"] or 0) if count_row else 0
 
         sql = f"""
             SELECT i.id, i.title, i.url, io.opened_at as event_time,
@@ -1996,12 +2027,47 @@ async def reading_history(
             ORDER BY io.opened_at DESC
             LIMIT ? OFFSET ?;
         """
-        rows = await db.query_all(sql, tuple(opens_params))
+        rows = await db.query_all(sql, (*opens_params, limit, offset))
     elif event == "highlighted":
-        # Not implemented yet - no highlights table
-        rows = []
+        hl_since = ""
+        hl_until = ""
+        hl_params: list[Any] = [user_id]
+        if since:
+            hl_since = " AND datetime(h.created_at) >= datetime(?)"
+            hl_params.append(since)
+        if until:
+            hl_until = " AND datetime(h.created_at) <= datetime(?)"
+            hl_params.append(until)
+        hl_params.extend(params[1 + int(bool(since)) + int(bool(until)) :])
+        count_row = await db.query_first(
+            f"SELECT COUNT(*) AS n FROM highlights h"
+            f" JOIN items i ON i.id = h.item_id AND i.user_id = h.user_id"
+            f" AND i.deleted_at IS NULL"
+            f" WHERE h.user_id = ?{hl_since}{hl_until}"
+            f"{tag_clause}{query_clause};",
+            tuple(hl_params),
+        )
+        total = int(count_row["n"] or 0) if count_row else 0
+        sql = f"""
+            SELECT i.id, i.title, i.url, h.created_at as event_time,
+                   'highlighted' as event_type, i.item_type, h.text as highlight_text
+            FROM highlights h
+            JOIN items i ON i.id = h.item_id AND i.user_id = h.user_id
+                AND i.deleted_at IS NULL
+            WHERE h.user_id = ?{hl_since}{hl_until}{tag_clause}{query_clause}
+            ORDER BY h.created_at DESC
+            LIMIT ? OFFSET ?;
+        """
+        rows = await db.query_all(sql, (*hl_params, limit, offset))
     else:
         # Both saved and opened: one row per item, flagged when it was opened.
+        count_row = await db.query_first(
+            f"SELECT COUNT(*) AS n FROM items i"
+            f" WHERE i.user_id = ? AND i.deleted_at IS NULL"
+            f" {since_clause}{until_clause}{tag_clause}{query_clause};",
+            tuple(params),
+        )
+        total = int(count_row["n"] or 0) if count_row else 0
         sql = f"""
             SELECT i.id, i.title, i.url, i.created_at as event_time,
                    'saved' as event_type, i.item_type,
@@ -2015,8 +2081,7 @@ async def reading_history(
             ORDER BY i.created_at DESC
             LIMIT ? OFFSET ?;
         """
-        params.extend([limit, offset])
-        rows = await db.query_all(sql, tuple(params))
+        rows = await db.query_all(sql, (*params, limit, offset))
 
     # Get tags for items
     item_ids = [r["id"] for r in rows] if rows else []
@@ -2042,8 +2107,7 @@ async def reading_history(
         item["tags"] = item_tags_map.get(item["id"], [])
         results.append(item)
 
-    # For total count, we'll just return the page count for simplicity
-    return results, len(results)
+    return results, total
 
 
 async def related_items(
