@@ -1786,6 +1786,17 @@ async def save_note(
 
         scope = default_scope(db, env, user_id)
 
+    from keepfor.runtime import get_providers
+    from keepfor.spi import EntitlementDenied
+
+    providers = get_providers()
+    if source is None or source == "manual":
+        decision = await providers.entitlements.check(
+            scope.tenant_id, "save_item", qty=1
+        )
+        if not decision.allowed:
+            raise EntitlementDenied(decision)
+
     first_line = (content_text or "").strip().split("\n")[0][:120]
     clean_title = (title or "").strip() or first_line or "Untitled note"
     body = (content_text or "").strip()
@@ -1822,6 +1833,12 @@ async def save_note(
             saved_by,
         ),
     )
+    if source is None or source == "manual":
+        try:
+            await providers.entitlements.record(scope.tenant_id, "save_item", qty=1)
+        except Exception as exc:
+            logger.warning("Failed to record entitlement for save_item: %s", exc)
+
     clean_tags = [normalize_tag(t) for t in (tags or []) if normalize_tag(t)]
     if clean_tags:
         await add_tags_to_item(db, user_id, item_id, clean_tags)
@@ -1839,39 +1856,64 @@ async def save_note(
             ),
         ),
     )
-    # Best-effort single-chunk Vectorize embedding (fail-open; no AI in tests).
+    # Best-effort multi-chunk Vectorize embedding (fail-open; no AI in tests).
     try:
         vectors = scope.vectors(env)
         if vectors.index is not None and body:
-            from keepfor.runtime import get_providers
             from keepfor.utils.chunker import recursive_character_split
 
-            providers = get_providers()
             chunks = recursive_character_split(
                 body, target_tokens=400, overlap_tokens=50
-            )[:1]
+            )
             if chunks:
-                vecs = await providers.ai.embed(env, [chunks[0].text])
-                if vecs:
-                    chunk_id = f"item_{item_id}_chunk_0"
-                    await vectors.upsert(
-                        [
-                            {
-                                "id": chunk_id,
-                                "values": vecs[0],
-                                "metadata": {
-                                    "item_id": item_id,
-                                    "user_id": user_id,
-                                    "chunk_index": 0,
-                                },
-                            }
-                        ]
-                    )
-                    await db.execute(
-                        "INSERT INTO chunks (id, item_id, user_id, chunk_index,"
-                        " token_count) VALUES (?, ?, ?, ?, ?);",
-                        (chunk_id, item_id, user_id, 0, chunks[0].token_count),
-                    )
+                embed_decision = await providers.entitlements.check(
+                    scope.tenant_id, "embed", qty=len(chunks)
+                )
+                if embed_decision.allowed:
+                    vectors_to_upsert = []
+                    chunk_queries = []
+                    for i in range(0, len(chunks), 10):
+                        batch_chunks = chunks[i : i + 10]
+                        vecs = await providers.ai.embed(
+                            env, [c.text for c in batch_chunks]
+                        )
+                        for chunk, vec in zip(batch_chunks, vecs or []):
+                            chunk_id = f"item_{item_id}_chunk_{chunk.index}"
+                            vectors_to_upsert.append(
+                                {
+                                    "id": chunk_id,
+                                    "values": vec,
+                                    "metadata": {
+                                        "item_id": item_id,
+                                        "user_id": user_id,
+                                        "chunk_index": chunk.index,
+                                    },
+                                }
+                            )
+                            chunk_queries.append(
+                                (
+                                    "INSERT INTO chunks (id, item_id, user_id, "
+                                    "chunk_index, token_count) VALUES (?, ?, ?, ?, ?);",
+                                    (
+                                        chunk_id,
+                                        item_id,
+                                        user_id,
+                                        chunk.index,
+                                        chunk.token_count,
+                                    ),
+                                )
+                            )
+                    if vectors_to_upsert:
+                        await vectors.upsert(vectors_to_upsert)
+                        try:
+                            await providers.entitlements.record(
+                                scope.tenant_id, "embed", qty=len(vectors_to_upsert)
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Entitlement record for embed failed: %s", exc
+                            )
+                        await db.execute_batch(chunk_queries)
     except Exception:
         pass
     return {

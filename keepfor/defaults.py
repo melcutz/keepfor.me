@@ -260,6 +260,8 @@ class WorkersAIProvider:
                 env.AI.run(self.text_model, payload),
                 timeout=timeout_s,
             )
+            if hasattr(res, "to_py"):
+                res = res.to_py()
             if isinstance(res, dict):
                 out = str(res.get("response", "")).strip()
             else:
