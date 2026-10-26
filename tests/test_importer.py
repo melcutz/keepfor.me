@@ -1790,3 +1790,101 @@ async def test_import_route_rejects_oversize_upload(db, monkeypatch):
     assert env.QUEUE.sent == []  # nothing queued
     row = await db.query_first("SELECT COUNT(*) AS c FROM items;")
     assert row["c"] == 0
+
+
+@pytest.mark.asyncio
+async def test_import_notes_and_bookmarks_pass_scope_and_batch_queue(db, monkeypatch):
+    """import_notes and import_bookmarks forward TenantScope and batch queue sends."""
+    from keepfor.runtime import set_providers
+    from keepfor.spi import Decision, Providers, TenantScope
+    from keepfor.utils.importer import import_bookmarks, import_notes
+
+    user = await register_user(db, "scopedimport@test.local", "password123")
+    user_id = user["id"]
+
+    upserted_batches = []
+
+    class FakeVectorize:
+        async def upsert(self, vectors):
+            upserted_batches.append(vectors)
+
+    class FakeAI:
+        async def embed(self, env, texts):
+            return [[0.5, 0.5] for _ in texts]
+
+    checked_actions = []
+
+    class TrackingEntitlements:
+        async def check(self, tenant_id, action, qty=1):
+            checked_actions.append((tenant_id, action, qty))
+            return Decision(allowed=True)
+
+        async def record(self, tenant_id, action, qty=1):
+            pass
+
+    batch_sends = []
+    single_sends = []
+
+    class BatchTrackingQueue:
+        async def send_batch(self, batch):
+            batch_sends.append(batch)
+
+        async def send(self, msg):
+            single_sends.append(msg)
+
+    providers = Providers(entitlements=TrackingEntitlements(), ai=FakeAI()).resolved()
+    set_providers(providers)
+
+    env = MockEnv(queue=BatchTrackingQueue())
+    scope = TenantScope(
+        tenant_id="tenant_custom",
+        user_id=user_id,
+        db=db,
+        index=FakeVectorize(),
+        blob_prefix="t/tenant_custom/",
+        vector_namespace="ns_tenant_custom",
+    )
+
+    notes = [
+        {
+            "title": "Scoped Note",
+            "body": "Body with https://example.com/1 and https://example.com/2",
+            "tags": ["imported"],
+            "urls": [
+                {"url": "https://example.com/1", "title": "1", "description": ""},
+                {"url": "https://example.com/2", "title": "2", "description": ""},
+            ],
+        }
+    ]
+    summary = await import_notes(db, env, user_id, notes, providers, scope, "keep")
+    assert summary["notes_imported"] == 1
+    assert summary["urls_queued"] == 2
+
+    # Note vectors must carry the custom TenantScope namespace
+    assert len(upserted_batches) == 1
+    assert upserted_batches[0][0]["namespace"] == "ns_tenant_custom"
+
+    # URLs inside imported notes must not double-check 'save_item' on top of 'import'
+    assert ("tenant_custom", "save_item", 1) not in checked_actions
+
+    # Both URL extraction jobs from import_notes were sent in a single batch
+    assert len(batch_sends) == 1
+    assert len(batch_sends[0]) == 2
+    assert single_sends == []
+
+    # import_bookmarks accepts scope and batches queue messages too
+    batch_sends.clear()
+    bm_summary = await import_bookmarks(
+        db,
+        env,
+        user_id,
+        [
+            {"url": "https://example.com/bm1", "tags": ["bm"]},
+            {"url": "https://example.com/bm2", "tags": ["bm"]},
+        ],
+        scope=scope,
+    )
+    assert bm_summary["imported"] == 2
+    assert len(batch_sends) == 1
+    assert len(batch_sends[0]) == 2
+    assert single_sends == []

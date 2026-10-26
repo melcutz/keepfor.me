@@ -60,6 +60,7 @@ async def save_item(
     source_context: str | None = None,
     saved_by: str | None = None,
     queue_messages: list[dict[str, Any]] | None = None,
+    check_entitlement: bool = True,
 ) -> tuple[dict[str, Any], bool]:
     """Saves a URL to the user library with canonicalization and deduplication.
     Returns (item_dict, is_new).
@@ -109,9 +110,12 @@ async def save_item(
     from keepfor.spi import EntitlementDenied
 
     providers = get_providers()
-    decision = await providers.entitlements.check(scope.tenant_id, "save_item", qty=1)
-    if not decision.allowed:
-        raise EntitlementDenied(decision)
+    if check_entitlement:
+        decision = await providers.entitlements.check(
+            scope.tenant_id, "save_item", qty=1
+        )
+        if not decision.allowed:
+            raise EntitlementDenied(decision)
 
     # Create new item
     item_id = str(uuid.uuid4())
@@ -133,10 +137,11 @@ async def save_item(
         ),
     )
 
-    try:
-        await providers.entitlements.record(scope.tenant_id, "save_item", qty=1)
-    except Exception as exc:
-        logger.warning("Failed to record entitlement for save_item: %s", exc)
+    if check_entitlement:
+        try:
+            await providers.entitlements.record(scope.tenant_id, "save_item", qty=1)
+        except Exception as exc:
+            logger.warning("Failed to record entitlement for save_item: %s", exc)
 
     try:
         await providers.events.publish(
