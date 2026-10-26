@@ -105,6 +105,7 @@ async def import_bookmarks(
                 tags=b.get("tags", []),
                 scope=scope,
                 queue_messages=queue_messages,
+                check_entitlement=(scope is None),
             )
             if is_new:
                 imported += 1
