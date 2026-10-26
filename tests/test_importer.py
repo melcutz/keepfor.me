@@ -1888,3 +1888,27 @@ async def test_import_notes_and_bookmarks_pass_scope_and_batch_queue(db, monkeyp
     assert len(batch_sends) == 1
     assert len(batch_sends[0]) == 2
     assert single_sends == []
+
+
+@pytest.mark.asyncio
+async def test_export_library_html_uses_item_created_at(db):
+    from datetime import datetime, timezone
+
+    from keepfor.models.items import save_item
+    from keepfor.utils.importer import export_library_html
+
+    user = await register_user(db, "export-date@test.local", "password123")
+    user_id = user["id"]
+    env = MockEnv(queue=MockQueue())
+
+    item, _ = await save_item(db, env, user_id, "https://example.com/dated")
+    await db.execute(
+        "UPDATE items SET created_at = '2025-01-15 12:00:00' WHERE id = ?;",
+        (item["id"],),
+    )
+
+    exported = await export_library_html(db, user_id)
+    expected_epoch = int(
+        datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc).timestamp()
+    )
+    assert f'ADD_DATE="{expected_epoch}"' in exported

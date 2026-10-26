@@ -957,6 +957,15 @@ async def export_library_html(db: Database, user_id: str) -> str:
     for it in items:
         tags_str = ",".join(it["tags"])
         epoch = int(time.time())
+        created_raw = it.get("created_at")
+        if isinstance(created_raw, str) and created_raw.strip():
+            try:
+                dt = datetime.fromisoformat(created_raw.strip().replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                epoch = int(dt.timestamp())
+            except ValueError:
+                pass
         title = it.get("title") or it["url"]
         safe_url = html.escape(it["url"], quote=True)
         safe_tags = html.escape(tags_str, quote=True)
