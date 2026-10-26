@@ -477,24 +477,32 @@ async def get_item_clean_html(
     # Fallback to plain text / excerpt formatted into HTML paragraphs.
     # NOTE: title is NULL (not absent) until extraction completes, so
     # .get('title', url) would render a literal "None" heading: use or.
-    heading = item.get("title") or item["url"]
+    import html
+
+    heading = html.escape(str(item.get("title") or item["url"]), quote=True)
     if item.get("status") == "failed":
         from keepfor.models.cleanup import BLOCKED_FETCH_COPY, classify_failure
 
         reason = item.get("fail_reason") or "unknown error"
         if classify_failure(reason) == "blocked" and BLOCKED_FETCH_COPY not in reason:
             reason = f"{BLOCKED_FETCH_COPY} ({reason})"
+        safe_reason = html.escape(str(reason), quote=True)
+        safe_url = html.escape(str(item["url"]), quote=True)
         return (
             f"<h1>{heading}</h1>"
-            f"<p>Content extraction failed: {reason}</p>"
-            f"<p><a href='{item['url']}' target='_blank'>Visit original link</a></p>"
+            f"<p>Content extraction failed: {safe_reason}</p>"
+            f"<p><a href='{safe_url}' target='_blank'>Visit original link</a></p>"
         )
     text = (
         item.get("content_text")
         or item.get("excerpt")
         or "Content extraction in progress..."
     )
-    paragraphs = "".join(f"<p>{p.strip()}</p>" for p in text.split("\n\n") if p.strip())
+    paragraphs = "".join(
+        f"<p>{html.escape(p.strip(), quote=True)}</p>"
+        for p in text.split("\n\n")
+        if p.strip()
+    )
     return f"<h1>{heading}</h1>{paragraphs}"
 
 
