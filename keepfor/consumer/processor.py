@@ -573,16 +573,22 @@ async def extract_and_store(
                         logger.warning("Entitlement record for embed failed: %s", exc)
 
                 # Update D1 chunks tracking table
-                await db.execute(
-                    "DELETE FROM chunks WHERE item_id = ? AND user_id = ?;",
-                    (item_id, user_id),
+                await db.execute_batch(
+                    [
+                        (
+                            "DELETE FROM chunks WHERE item_id = ? AND user_id = ?;",
+                            (item_id, user_id),
+                        ),
+                        *[
+                            (
+                                "INSERT INTO chunks (id, item_id, user_id, "
+                                "chunk_index, token_count) VALUES (?, ?, ?, ?, ?);",
+                                rec,
+                            )
+                            for rec in chunk_records
+                        ],
+                    ]
                 )
-                for rec in chunk_records:
-                    await db.execute(
-                        "INSERT INTO chunks (id, item_id, user_id, chunk_index, "
-                        "token_count) VALUES (?, ?, ?, ?, ?);",
-                        rec,
-                    )
         else:
             # Textless item: delete stale vectors and chunks from a previous extraction
             chunk_rows = await db.query_all(

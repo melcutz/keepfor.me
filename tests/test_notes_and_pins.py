@@ -275,3 +275,62 @@ async def test_workers_ai_provider_generate_unwraps_jsproxy():
     provider = WorkersAIProvider()
     out = await provider.generate(EnvWithAI(), "sys", "usr")
     assert out == "hello from pyodide"
+
+
+@pytest.mark.asyncio
+async def test_update_user_notes_enforces_cap_and_reindexes_vectors(
+    user_with_env, monkeypatch
+):
+    from keepfor.models.items import MAX_ITEM_NOTES_CHARS
+    from keepfor.spi import Providers, TenantScope
+
+    user, env, db = user_with_env
+    item, _ = await save_item(db, env, user["id"], "https://example.com/notes-vec", [])
+
+    upserted = []
+
+    class FakeVectorIndex:
+        async def upsert(self, vectors):
+            upserted.extend(vectors)
+
+    class FakeAI:
+        async def embed(self, env_arg, texts):
+            return [[0.3, 0.7] for _ in texts]
+
+    from keepfor.runtime import get_providers
+
+    base = get_providers()
+    monkeypatch.setattr(
+        "keepfor.runtime.get_providers",
+        lambda: Providers(
+            scope=base.scope,
+            entitlements=base.entitlements,
+            events=base.events,
+            ai=FakeAI(),  # type: ignore[arg-type]
+        ),
+    )
+
+    env.VECTORIZE = FakeVectorIndex()
+    scope = TenantScope(
+        tenant_id="t1",
+        user_id=user["id"],
+        db=db,
+        blob_prefix="t/",
+        vector_namespace="ns_notes",
+    )
+
+    ok = await update_user_notes(
+        db,
+        user["id"],
+        item["id"],
+        "Updated note for vector index",
+        env=env,
+        scope=scope,
+    )
+    assert ok is True
+    assert len(upserted) == 1
+
+    with pytest.raises(ValueError, match="limited to"):
+        await update_user_notes(
+            db, user["id"], item["id"], "x" * (MAX_ITEM_NOTES_CHARS + 1)
+        )

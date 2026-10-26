@@ -677,7 +677,14 @@ async def update_notes_route(
 ):
     user = await deps.require_user(request)
     db = deps.get_db(request)
-    ok = await update_user_notes(db, user["id"], item_id, user_notes)
+    env = deps.get_env_from_request(request)
+    scope = deps.get_scope(request)
+    try:
+        ok = await update_user_notes(
+            db, user["id"], item_id, user_notes, env=env, scope=scope
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not ok:
         raise HTTPException(status_code=404, detail="Item not found")
     if request.headers.get("hx-request"):

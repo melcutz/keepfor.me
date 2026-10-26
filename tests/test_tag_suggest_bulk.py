@@ -85,3 +85,30 @@ async def test_bulk_ignores_foreign_items_and_caps_ids(db):
     ids = ["bx"] + ["missing-%d" % i for i in range(150)]
     assert await bulk_update_tags(db, user["id"], ids, ["hi"], []) == 0
     assert await get_item_tags(db, other["id"], "bx") == []
+
+
+@pytest.mark.asyncio
+async def test_bulk_update_tags_uses_batched_queries(db, monkeypatch):
+    from keepfor.models.items import bulk_update_tags
+
+    user = await register_user(db, "blkbatch@keepfor.me", "password123")
+    for i in range(5):
+        await _seed(db, user["id"], f"item-{i}", f"https://example.com/{i}", ["old"])
+
+    exec_calls = []
+    orig_execute = db.execute
+
+    async def counting_execute(sql, params=()):
+        exec_calls.append(sql)
+        return await orig_execute(sql, params)
+
+    monkeypatch.setattr(db, "execute", counting_execute)
+    done = await bulk_update_tags(
+        db,
+        user["id"],
+        [f"item-{i}" for i in range(5)],
+        add=["added"],
+        remove=["old"],
+    )
+    assert done == 5
+    assert len(exec_calls) == 0  # All writes go through db.execute_batch

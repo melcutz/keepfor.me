@@ -956,21 +956,28 @@ async def rename_tag(db: Database, user_id: str, old_name: str, new_name: str) -
             "WHERE it.tag_id = ?;",
             (user_id, old_row["id"]),
         )
-        for row in linked:
-            await db.execute(
-                "INSERT OR IGNORE INTO item_tags (item_id, tag_id) "
-                "SELECT i.id, t.id FROM items i JOIN tags t ON t.user_id = i.user_id "
-                "WHERE i.id = ? AND i.user_id = ? AND t.id = ?;",
-                (row["item_id"], user_id, new_row["id"]),
-            )
-        await db.execute(
-            "DELETE FROM item_tags WHERE tag_id IN "
-            "(SELECT id FROM tags WHERE id = ? AND user_id = ?);",
-            (old_row["id"], user_id),
-        )
-        await db.execute(
-            "DELETE FROM tags WHERE id = ? AND user_id = ?;",
-            (old_row["id"], user_id),
+        await db.execute_batch(
+            [
+                *[
+                    (
+                        "INSERT OR IGNORE INTO item_tags (item_id, tag_id) "
+                        "SELECT i.id, t.id FROM items i "
+                        "JOIN tags t ON t.user_id = i.user_id "
+                        "WHERE i.id = ? AND i.user_id = ? AND t.id = ?;",
+                        (row["item_id"], user_id, new_row["id"]),
+                    )
+                    for row in linked
+                ],
+                (
+                    "DELETE FROM item_tags WHERE tag_id IN "
+                    "(SELECT id FROM tags WHERE id = ? AND user_id = ?);",
+                    (old_row["id"], user_id),
+                ),
+                (
+                    "DELETE FROM tags WHERE id = ? AND user_id = ?;",
+                    (old_row["id"], user_id),
+                ),
+            ]
         )
         return "merged"
     await db.execute(
@@ -1040,10 +1047,15 @@ async def prune_unused_tags(db: Database, user_id: str) -> int:
         """,
         (user_id,),
     )
-    for row in rows:
-        await db.execute(
-            "DELETE FROM tags WHERE id = ? AND user_id = ?;",
-            (row["id"], user_id),
+    if rows:
+        await db.execute_batch(
+            [
+                (
+                    "DELETE FROM tags WHERE id = ? AND user_id = ?;",
+                    (row["id"], user_id),
+                )
+                for row in rows
+            ]
         )
     return len(rows)
 
@@ -1099,22 +1111,28 @@ async def bulk_update_tags(
     remove: list[str] | None = None,
 ) -> int:
     """Adds/removes tags across owned items; skips foreign and missing ids."""
-    add = [t for t in (add or []) if t.strip()]
-    remove = [t for t in (remove or []) if t.strip()]
-    done = 0
-    for item_id in (item_ids or [])[:BULK_TAG_LIMIT]:
-        row = await db.query_first(
-            "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
-            (item_id, user_id),
+    ids = [i for i in (item_ids or []) if i][:BULK_TAG_LIMIT]
+    if not ids:
+        return 0
+    owned: list[str] = []
+    for start in range(0, len(ids), _UPDATE_CHUNK):
+        chunk = ids[start : start + _UPDATE_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await db.query_all(
+            "SELECT id FROM items WHERE user_id = ? AND deleted_at IS NULL"
+            f" AND id IN ({placeholders});",
+            (user_id, *chunk),
         )
-        if not row:
-            continue
-        if add:
-            await add_tags_to_item(db, user_id, item_id, add)
-        if remove:
-            await remove_tags_from_item(db, user_id, item_id, remove)
-        done += 1
-    return done
+        owned.extend(r["id"] for r in rows)
+    if not owned:
+        return 0
+    return await bulk_update_items(
+        db,
+        user_id,
+        owned,
+        add_tags=add,
+        remove_tags=remove,
+    )
 
 
 # Cap on the items a single bulk update may touch.
@@ -1581,23 +1599,24 @@ async def toggle_pin_item(db: Database, user_id: str, item_id: str) -> bool | No
 
 
 async def update_user_notes(
-    db: Database, user_id: str, item_id: str, user_notes: str | None
+    db: Database,
+    user_id: str,
+    item_id: str,
+    user_notes: str | None,
+    *,
+    env: Any = None,
+    scope: TenantScope | None = None,
 ) -> bool:
-    """Persist 'why I kept this' notes; re-indexes FTS. Returns owned."""
-    row = await db.query_first(
-        "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
-        (item_id, user_id),
+    """Persist 'why I kept this' notes; re-indexes FTS and vectors. Returns owned."""
+    res = await update_item_fields(
+        db,
+        env,
+        user_id,
+        item_id,
+        user_notes=user_notes or "",
+        scope=scope,
     )
-    if not row:
-        return False
-    clean = (user_notes or "").strip() or None
-    await db.execute(
-        "UPDATE items SET user_notes = ?, updated_at = CURRENT_TIMESTAMP"
-        " WHERE id = ? AND user_id = ?;",
-        (clean, item_id, user_id),
-    )
-    await _refresh_fts_for_item(db, user_id, item_id)
-    return True
+    return res is not None
 
 
 async def _reindex_item_vectors(
