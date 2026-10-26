@@ -8,7 +8,7 @@ import hashlib
 from typing import Any, TypedDict
 from urllib.parse import urlparse
 
-from fastapi import Response
+from fastapi import Request, Response
 
 from keepfor.models.imports import list_imports
 from keepfor.models.items import list_user_tags
@@ -94,6 +94,20 @@ def _safe_next(value: str | None, default: str = "/") -> str:
     structural parse so the rule does not depend on prefix guessing alone.
     """
     return value if value is not None and _is_safe_path(value) else default
+
+
+def is_same_origin(request: Request) -> bool:
+    """Reject cross-origin / cross-site requests via Origin or Fetch Metadata."""
+    fetch_site = request.headers.get("sec-fetch-site", "").strip().lower()
+    if fetch_site == "cross-site":
+        return False
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+    if origin.strip().lower() == "null":
+        return False
+    host = (request.headers.get("host") or request.url.netloc or "").lower()
+    return urlparse(origin).netloc.lower() == host
 
 
 TAG_PILL_CLASSES = [

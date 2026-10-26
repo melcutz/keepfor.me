@@ -44,14 +44,30 @@ async def register_user(
         logger.warning(f"Registration attempt blocked: {email_clean}")
         raise RegistrationClosedError("Registration is closed on this instance.")
 
-    role = "admin" if user_count == 0 else "user"
     user_id = str(uuid.uuid4())
     pw_hash = hash_password(password)
 
-    await db.execute(
-        "INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?);",
-        (user_id, email_clean, pw_hash, role),
-    )
+    if not allow_public_signups:
+        role = "admin"
+        await db.execute(
+            "INSERT INTO users (id, email, password_hash, role) "
+            "SELECT ?, ?, ?, 'admin' "
+            "WHERE NOT EXISTS (SELECT 1 FROM users);",
+            (user_id, email_clean, pw_hash),
+        )
+        inserted = await db.query_first(
+            "SELECT id, email, role FROM users WHERE id = ?;",
+            (user_id,),
+        )
+        if not inserted:
+            logger.warning(f"Registration attempt blocked: {email_clean}")
+            raise RegistrationClosedError("Registration is closed on this instance.")
+    else:
+        role = "admin" if user_count == 0 else "user"
+        await db.execute(
+            "INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?);",
+            (user_id, email_clean, pw_hash, role),
+        )
     logger.info(f"User registered: {user_id}, role: {role}")
     return {"id": user_id, "email": email_clean, "role": role}
 

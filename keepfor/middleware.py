@@ -6,9 +6,13 @@ from __future__ import annotations
 import time
 
 from fastapi import Request
+from fastapi.responses import PlainTextResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from keepfor.routes._shared import is_same_origin
 from keepfor.utils.logging import get_request_id, logger
+
+_MUTATING_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -34,6 +38,15 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        auth_header = request.headers.get("authorization", "")
+        is_bearer = auth_header.lower().startswith("bearer ")
+        if (
+            request.method in _MUTATING_METHODS and not is_bearer
+        ) or request.url.path == "/auth/logout":
+            if not is_same_origin(request):
+                return PlainTextResponse(
+                    "Cross-origin request blocked", status_code=403
+                )
         response = await call_next(request)
         # Prevent MIME type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"

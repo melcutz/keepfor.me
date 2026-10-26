@@ -76,6 +76,7 @@ from keepfor.routes._shared import (
     _render_tags_list,
     _safe_next,
     build_ai_markdown,
+    is_same_origin,
     tag_styles_for,
     user_import_status,
 )
@@ -1242,13 +1243,7 @@ async def trash_page(request: Request, page: int = 1):
     return HTMLResponse(content=html)
 
 
-def _is_same_origin(request: Request) -> bool:
-    """Reject cross-origin form POSTs when an Origin header is present."""
-    origin = request.headers.get("origin")
-    if not origin:
-        return True
-    host = (request.headers.get("host") or request.url.netloc or "").lower()
-    return urlparse(origin).netloc.lower() == host
+_is_same_origin = is_same_origin
 
 
 @router.post("/items/{item_id}/trash", response_class=HTMLResponse)
