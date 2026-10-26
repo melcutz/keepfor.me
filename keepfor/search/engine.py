@@ -8,12 +8,13 @@ import datetime
 import json
 import re
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse, urlunparse
 
 from keepfor.models.db import Database
 from keepfor.models.tags import expand_tag_names, tag_filter_clause
 from keepfor.search.vectors import VectorIndex
 from keepfor.utils.logging import logger
-from keepfor.utils.url import canonicalize_url, url_dedupe_key
+from keepfor.utils.url import canonicalize_url
 
 if TYPE_CHECKING:
     from keepfor.spi import TenantScope
@@ -1330,24 +1331,21 @@ async def match_items_by_url(db: Database, user_id: str, url: str) -> list[str]:
     if not raw:
         return []
     canon = canonicalize_url(raw)
+    parsed = urlparse(canon)
+    alt_netloc = (
+        parsed.netloc[4:]
+        if parsed.netloc.startswith("www.")
+        else f"www.{parsed.netloc}"
+    )
+    alt_canon = urlunparse(
+        (parsed.scheme, alt_netloc, parsed.path, parsed.params, parsed.query, "")
+    )
     rows = await db.query_all(
         "SELECT id FROM items WHERE user_id = ? AND deleted_at IS NULL"
-        " AND (url = ? OR canonical_url = ?);",
-        (user_id, raw, canon),
+        " AND (url = ? OR canonical_url IN (?, ?));",
+        (user_id, raw, canon, alt_canon),
     )
-    if rows:
-        return [r["id"] for r in rows]
-    key = url_dedupe_key(raw)
-    scan = await db.query_all(
-        "SELECT id, url, canonical_url FROM items"
-        " WHERE user_id = ? AND deleted_at IS NULL;",
-        (user_id,),
-    )
-    return [
-        r["id"]
-        for r in scan
-        if key in (url_dedupe_key(r["url"]), url_dedupe_key(r["canonical_url"]))
-    ]
+    return [r["id"] for r in rows]
 
 
 async def resolve_item(

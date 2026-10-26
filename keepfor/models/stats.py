@@ -165,8 +165,9 @@ async def get_user_stats(db, user_id: str) -> dict:
         ),
         db.query_all(
             "SELECT item_id, opened_at, DATE(opened_at) AS day FROM item_opens"
-            " WHERE user_id = ? ORDER BY item_id, opened_at;",
-            (user_id,),
+            " WHERE user_id = ? AND DATE(opened_at) >= ?"
+            " ORDER BY item_id, opened_at;",
+            (user_id, cutoff_iso),
         ),
         db.query_first(
             "SELECT COUNT(*) AS total,"
