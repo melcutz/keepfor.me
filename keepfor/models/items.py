@@ -1132,6 +1132,7 @@ async def bulk_update_tags(
         owned,
         add_tags=add,
         remove_tags=remove,
+        normalize_only=True,
     )
 
 
@@ -1168,6 +1169,7 @@ async def bulk_update_items(
     add_tags: list[str] | None = None,
     remove_tags: list[str] | None = None,
     read_state: str | None = None,
+    normalize_only: bool = False,
 ) -> int:
     """Applies status, pin, read state and tag changes to owned items.
 
@@ -1179,8 +1181,20 @@ async def bulk_update_items(
     ids = [i for i in (item_ids or []) if i][:BULK_UPDATE_LIMIT]
     if not ids:
         return 0
-    add = _clean_tag_names(add_tags)
-    remove = _clean_tag_names(remove_tags)
+    if normalize_only:
+        add = list(
+            dict.fromkeys(
+                normalize_tag(t) for t in (add_tags or []) if normalize_tag(t)
+            )
+        )
+        remove = list(
+            dict.fromkeys(
+                normalize_tag(t) for t in (remove_tags or []) if normalize_tag(t)
+            )
+        )
+    else:
+        add = _clean_tag_names(add_tags)
+        remove = _clean_tag_names(remove_tags)
 
     statements: list[tuple[str, tuple[Any, ...]]] = []
     if set_status is not None or pin is not None:
