@@ -137,3 +137,113 @@ async def test_register_user_atomic_first_admin_guard(db):
         "SELECT COUNT(*) as c FROM users WHERE role = 'admin';"
     )
     assert admins is not None and admins["c"] == 1
+
+
+@pytest.mark.asyncio
+async def test_cross_origin_post_without_session_cookie_allowed(client, db):
+    """Cross-origin POST without session cookie passes (e.g., OAuth DCR/token)."""
+    # No login, no session cookie
+    resp = client.post(
+        "/oauth/register",
+        json={"client_name": "test", "redirect_uris": ["https://example.com/callback"]},
+        headers={"Origin": "https://evil.example"},
+    )
+    # Should not be blocked by CSRF middleware (403)
+    # The endpoint itself may not exist (404), but not 403 from middleware
+    assert resp.status_code != 403, f"Expected not 403, got {resp.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_cross_origin_post_with_session_cookie_blocked(client, db):
+    """Cross-origin POST with session cookie is blocked (CSRF protection)."""
+    await register_user(db, "owner@test.local", "password123")
+    _, session_id = await login_user(db, "owner@test.local", "password123")
+    client.cookies["kfm_session"] = session_id
+
+    resp = client.post(
+        "/settings/tokens",
+        data={"name": "evil-token"},
+        headers={"Origin": "https://evil.example"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_same_origin_post_with_session_cookie_allowed(client, db):
+    """Same-origin POST with session cookie passes."""
+    await register_user(db, "owner@test.local", "password123")
+    _, session_id = await login_user(db, "owner@test.local", "password123")
+    client.cookies["kfm_session"] = session_id
+
+    resp = client.post(
+        "/settings/tokens",
+        data={"name": "my-token"},
+        headers={"Origin": "http://testserver"},
+        follow_redirects=False,
+    )
+    # Should not be blocked by CSRF middleware
+    assert resp.status_code != 403
+
+
+@pytest.mark.asyncio
+async def test_bearer_token_cross_origin_allowed(client, db):
+    """Bearer token cross-origin passes (PAT auth bypasses CSRF)."""
+    await register_user(db, "owner@test.local", "password123")
+    # Create a PAT (this requires a valid user, but we'll just test the middleware)
+    # The middleware checks for Bearer header before checking cookies
+    auth_header = {"Authorization": "Bearer kfm_live_fake"}
+    resp = client.post(
+        "/settings/tokens",
+        data={"name": "evil-token"},
+        headers={"Origin": "https://evil.example", **auth_header},
+        follow_redirects=False,
+    )
+    # Should not be blocked by CSRF middleware (Bearer bypass)
+    assert resp.status_code != 403
+
+
+@pytest.mark.asyncio
+async def test_custom_session_cookie_names():
+    """Middleware can be configured with custom session cookie names."""
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+    from fastapi.testclient import TestClient
+
+    from keepfor.middleware import SecurityHeadersMiddleware
+
+    # Test with custom cookie name (simulating keepfor-cloud's kfc_session)
+    app = FastAPI()
+    app.add_middleware(
+        SecurityHeadersMiddleware, session_cookies=("kfc_session", "kfm_session")
+    )
+
+    @app.post("/test")
+    async def test_endpoint():
+        return PlainTextResponse("ok")
+
+    client = TestClient(app)
+
+    # Should detect the custom cookie and block cross-origin
+    resp = client.post(
+        "/test",
+        headers={"Origin": "https://evil.example"},
+        cookies={"kfc_session": "test-session-id"},
+    )
+    assert resp.status_code == 403
+
+    # Default cookies should still work
+    resp = client.post(
+        "/test",
+        headers={"Origin": "https://evil.example"},
+        cookies={"kfm_session": "test-session-id"},
+    )
+    assert resp.status_code == 403
+
+    # Unknown cookie should not match (no blocking)
+    resp = client.post(
+        "/test",
+        headers={"Origin": "https://evil.example"},
+        cookies={"unknown_session": "test-session-id"},
+    )
+    assert resp.status_code == 200
