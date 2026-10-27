@@ -23,7 +23,7 @@ from keepfor.models.imports import (
     MAX_IMPORT_ERRORS,
     apply_chunk_counts,
 )
-from keepfor.models.items import save_item, save_note
+from keepfor.models.items import _send_extraction_batch, save_item, save_note
 from keepfor.utils.url import canonicalize_url
 
 
@@ -83,16 +83,29 @@ def parse_csv_bookmarks(csv_content: str) -> list[dict[str, Any]]:
 
 
 async def import_bookmarks(
-    db: Database, env: Any, user_id: str, bookmarks: list[dict[str, Any]]
+    db: Database,
+    env: Any,
+    user_id: str,
+    bookmarks: list[dict[str, Any]],
+    *,
+    scope: Any = None,
 ) -> dict[str, int]:
     """Bulk imports bookmarks into D1 and enqueues them for background extraction."""
     imported = 0
     duplicates = 0
+    queue_messages: list[dict[str, Any]] = []
 
     for b in bookmarks:
         try:
             _, is_new = await save_item(
-                db=db, env=env, user_id=user_id, url=b["url"], tags=b.get("tags", [])
+                db=db,
+                env=env,
+                user_id=user_id,
+                url=b["url"],
+                tags=b.get("tags", []),
+                scope=scope,
+                queue_messages=queue_messages,
+                check_entitlement=(scope is None),
             )
             if is_new:
                 imported += 1
@@ -100,6 +113,9 @@ async def import_bookmarks(
                 duplicates += 1
         except Exception:
             continue
+
+    if queue_messages:
+        await _send_extraction_batch(env, queue_messages)
 
     return {"imported": imported, "duplicates": duplicates, "total": len(bookmarks)}
 
@@ -711,6 +727,7 @@ async def import_notes(
     total_urls_in_notes = 0
     urls_seen: set[str] = set()
     errors: list[str] = []
+    queue_messages: list[dict[str, Any]] = []
 
     for note in notes:
         # Plan limit already hit for this tenant: everything outstanding is
@@ -752,6 +769,7 @@ async def import_notes(
                 created_at=note.get("created_at"),
                 source=source,
                 source_id=source_id,
+                scope=scope,
             )
             imported += 1
 
@@ -796,7 +814,14 @@ async def import_notes(
                 try:
                     url_tags = note["tags"] + ["from-notes"]
                     _, is_new = await save_item(
-                        db=db, env=env, user_id=user_id, url=url, tags=url_tags
+                        db=db,
+                        env=env,
+                        user_id=user_id,
+                        url=url,
+                        tags=url_tags,
+                        scope=scope,
+                        queue_messages=queue_messages,
+                        check_entitlement=False,
                     )
                     if is_new:
                         urls_queued += 1
@@ -829,6 +854,9 @@ async def import_notes(
             if len(errors) < MAX_IMPORT_ERRORS:
                 errors.append("note: could not be imported")
             continue
+
+    if queue_messages:
+        await _send_extraction_batch(env, queue_messages)
 
     summary = {
         "notes_imported": imported,
@@ -930,6 +958,15 @@ async def export_library_html(db: Database, user_id: str) -> str:
     for it in items:
         tags_str = ",".join(it["tags"])
         epoch = int(time.time())
+        created_raw = it.get("created_at")
+        if isinstance(created_raw, str) and created_raw.strip():
+            try:
+                dt = datetime.fromisoformat(created_raw.strip().replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                epoch = int(dt.timestamp())
+            except ValueError:
+                pass
         title = it.get("title") or it["url"]
         safe_url = html.escape(it["url"], quote=True)
         safe_tags = html.escape(tags_str, quote=True)

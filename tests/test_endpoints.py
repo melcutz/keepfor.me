@@ -1275,3 +1275,59 @@ async def test_save_popup_shares_brand_lockup(client, db, auth_headers):
     assert "Keepfor<span" in page.text
     assert 'href="/favicon.ico"' in page.text
     assert 'name="viewport"' in page.text
+
+
+@pytest.mark.asyncio
+async def test_reader_fallback_escapes_html_in_note_and_failed_item(
+    client, db, auth_headers
+):
+    """Reader fallback HTML escapes title, content_text, url, and fail_reason."""
+    import uuid
+
+    from keepfor.models.items import get_item_clean_html, save_note
+
+    user = auth_headers["admin_user"]
+    note = await save_note(
+        db,
+        MockEnv(),
+        user["id"],
+        content_text=(
+            '<script>alert("xss")</script>\n\nSecond <b onclick=evil()>para</b>'
+        ),
+        title="<img src=x onerror=alert(1)>",
+    )
+    note_id = note["id"]
+
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    resp = client.get(f"/items/{note_id}")
+    assert resp.status_code == 200
+    assert '<script>alert("xss")</script>' not in resp.text
+    assert "<img src=x onerror=alert(1)>" not in resp.text
+    assert "&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;" in resp.text
+    assert "&lt;img src=x onerror=alert(1)&gt;" in resp.text
+
+    api_resp = client.get(f"/api/items/{note_id}/content")
+    assert api_resp.status_code == 200
+    assert "<script>" not in api_resp.text
+    assert "&lt;script&gt;" in api_resp.text
+
+    failed_id = str(uuid.uuid4())
+    bad_url = "https://example.com/'onload='alert(1)"
+    await db.execute(
+        "INSERT INTO items (id, user_id, url, canonical_url, title, status, "
+        "fail_reason) VALUES (?, ?, ?, ?, ?, 'failed', ?);",
+        (
+            failed_id,
+            user["id"],
+            bad_url,
+            bad_url,
+            "<h1>bad title</h1>",
+            "<b>bad reason</b>",
+        ),
+    )
+    failed_html = await get_item_clean_html(db, MockEnv(), user["id"], failed_id)
+    assert failed_html is not None
+    assert "<h1>&lt;h1&gt;bad title&lt;/h1&gt;</h1>" in failed_html
+    assert "&lt;b&gt;bad reason&lt;/b&gt;" in failed_html
+    assert "&#x27;onload=&#x27;alert(1)" in failed_html
+    assert "'onload='alert(1)" not in failed_html

@@ -936,3 +936,108 @@ async def test_reading_history_saved_opened_filters(user_with_items):
     assert "items" in content
     saved_items = [it for it in content["items"] if it["event_type"] == "saved"]
     assert len(saved_items) >= 3  # All three items were saved
+
+
+@pytest.mark.asyncio
+async def test_match_items_by_url_www_variant_uses_indexed_lookup(
+    mcp_user, monkeypatch
+):
+    from keepfor.models.items import save_item
+    from keepfor.search.engine import match_items_by_url
+
+    user, env, db = mcp_user
+    item_www, _ = await save_item(
+        db, env, user["id"], "https://www.example.com/article?utm_source=x"
+    )
+    item_bare, _ = await save_item(db, env, user["id"], "https://sub.example.org/post/")
+
+    executed_sqls: list[str] = []
+    orig_query_all = db.query_all
+
+    async def tracking_query_all(sql, params=()):
+        executed_sqls.append(" ".join(sql.split()))
+        return await orig_query_all(sql, params)
+
+    monkeypatch.setattr(db, "query_all", tracking_query_all)
+
+    # Matching without www finds the www item
+    assert await match_items_by_url(db, user["id"], "https://example.com/article") == [
+        item_www["id"]
+    ]
+    # Matching with www finds the non-www item
+    assert await match_items_by_url(
+        db, user["id"], "https://www.sub.example.org/post"
+    ) == [item_bare["id"]]
+    # Missing URL returns empty without scanning the whole items table
+    assert (
+        await match_items_by_url(db, user["id"], "https://unseen.example.com/none")
+        == []
+    )
+
+    for sql in executed_sqls:
+        assert (
+            "SELECT id, url, canonical_url FROM items"
+            " WHERE user_id = ? AND deleted_at IS NULL;" not in sql
+        )
+
+
+@pytest.mark.asyncio
+async def test_reading_history_highlighted_event_and_total_count(mcp_user):
+    from keepfor.models.highlights import create_highlight
+    from keepfor.models.items import save_item
+    from keepfor.search.engine import reading_history
+
+    user, env, db = mcp_user
+    item1, _ = await save_item(db, env, user["id"], "https://example.com/h1")
+    item2, _ = await save_item(db, env, user["id"], "https://example.com/h2")
+    item3, _ = await save_item(db, env, user["id"], "https://example.com/h3")
+
+    await create_highlight(
+        db,
+        user["id"],
+        item1["id"],
+        "important quote",
+        0,
+        15,
+    )
+
+    # Highlighted event returns the highlighted item with total=1
+    highlighted_rows, h_total = await reading_history(
+        db, user["id"], event="highlighted", limit=10, offset=0
+    )
+    assert h_total == 1
+    assert len(highlighted_rows) == 1
+    assert highlighted_rows[0]["id"] == item1["id"]
+    assert highlighted_rows[0]["event_type"] == "highlighted"
+
+    # Saved event with limit=1 returns total >= 3 (full count, not page length 1)
+    saved_rows, s_total = await reading_history(
+        db, user["id"], event="saved", limit=1, offset=0
+    )
+    assert len(saved_rows) == 1
+    assert s_total >= 3
+
+
+@pytest.mark.asyncio
+async def test_read_item_chunks_format_text_strips_markdown(mcp_user):
+    from keepfor.models.items import save_note
+    from keepfor.search.engine import read_item_chunks
+
+    user, env, db = mcp_user
+    note = await save_note(
+        db,
+        env,
+        user["id"],
+        "Markdown Note",
+        "# Heading\n\nSome **bold** text and a [link](https://example.com).",
+    )
+    md_res = await read_item_chunks(db, env, user["id"], note["id"], format="markdown")
+    assert "# Heading" in md_res["text"]
+    assert "**bold**" in md_res["text"]
+
+    txt_res = await read_item_chunks(db, env, user["id"], note["id"], format="text")
+    assert "# " not in txt_res["text"]
+    assert "**bold**" not in txt_res["text"]
+    assert "Heading" in txt_res["text"]
+    assert "bold" in txt_res["text"]
+    assert "link" in txt_res["text"]

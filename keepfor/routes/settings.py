@@ -594,7 +594,9 @@ async def import_route(
                     }
                 )
         else:
-            background_tasks.add_task(import_bookmarks, db, env, user["id"], bookmarks)
+            background_tasks.add_task(
+                import_bookmarks, db, env, user["id"], bookmarks, scope=scope
+            )
 
         try:
             await providers.entitlements.record(

@@ -564,3 +564,20 @@ async def test_stats_rhythm_has_date_tooltips_and_min_height(
     assert response.status_code == 200
     # Bars for non-zero actions must contain min-height to survive import spikes
     assert "min-height: 4px" in response.text
+
+
+async def test_get_user_stats_ignores_opens_outside_window(
+    db, test_user_data, monkeypatch
+):
+    """item_opens query in get_user_stats filters to the 365-day window in SQL."""
+    user = await register_user(db, test_user_data["email"], test_user_data["password"])
+    uid = user["id"]
+    item, _ = await save_item(db, MockEnv(), uid, "https://example.com/old-open")
+    # Insert an open from 2 years ago (outside the 365-day stats window)
+    await db.execute(
+        "INSERT INTO item_opens (user_id, item_id, opened_at) VALUES (?, ?, ?);",
+        (uid, item["id"], "2020-01-01 12:00:00"),
+    )
+
+    stats = await get_user_stats(db, uid)
+    assert stats["total_reads"] == 0

@@ -115,9 +115,9 @@ R2 is also declared twice (`BUCKET` and `keepfor_me_bucket`); only `BUCKET` is r
 
 `wrangler.jsonc` binds the production D1 database ID (`46107ebb-e820-41e2-92f1-089c7eac4fbf`) with `"remote": true`.
 
-## Configuration: `keepfor/config.py` is dead code
+## Configuration (`wrangler.jsonc` vars)
 
-Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_import_*` are all unused. To add a setting, follow the existing pattern instead: declare it under `vars` in `wrangler.jsonc` and read it with `getattr(env, "NAME", default)` in the request handler. Wiring a new value into `AppConfig` will silently do nothing.
+`keepfor/config.py` was removed as dead code. To add a setting, declare it under `vars` in `wrangler.jsonc` and read it with `getattr(env, "NAME", default)` in the request handler.
 
 `SESSION_SECRET` in `wrangler.jsonc` is **never read**. Sessions are opaque random tokens (`secrets.token_hex(32)`) stored in the `sessions` table — not signed cookies.
 
@@ -132,7 +132,7 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
 
 `keepfor/models/db.py` is a 71-line dual-backend adapter: D1 in production, `sqlite3` in tests. It exposes only `query_all`, `query_first`, `execute`, `execute_batch`. **If you add a method, implement both branches** — the sqlite branch will otherwise be dead in prod and untested in CI.
 
-- **Migrations (`migrations/*.sql`)**: Fifteen schema files exist:
+- **Migrations (`migrations/*.sql`)**: Sixteen schema files exist:
   - `0001_initial_schema.sql` (core tables, FTS5 virtual table, triggers)
   - `0002_rate_limits.sql` (rate limiting table)
   - `0003_suggested_tags.sql` (suggested tags table)
@@ -146,6 +146,7 @@ Nothing imports it. `AppConfig`, its `.env` loading, `rate_limit_*`, and `max_im
   - `0013_highlights_and_collections.sql` (`highlights`, `collections`, `collection_items`: the MCP highlights and collections tools)
   - `0014_trash.sql` (`items.deleted_at` + the `(user_id, deleted_at)` index: the Trash)
   - `0015_search_metadata.sql` (backfills the summary and the page description into the FTS rows: the keyword side of the search)
+  - `0016_smart_collections.sql` (`collections.filter_json`: smart collection filter JSON)
 - **`deploy.yml` does NOT apply migrations**: Schema migrations must be applied manually to production via `npx wrangler d1 migrations apply keepfor-me-db --remote`.
 - **Composite indexes are mandatory for sorted feeds**: SQLite's query planner requires composite indexes matching the `WHERE` + `ORDER BY` pattern (e.g. `items(user_id, created_at DESC)` and `items(user_id, status, created_at DESC)`). Without them, SQLite performs `USE TEMP B-TREE FOR ORDER BY`, incurring noticeable CPU and memory overhead on library page loads. Check `EXPLAIN QUERY PLAN` on any new list query.
 - **The keyword side of the search covers the tags and the summary** (issue #55): FTS5 indexes the title and the extracted text, so an item that names the concept only in a tag or in its summary had no keyword hit and the hybrid rule dropped it. The tags are matched live (`search_tag_hits` in `keepfor/search/engine.py`: word boundaries, case-insensitive, like the FTS tokenizer) and the summary and the page description are indexed with the text. The hybrid rule itself is unchanged: a semantic-only hit still needs >= 0.80 and a near-top score.

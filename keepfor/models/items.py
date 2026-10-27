@@ -60,6 +60,7 @@ async def save_item(
     source_context: str | None = None,
     saved_by: str | None = None,
     queue_messages: list[dict[str, Any]] | None = None,
+    check_entitlement: bool = True,
 ) -> tuple[dict[str, Any], bool]:
     """Saves a URL to the user library with canonicalization and deduplication.
     Returns (item_dict, is_new).
@@ -109,9 +110,12 @@ async def save_item(
     from keepfor.spi import EntitlementDenied
 
     providers = get_providers()
-    decision = await providers.entitlements.check(scope.tenant_id, "save_item", qty=1)
-    if not decision.allowed:
-        raise EntitlementDenied(decision)
+    if check_entitlement:
+        decision = await providers.entitlements.check(
+            scope.tenant_id, "save_item", qty=1
+        )
+        if not decision.allowed:
+            raise EntitlementDenied(decision)
 
     # Create new item
     item_id = str(uuid.uuid4())
@@ -133,10 +137,11 @@ async def save_item(
         ),
     )
 
-    try:
-        await providers.entitlements.record(scope.tenant_id, "save_item", qty=1)
-    except Exception as exc:
-        logger.warning("Failed to record entitlement for save_item: %s", exc)
+    if check_entitlement:
+        try:
+            await providers.entitlements.record(scope.tenant_id, "save_item", qty=1)
+        except Exception as exc:
+            logger.warning("Failed to record entitlement for save_item: %s", exc)
 
     try:
         await providers.events.publish(
@@ -477,24 +482,32 @@ async def get_item_clean_html(
     # Fallback to plain text / excerpt formatted into HTML paragraphs.
     # NOTE: title is NULL (not absent) until extraction completes, so
     # .get('title', url) would render a literal "None" heading: use or.
-    heading = item.get("title") or item["url"]
+    import html
+
+    heading = html.escape(str(item.get("title") or item["url"]), quote=True)
     if item.get("status") == "failed":
         from keepfor.models.cleanup import BLOCKED_FETCH_COPY, classify_failure
 
         reason = item.get("fail_reason") or "unknown error"
         if classify_failure(reason) == "blocked" and BLOCKED_FETCH_COPY not in reason:
             reason = f"{BLOCKED_FETCH_COPY} ({reason})"
+        safe_reason = html.escape(str(reason), quote=True)
+        safe_url = html.escape(str(item["url"]), quote=True)
         return (
             f"<h1>{heading}</h1>"
-            f"<p>Content extraction failed: {reason}</p>"
-            f"<p><a href='{item['url']}' target='_blank'>Visit original link</a></p>"
+            f"<p>Content extraction failed: {safe_reason}</p>"
+            f"<p><a href='{safe_url}' target='_blank'>Visit original link</a></p>"
         )
     text = (
         item.get("content_text")
         or item.get("excerpt")
         or "Content extraction in progress..."
     )
-    paragraphs = "".join(f"<p>{p.strip()}</p>" for p in text.split("\n\n") if p.strip())
+    paragraphs = "".join(
+        f"<p>{html.escape(p.strip(), quote=True)}</p>"
+        for p in text.split("\n\n")
+        if p.strip()
+    )
     return f"<h1>{heading}</h1>{paragraphs}"
 
 
@@ -943,21 +956,28 @@ async def rename_tag(db: Database, user_id: str, old_name: str, new_name: str) -
             "WHERE it.tag_id = ?;",
             (user_id, old_row["id"]),
         )
-        for row in linked:
-            await db.execute(
-                "INSERT OR IGNORE INTO item_tags (item_id, tag_id) "
-                "SELECT i.id, t.id FROM items i JOIN tags t ON t.user_id = i.user_id "
-                "WHERE i.id = ? AND i.user_id = ? AND t.id = ?;",
-                (row["item_id"], user_id, new_row["id"]),
-            )
-        await db.execute(
-            "DELETE FROM item_tags WHERE tag_id IN "
-            "(SELECT id FROM tags WHERE id = ? AND user_id = ?);",
-            (old_row["id"], user_id),
-        )
-        await db.execute(
-            "DELETE FROM tags WHERE id = ? AND user_id = ?;",
-            (old_row["id"], user_id),
+        await db.execute_batch(
+            [
+                *[
+                    (
+                        "INSERT OR IGNORE INTO item_tags (item_id, tag_id) "
+                        "SELECT i.id, t.id FROM items i "
+                        "JOIN tags t ON t.user_id = i.user_id "
+                        "WHERE i.id = ? AND i.user_id = ? AND t.id = ?;",
+                        (row["item_id"], user_id, new_row["id"]),
+                    )
+                    for row in linked
+                ],
+                (
+                    "DELETE FROM item_tags WHERE tag_id IN "
+                    "(SELECT id FROM tags WHERE id = ? AND user_id = ?);",
+                    (old_row["id"], user_id),
+                ),
+                (
+                    "DELETE FROM tags WHERE id = ? AND user_id = ?;",
+                    (old_row["id"], user_id),
+                ),
+            ]
         )
         return "merged"
     await db.execute(
@@ -1027,10 +1047,15 @@ async def prune_unused_tags(db: Database, user_id: str) -> int:
         """,
         (user_id,),
     )
-    for row in rows:
-        await db.execute(
-            "DELETE FROM tags WHERE id = ? AND user_id = ?;",
-            (row["id"], user_id),
+    if rows:
+        await db.execute_batch(
+            [
+                (
+                    "DELETE FROM tags WHERE id = ? AND user_id = ?;",
+                    (row["id"], user_id),
+                )
+                for row in rows
+            ]
         )
     return len(rows)
 
@@ -1086,22 +1111,29 @@ async def bulk_update_tags(
     remove: list[str] | None = None,
 ) -> int:
     """Adds/removes tags across owned items; skips foreign and missing ids."""
-    add = [t for t in (add or []) if t.strip()]
-    remove = [t for t in (remove or []) if t.strip()]
-    done = 0
-    for item_id in (item_ids or [])[:BULK_TAG_LIMIT]:
-        row = await db.query_first(
-            "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
-            (item_id, user_id),
+    ids = [i for i in (item_ids or []) if i][:BULK_TAG_LIMIT]
+    if not ids:
+        return 0
+    owned: list[str] = []
+    for start in range(0, len(ids), _UPDATE_CHUNK):
+        chunk = ids[start : start + _UPDATE_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await db.query_all(
+            "SELECT id FROM items WHERE user_id = ? AND deleted_at IS NULL"
+            f" AND id IN ({placeholders});",
+            (user_id, *chunk),
         )
-        if not row:
-            continue
-        if add:
-            await add_tags_to_item(db, user_id, item_id, add)
-        if remove:
-            await remove_tags_from_item(db, user_id, item_id, remove)
-        done += 1
-    return done
+        owned.extend(r["id"] for r in rows)
+    if not owned:
+        return 0
+    return await bulk_update_items(
+        db,
+        user_id,
+        owned,
+        add_tags=add,
+        remove_tags=remove,
+        normalize_only=True,
+    )
 
 
 # Cap on the items a single bulk update may touch.
@@ -1137,6 +1169,7 @@ async def bulk_update_items(
     add_tags: list[str] | None = None,
     remove_tags: list[str] | None = None,
     read_state: str | None = None,
+    normalize_only: bool = False,
 ) -> int:
     """Applies status, pin, read state and tag changes to owned items.
 
@@ -1148,8 +1181,20 @@ async def bulk_update_items(
     ids = [i for i in (item_ids or []) if i][:BULK_UPDATE_LIMIT]
     if not ids:
         return 0
-    add = _clean_tag_names(add_tags)
-    remove = _clean_tag_names(remove_tags)
+    if normalize_only:
+        add = list(
+            dict.fromkeys(
+                normalize_tag(t) for t in (add_tags or []) if normalize_tag(t)
+            )
+        )
+        remove = list(
+            dict.fromkeys(
+                normalize_tag(t) for t in (remove_tags or []) if normalize_tag(t)
+            )
+        )
+    else:
+        add = _clean_tag_names(add_tags)
+        remove = _clean_tag_names(remove_tags)
 
     statements: list[tuple[str, tuple[Any, ...]]] = []
     if set_status is not None or pin is not None:
@@ -1568,23 +1613,24 @@ async def toggle_pin_item(db: Database, user_id: str, item_id: str) -> bool | No
 
 
 async def update_user_notes(
-    db: Database, user_id: str, item_id: str, user_notes: str | None
+    db: Database,
+    user_id: str,
+    item_id: str,
+    user_notes: str | None,
+    *,
+    env: Any = None,
+    scope: TenantScope | None = None,
 ) -> bool:
-    """Persist 'why I kept this' notes; re-indexes FTS. Returns owned."""
-    row = await db.query_first(
-        "SELECT id FROM items WHERE id = ? AND user_id = ? AND deleted_at IS NULL;",
-        (item_id, user_id),
+    """Persist 'why I kept this' notes; re-indexes FTS and vectors. Returns owned."""
+    res = await update_item_fields(
+        db,
+        env,
+        user_id,
+        item_id,
+        user_notes=user_notes or "",
+        scope=scope,
     )
-    if not row:
-        return False
-    clean = (user_notes or "").strip() or None
-    await db.execute(
-        "UPDATE items SET user_notes = ?, updated_at = CURRENT_TIMESTAMP"
-        " WHERE id = ? AND user_id = ?;",
-        (clean, item_id, user_id),
-    )
-    await _refresh_fts_for_item(db, user_id, item_id)
-    return True
+    return res is not None
 
 
 async def _reindex_item_vectors(
@@ -1778,6 +1824,17 @@ async def save_note(
 
         scope = default_scope(db, env, user_id)
 
+    from keepfor.runtime import get_providers
+    from keepfor.spi import EntitlementDenied
+
+    providers = get_providers()
+    if source is None or source == "manual":
+        decision = await providers.entitlements.check(
+            scope.tenant_id, "save_item", qty=1
+        )
+        if not decision.allowed:
+            raise EntitlementDenied(decision)
+
     first_line = (content_text or "").strip().split("\n")[0][:120]
     clean_title = (title or "").strip() or first_line or "Untitled note"
     body = (content_text or "").strip()
@@ -1814,6 +1871,12 @@ async def save_note(
             saved_by,
         ),
     )
+    if source is None or source == "manual":
+        try:
+            await providers.entitlements.record(scope.tenant_id, "save_item", qty=1)
+        except Exception as exc:
+            logger.warning("Failed to record entitlement for save_item: %s", exc)
+
     clean_tags = [normalize_tag(t) for t in (tags or []) if normalize_tag(t)]
     if clean_tags:
         await add_tags_to_item(db, user_id, item_id, clean_tags)
@@ -1831,39 +1894,64 @@ async def save_note(
             ),
         ),
     )
-    # Best-effort single-chunk Vectorize embedding (fail-open; no AI in tests).
+    # Best-effort multi-chunk Vectorize embedding (fail-open; no AI in tests).
     try:
         vectors = scope.vectors(env)
         if vectors.index is not None and body:
-            from keepfor.runtime import get_providers
             from keepfor.utils.chunker import recursive_character_split
 
-            providers = get_providers()
             chunks = recursive_character_split(
                 body, target_tokens=400, overlap_tokens=50
-            )[:1]
+            )
             if chunks:
-                vecs = await providers.ai.embed(env, [chunks[0].text])
-                if vecs:
-                    chunk_id = f"item_{item_id}_chunk_0"
-                    await vectors.upsert(
-                        [
-                            {
-                                "id": chunk_id,
-                                "values": vecs[0],
-                                "metadata": {
-                                    "item_id": item_id,
-                                    "user_id": user_id,
-                                    "chunk_index": 0,
-                                },
-                            }
-                        ]
-                    )
-                    await db.execute(
-                        "INSERT INTO chunks (id, item_id, user_id, chunk_index,"
-                        " token_count) VALUES (?, ?, ?, ?, ?);",
-                        (chunk_id, item_id, user_id, 0, chunks[0].token_count),
-                    )
+                embed_decision = await providers.entitlements.check(
+                    scope.tenant_id, "embed", qty=len(chunks)
+                )
+                if embed_decision.allowed:
+                    vectors_to_upsert = []
+                    chunk_queries = []
+                    for i in range(0, len(chunks), 10):
+                        batch_chunks = chunks[i : i + 10]
+                        vecs = await providers.ai.embed(
+                            env, [c.text for c in batch_chunks]
+                        )
+                        for chunk, vec in zip(batch_chunks, vecs or []):
+                            chunk_id = f"item_{item_id}_chunk_{chunk.index}"
+                            vectors_to_upsert.append(
+                                {
+                                    "id": chunk_id,
+                                    "values": vec,
+                                    "metadata": {
+                                        "item_id": item_id,
+                                        "user_id": user_id,
+                                        "chunk_index": chunk.index,
+                                    },
+                                }
+                            )
+                            chunk_queries.append(
+                                (
+                                    "INSERT INTO chunks (id, item_id, user_id, "
+                                    "chunk_index, token_count) VALUES (?, ?, ?, ?, ?);",
+                                    (
+                                        chunk_id,
+                                        item_id,
+                                        user_id,
+                                        chunk.index,
+                                        chunk.token_count,
+                                    ),
+                                )
+                            )
+                    if vectors_to_upsert:
+                        await vectors.upsert(vectors_to_upsert)
+                        try:
+                            await providers.entitlements.record(
+                                scope.tenant_id, "embed", qty=len(vectors_to_upsert)
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "Entitlement record for embed failed: %s", exc
+                            )
+                        await db.execute_batch(chunk_queries)
     except Exception:
         pass
     return {

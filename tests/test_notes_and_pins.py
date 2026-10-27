@@ -174,3 +174,163 @@ async def test_mcp_save_note_and_pin(user_with_env):
     )
     assert got["item_type"] == "note"
     assert got["is_pinned"] is True
+
+
+@pytest.mark.asyncio
+async def test_save_note_enforces_entitlements_and_embeds_all_chunks(
+    user_with_env, monkeypatch
+):
+    from keepfor.spi import Decision, EntitlementDenied, Providers, TenantScope
+
+    user, env, db = user_with_env
+
+    upserted: list[dict] = []
+    embedded_batches: list[list[str]] = []
+    checked: list[tuple[str, str, int]] = []
+    recorded: list[tuple[str, str, int]] = []
+
+    class FakeVectorIndex:
+        async def upsert(self, vectors):
+            upserted.extend(vectors)
+
+    class FakeAI:
+        async def embed(self, env_arg, texts):
+            embedded_batches.append(list(texts))
+            return [[0.1, 0.2] for _ in texts]
+
+    allow_save = True
+
+    class FakeEntitlements:
+        async def check(self, tenant_id: str, action: str, qty: int = 1) -> Decision:
+            checked.append((tenant_id, action, qty))
+            if action == "save_item" and not allow_save:
+                return Decision(allowed=False, reason="Note quota exceeded")
+            return Decision(allowed=True)
+
+        async def record(self, tenant_id: str, action: str, qty: int = 1) -> None:
+            recorded.append((tenant_id, action, qty))
+
+    from keepfor.runtime import get_providers
+
+    base = get_providers()
+    monkeypatch.setattr(
+        "keepfor.runtime.get_providers",
+        lambda: Providers(
+            scope=base.scope,
+            entitlements=FakeEntitlements(),  # type: ignore[arg-type]
+            events=base.events,
+            ai=FakeAI(),  # type: ignore[arg-type]
+        ),
+    )
+
+    env.VECTORIZE = FakeVectorIndex()
+    scope = TenantScope(
+        tenant_id="tenant_notes",
+        user_id=user["id"],
+        db=db,
+        blob_prefix="t/",
+        vector_namespace="ns_notes",
+    )
+
+    # Create a note long enough for multiple chunks (> 400 tokens)
+    long_body = "\n\n".join(
+        f"Paragraph {i}: " + ("knowledge base word " * 60) for i in range(6)
+    )
+    note = await save_note(
+        db, env, user["id"], "Long Note", long_body, ["deep"], scope=scope
+    )
+
+    chunk_rows = await db.query_all(
+        "SELECT chunk_index FROM chunks WHERE item_id = ? ORDER BY chunk_index;",
+        (note["id"],),
+    )
+    assert len(chunk_rows) >= 2
+    assert len(upserted) == len(chunk_rows)
+    assert ("tenant_notes", "save_item", 1) in checked
+    assert ("tenant_notes", "save_item", 1) in recorded
+    assert ("tenant_notes", "embed", len(chunk_rows)) in checked
+    assert ("tenant_notes", "embed", len(chunk_rows)) in recorded
+
+    # Denied save_item raises EntitlementDenied
+    allow_save = False
+    with pytest.raises(EntitlementDenied):
+        await save_note(db, env, user["id"], "Denied", "body", scope=scope)
+
+
+@pytest.mark.asyncio
+async def test_workers_ai_provider_generate_unwraps_jsproxy():
+    from keepfor.defaults import WorkersAIProvider
+
+    class FakeJsProxy:
+        def to_py(self):
+            return {"response": "  hello from pyodide  "}
+
+    class FakeAIBinding:
+        async def run(self, model, payload):
+            return FakeJsProxy()
+
+    class EnvWithAI:
+        AI = FakeAIBinding()
+
+    provider = WorkersAIProvider()
+    out = await provider.generate(EnvWithAI(), "sys", "usr")
+    assert out == "hello from pyodide"
+
+
+@pytest.mark.asyncio
+async def test_update_user_notes_enforces_cap_and_reindexes_vectors(
+    user_with_env, monkeypatch
+):
+    from keepfor.models.items import MAX_ITEM_NOTES_CHARS
+    from keepfor.spi import Providers, TenantScope
+
+    user, env, db = user_with_env
+    item, _ = await save_item(db, env, user["id"], "https://example.com/notes-vec", [])
+
+    upserted = []
+
+    class FakeVectorIndex:
+        async def upsert(self, vectors):
+            upserted.extend(vectors)
+
+    class FakeAI:
+        async def embed(self, env_arg, texts):
+            return [[0.3, 0.7] for _ in texts]
+
+    from keepfor.runtime import get_providers
+
+    base = get_providers()
+    monkeypatch.setattr(
+        "keepfor.runtime.get_providers",
+        lambda: Providers(
+            scope=base.scope,
+            entitlements=base.entitlements,
+            events=base.events,
+            ai=FakeAI(),  # type: ignore[arg-type]
+        ),
+    )
+
+    env.VECTORIZE = FakeVectorIndex()
+    scope = TenantScope(
+        tenant_id="t1",
+        user_id=user["id"],
+        db=db,
+        blob_prefix="t/",
+        vector_namespace="ns_notes",
+    )
+
+    ok = await update_user_notes(
+        db,
+        user["id"],
+        item["id"],
+        "Updated note for vector index",
+        env=env,
+        scope=scope,
+    )
+    assert ok is True
+    assert len(upserted) == 1
+
+    with pytest.raises(ValueError, match="limited to"):
+        await update_user_notes(
+            db, user["id"], item["id"], "x" * (MAX_ITEM_NOTES_CHARS + 1)
+        )

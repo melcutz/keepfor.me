@@ -76,6 +76,7 @@ from keepfor.routes._shared import (
     _render_tags_list,
     _safe_next,
     build_ai_markdown,
+    is_same_origin,
     tag_styles_for,
     user_import_status,
 )
@@ -676,7 +677,14 @@ async def update_notes_route(
 ):
     user = await deps.require_user(request)
     db = deps.get_db(request)
-    ok = await update_user_notes(db, user["id"], item_id, user_notes)
+    env = deps.get_env_from_request(request)
+    scope = deps.get_scope(request)
+    try:
+        ok = await update_user_notes(
+            db, user["id"], item_id, user_notes, env=env, scope=scope
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if not ok:
         raise HTTPException(status_code=404, detail="Item not found")
     if request.headers.get("hx-request"):
@@ -1242,13 +1250,7 @@ async def trash_page(request: Request, page: int = 1):
     return HTMLResponse(content=html)
 
 
-def _is_same_origin(request: Request) -> bool:
-    """Reject cross-origin form POSTs when an Origin header is present."""
-    origin = request.headers.get("origin")
-    if not origin:
-        return True
-    host = (request.headers.get("host") or request.url.netloc or "").lower()
-    return urlparse(origin).netloc.lower() == host
+_is_same_origin = is_same_origin
 
 
 @router.post("/items/{item_id}/trash", response_class=HTMLResponse)

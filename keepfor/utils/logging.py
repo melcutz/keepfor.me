@@ -6,7 +6,7 @@ import logging
 import uuid
 from contextvars import ContextVar
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 # Context variables for request tracking
 _request_context: ContextVar[dict[str, Any]] = ContextVar("request_context", default={})
@@ -76,26 +76,3 @@ def setup_logging() -> logging.Logger:
 
 # Global logger instance
 logger = setup_logging()
-
-
-def log_error(msg: str, exc: Optional[Exception] = None, **kwargs) -> None:
-    """Log error with optional exception details."""
-    if exc:
-        logger.error(f"{msg}: {exc}", exc_info=exc)
-    else:
-        logger.error(msg)
-
-
-def log_info(msg: str, **kwargs) -> None:
-    """Log info message."""
-    logger.info(msg)
-
-
-def log_debug(msg: str, **kwargs) -> None:
-    """Log debug message."""
-    logger.debug(msg)
-
-
-def log_warning(msg: str, **kwargs) -> None:
-    """Log warning message."""
-    logger.warning(msg)

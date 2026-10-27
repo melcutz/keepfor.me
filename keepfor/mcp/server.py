@@ -990,7 +990,7 @@ MCP_TOOLS = [
                 **_TAG_FILTER_PROPS,
                 "event": {
                     "type": "string",
-                    "enum": ["saved", "opened", "all"],
+                    "enum": ["saved", "opened", "highlighted", "all"],
                     "default": "all",
                     "description": "Event type to filter by.",
                 },

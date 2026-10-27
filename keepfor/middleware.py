@@ -6,9 +6,21 @@ from __future__ import annotations
 import time
 
 from fastapi import Request
+from fastapi.responses import PlainTextResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from keepfor.routes._shared import is_same_origin
 from keepfor.utils.logging import get_request_id, logger
+
+_MUTATING_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+
+# kfc_session is the hosted (keepfor-cloud) session cookie
+DEFAULT_SESSION_COOKIES = (
+    "kfm_session",
+    "rk_session",
+    "kfc_session",
+)  # kfm_session and rk_session are core's session cookies; kfc_session is the hosted
+# keepfor-cloud cookie (cloud mounts this middleware without arguments)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -33,7 +45,25 @@ class LoggingMiddleware(BaseHTTPMiddleware):
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, session_cookies: tuple[str, ...] = DEFAULT_SESSION_COOKIES):
+        super().__init__(app)
+        self._session_cookies = session_cookies
+
+    def _has_session_cookie(self, request: Request) -> bool:
+        return any(request.cookies.get(name) for name in self._session_cookies)
+
     async def dispatch(self, request: Request, call_next):
+        auth_header = request.headers.get("authorization", "")
+        is_bearer = auth_header.lower().startswith("bearer ")
+        has_session = self._has_session_cookie(request)
+        if (
+            (request.method in _MUTATING_METHODS and not is_bearer)
+            or request.url.path == "/auth/logout"
+        ) and has_session:
+            if not is_same_origin(request):
+                return PlainTextResponse(
+                    "Cross-origin request blocked", status_code=403
+                )
         response = await call_next(request)
         # Prevent MIME type sniffing
         response.headers["X-Content-Type-Options"] = "nosniff"
