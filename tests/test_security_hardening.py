@@ -170,6 +170,39 @@ async def test_cross_origin_post_with_session_cookie_blocked(client, db):
 
 
 @pytest.mark.asyncio
+async def test_cross_origin_post_with_kfc_session_cookie_blocked(client):
+    """Cross-origin POST carrying a kfc_session cookie (default middleware config)
+    gets 403.
+    """
+    client.cookies["kfc_session"] = "mock-cloud-session-id"
+
+    resp = client.post(
+        "/settings/tokens",
+        data={"name": "evil-token"},
+        headers={"Origin": "https://evil.example"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_cross_origin_post_with_rk_session_cookie_blocked(client, db):
+    """Cross-origin POST carrying a rk_session cookie (core's session cookie)
+    gets 403."""
+    await register_user(db, "owner@test.local", "password123")
+    _, session_id = await login_user(db, "owner@test.local", "password123")
+    client.cookies["rk_session"] = session_id
+
+    resp = client.post(
+        "/settings/tokens",
+        data={"name": "evil-token"},
+        headers={"Origin": "https://evil.example"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_same_origin_post_with_session_cookie_allowed(client, db):
     """Same-origin POST with session cookie passes."""
     await register_user(db, "owner@test.local", "password123")

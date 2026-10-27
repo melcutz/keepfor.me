@@ -14,8 +14,13 @@ from keepfor.utils.logging import get_request_id, logger
 
 _MUTATING_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 
-# Default session cookie names used by core auth
-DEFAULT_SESSION_COOKIES = ("kfm_session", "rk_session")
+# kfc_session is the hosted (keepfor-cloud) session cookie
+DEFAULT_SESSION_COOKIES = (
+    "kfm_session",
+    "rk_session",
+    "kfc_session",
+)  # kfm_session and rk_session are core's session cookies; kfc_session is the hosted
+# keepfor-cloud cookie (cloud mounts this middleware without arguments)
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
