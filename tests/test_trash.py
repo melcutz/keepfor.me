@@ -1185,3 +1185,78 @@ async def test_api_delete_moves_the_item_to_the_trash(
         (item["id"], user["id"]),
     )
     assert row["deleted_at"], "the item must be trashed, not deleted"
+
+
+@pytest.mark.asyncio
+async def test_trash_items_and_hybrid_search_stay_under_d1_100_param_limit(
+    db, fake_env, user, monkeypatch
+):
+    """trash_items and hybrid_search chunk IDs so D1 never sees >100 bound params."""
+    from keepfor.models.items import trash_items
+
+    item_ids = [f"d1-cap-{i}" for i in range(120)]
+    await db.execute_batch(
+        [
+            (
+                "INSERT INTO items (id, user_id, url, canonical_url, title, status)"
+                " VALUES (?, ?, ?, ?, ?, 'ok');",
+                (
+                    iid,
+                    user["id"],
+                    f"https://example.com/{iid}",
+                    f"https://example.com/{iid}",
+                    f"Alpha {iid}",
+                ),
+            )
+            for iid in item_ids
+        ]
+    )
+
+    orig_query_all = db.query_all
+    orig_execute = db.execute
+    orig_execute_batch = db.execute_batch
+
+    async def checked_query_all(sql: str, params=()):
+        assert len(params) <= 100, f"Exceeded 100 D1 params ({len(params)}): {sql}"
+        return await orig_query_all(sql, params)
+
+    async def checked_execute(sql: str, params=()):
+        assert len(params) <= 100, f"Exceeded 100 D1 params ({len(params)}): {sql}"
+        return await orig_execute(sql, params)
+
+    async def checked_execute_batch(statements):
+        for sql, params in statements:
+            assert len(params) <= 100, f"Exceeded 100 D1 params ({len(params)}): {sql}"
+        return await orig_execute_batch(statements)
+
+    monkeypatch.setattr(db, "query_all", checked_query_all)
+    monkeypatch.setattr(db, "execute", checked_execute)
+    monkeypatch.setattr(db, "execute_batch", checked_execute_batch)
+
+    async def fake_fts(*args, **kwargs):
+        return [
+            {"item_id": iid, "rank": -float(idx), "snippet": "alpha"}
+            for idx, iid in enumerate(item_ids[:80])
+        ]
+
+    async def fake_vec(*args, **kwargs):
+        return [{"item_id": iid, "score": 0.9} for iid in item_ids[70:120]]
+
+    monkeypatch.setattr("keepfor.search.engine.search_fts", fake_fts)
+    monkeypatch.setattr("keepfor.search.engine.search_vectorize", fake_vec)
+
+    results, total = await hybrid_search(
+        db,
+        fake_env,
+        user["id"],
+        "alpha",
+        mode="hybrid",
+        status="saved",
+        category="links",
+        read_state="unread",
+    )
+    assert total == 120
+    assert len(results) == 20
+
+    trashed = await trash_items(db, user["id"], item_ids)
+    assert len(trashed) == 120

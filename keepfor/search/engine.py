@@ -1099,8 +1099,7 @@ async def hybrid_search(
     ]
     top_ids = sorted_item_ids  # Full ranked window; sliced per page below
 
-    # Fetch full item details from D1
-    placeholders = ",".join("?" for _ in top_ids)
+    # Fetch full item details from D1 in chunks under the 100-param limit
     status_values = _status_values(status)
     status_clause = ""
     status_params: tuple = ()
@@ -1111,26 +1110,34 @@ async def hybrid_search(
     quick_clause = " AND i.word_count < 1000" if quick else ""
     read_params = (read_state,) if read_state else ()
     read_clause = " AND i.read_state = ?" if read_state else ""
-    sql = f"""
-        SELECT {RECENT_COLUMNS}
-        FROM items i
-        WHERE i.id IN ({placeholders})
-          AND i.user_id = ? AND i.deleted_at IS NULL
-          {status_clause}{cat_clause}{quick_clause}{read_clause};
-    """
-    tag_sql = f"""
-        SELECT it.item_id, t.name as tag_name
-        FROM item_tags it
-        JOIN items i ON i.id = it.item_id AND i.user_id = ?
-        JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
-        WHERE it.item_id IN ({placeholders});
-    """
-    rows, tag_rows = await asyncio.gather(
-        db.query_all(
-            sql, (*top_ids, user_id, *status_params, *cat_params, *read_params)
-        ),
-        db.query_all(tag_sql, (user_id, *top_ids)),
-    )
+    id_chunk_size = 80
+    rows: list[dict[str, Any]] = []
+    tag_rows: list[dict[str, Any]] = []
+    for offset in range(0, len(top_ids), id_chunk_size):
+        chunk_ids = top_ids[offset : offset + id_chunk_size]
+        placeholders = ",".join("?" for _ in chunk_ids)
+        sql = f"""
+            SELECT {RECENT_COLUMNS}
+            FROM items i
+            WHERE i.id IN ({placeholders})
+              AND i.user_id = ? AND i.deleted_at IS NULL
+              {status_clause}{cat_clause}{quick_clause}{read_clause};
+        """
+        tag_sql = f"""
+            SELECT it.item_id, t.name as tag_name
+            FROM item_tags it
+            JOIN items i ON i.id = it.item_id AND i.user_id = ?
+            JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
+            WHERE it.item_id IN ({placeholders});
+        """
+        chunk_rows, chunk_tag_rows = await asyncio.gather(
+            db.query_all(
+                sql, (*chunk_ids, user_id, *status_params, *cat_params, *read_params)
+            ),
+            db.query_all(tag_sql, (user_id, *chunk_ids)),
+        )
+        rows.extend(chunk_rows)
+        tag_rows.extend(chunk_tag_rows)
     item_map = {row["id"]: row for row in rows}
     item_tags_map: dict[str, list[str]] = {}
     for tr in tag_rows:

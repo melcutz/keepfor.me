@@ -682,21 +682,30 @@ async def trash_items(db: Database, user_id: str, item_ids: Sequence[str]) -> li
     ids = list(dict.fromkeys(i for i in (item_ids or []) if i))
     if not ids:
         return []
-    placeholders = ",".join("?" for _ in ids)
-    rows = await db.query_all(
-        "SELECT id FROM items"
-        f" WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
-        (user_id, *ids),
-    )
-    live = [r["id"] for r in rows]
-    if live:
-        live_placeholders = ",".join("?" for _ in live)
-        await db.execute(
-            "UPDATE items SET deleted_at = CURRENT_TIMESTAMP,"
-            " updated_at = CURRENT_TIMESTAMP"
-            f" WHERE user_id = ? AND id IN ({live_placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
-            (user_id, *live),
+    live: list[str] = []
+    for start in range(0, len(ids), _ID_CHUNK):
+        chunk = ids[start : start + _ID_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await db.query_all(
+            "SELECT id FROM items"
+            f" WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
+            (user_id, *chunk),
         )
+        live.extend(r["id"] for r in rows)
+    if live:
+        statements = []
+        for start in range(0, len(live), _ID_CHUNK):
+            chunk = live[start : start + _ID_CHUNK]
+            live_placeholders = ",".join("?" for _ in chunk)
+            statements.append(
+                (
+                    "UPDATE items SET deleted_at = CURRENT_TIMESTAMP,"
+                    " updated_at = CURRENT_TIMESTAMP"
+                    f" WHERE user_id = ? AND id IN ({live_placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
+                    (user_id, *chunk),
+                )
+            )
+        await db.execute_batch(statements)
     return live
 
 
