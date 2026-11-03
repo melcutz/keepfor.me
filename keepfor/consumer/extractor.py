@@ -499,8 +499,10 @@ def extract_youtube_article(html: str, url: str) -> dict[str, Any]:
 
     parts = [p for p in [title, description] if p]
     plain_text = "\n\n".join(parts) if parts else title
+    safe_title = html_module.escape(title or "", quote=True)
+    safe_desc = html_module.escape(description, quote=True) if description else ""
     clean_html = sanitize_clean_html(
-        f"<h1>{title}</h1>" + (f"<p>{description}</p>" if description else "")
+        f"<h1>{safe_title}</h1>" + (f"<p>{safe_desc}</p>" if safe_desc else "")
     )
     plain_text = _clean_plain_text(plain_text)
     word_count = len(plain_text.split())
@@ -567,8 +569,10 @@ def extract_github_article(html: str, url: str) -> dict[str, Any]:
     if not plain_text or len(plain_text) < 50:
         plain_text = description or title
 
+    safe_title = html_module.escape(title or "", quote=True)
+    safe_desc = html_module.escape(description, quote=True) if description else ""
     clean_html = sanitize_clean_html(
-        f"<h1>{title}</h1>" + (f"<p>{description}</p>" if description else "")
+        f"<h1>{safe_title}</h1>" + (f"<p>{safe_desc}</p>" if safe_desc else "")
     )
     plain_text = _clean_plain_text(plain_text)
     word_count = len(plain_text.split())
@@ -960,19 +964,23 @@ def extract_article(html: str, url: str) -> dict[str, Any]:
                 else None
             )
 
+        safe_title = html_module.escape(title or "", quote=True)
         readable = _extract_with_readability(html, url)
         if readable and len(readable.strip()) >= 50:
             plain_text = readable
-            clean_html_raw = f"<h1>{title}</h1><p>{readable}</p>"
+            safe_readable = html_module.escape(readable, quote=True)
+            clean_html_raw = f"<h1>{safe_title}</h1><p>{safe_readable}</p>"
             # A substantial paragraph recovery is a real article, not a
             # link-only stub: don't show the "Link Only" badge for it.
             if len(readable.split()) >= _READABILITY_REAL_ARTICLE_WORDS:
                 is_fallback = False
         else:
             plain_text = excerpt or title or "No readable text extracted."
+            safe_excerpt = html_module.escape(excerpt or "", quote=True)
+            safe_url = html_module.escape(url or "", quote=True)
             clean_html_raw = (
-                f"<h1>{title}</h1><p>{excerpt or ''}</p>"
-                f"<p><a href='{url}' target='_blank'>Visit original link</a></p>"
+                f"<h1>{safe_title}</h1><p>{safe_excerpt}</p>"
+                f"<p><a href='{safe_url}' target='_blank'>Visit original link</a></p>"
             )
 
     clean_html = sanitize_clean_html(clean_html_raw or "")
