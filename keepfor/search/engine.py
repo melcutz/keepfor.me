@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import html
 import json
 import re
 from typing import TYPE_CHECKING, Any
@@ -420,17 +421,30 @@ def _stems_for_term(term: str) -> set[str]:
     return {s for s in stems if len(s) >= MIN_PREFIX_LEN}
 
 
+def _escape_and_highlight(raw: str, combined: re.Pattern[str] | None) -> str:
+    if combined is None:
+        return html.escape(raw)
+    pieces: list[str] = []
+    last = 0
+    for m in combined.finditer(raw):
+        pieces.append(html.escape(raw[last : m.start()]))
+        pieces.append(f"<mark>{html.escape(m.group(0))}</mark>")
+        last = m.end()
+    pieces.append(html.escape(raw[last:]))
+    return "".join(pieces)
+
+
 def highlight_query_terms(text: str, terms: list[str]) -> str:
     """Highlights all query terms, stems and inflections with <mark> tags (#97).
 
-    Preserves existing <mark> tags without nesting. Short words (< 3 chars)
-    match whole words only; words >= 3 chars match their inflections and
-    stems consistent with #76.
+    Preserves existing <mark> tags without nesting and escapes all non-mark
+    HTML. Short words (< 3 chars) match whole words only; words >= 3 chars
+    match their inflections and stems consistent with #76.
     """
-    if not text or not terms:
-        return text or ""
+    if not text:
+        return ""
     patterns = []
-    for t in terms:
+    for t in terms or []:
         t_clean = "".join(c for c in t.strip().lower() if c.isalnum())
         if not t_clean:
             continue
@@ -443,16 +457,19 @@ def highlight_query_terms(text: str, terms: list[str]) -> str:
             else:
                 min_stem = min(stems, key=len)
                 patterns.append(r"\b" + re.escape(min_stem) + r"[a-zA-Z0-9]*\b")
-    if not patterns:
-        return text
-    combined = re.compile("|".join(dict.fromkeys(patterns)), re.IGNORECASE)
+    combined = (
+        re.compile("|".join(dict.fromkeys(patterns)), re.IGNORECASE)
+        if patterns
+        else None
+    )
     parts = re.split(r"(<mark>.*?</mark>)", text, flags=re.IGNORECASE | re.DOTALL)
     out = []
     for part in parts:
         if part.lower().startswith("<mark>") and part.lower().endswith("</mark>"):
-            out.append(part)
+            inner = html.unescape(part[6:-7])
+            out.append(f"<mark>{html.escape(inner)}</mark>")
         else:
-            out.append(combined.sub(r"<mark>\g<0></mark>", part))
+            out.append(_escape_and_highlight(html.unescape(part), combined))
     return "".join(out)
 
 

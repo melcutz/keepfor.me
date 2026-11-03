@@ -86,7 +86,7 @@
 
       {% if item.snippet or item.excerpt %}
       <p class="card-excerpt text-sm sm:text-[15px] text-slate-600 mt-2 line-clamp-2 leading-relaxed">
-        {{ (item.snippet or item.excerpt) | safe }}
+        {{ item.snippet | safe if item.snippet else item.excerpt }}
       </p>
       {% endif %}
 
