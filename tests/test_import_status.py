@@ -335,3 +335,60 @@ async def test_failed_upload_is_persisted_as_a_failed_import(
 
     page = client.get("/settings")
     assert "Import failed" in page.text
+
+
+@pytest.mark.asyncio
+async def test_apply_chunk_counts_concurrent_chunks_reach_completed(db, monkeypatch):
+    """Concurrent chunks that together reach notes_total must mark status completed."""
+    import asyncio
+
+    user = await register_user(db, "race@test.local", "password123")
+    import_id = await create_import(db, user["id"], source="keep")
+    await set_import_counts(
+        db,
+        user["id"],
+        import_id,
+        source="keep",
+        notes_total=4,
+        trashed_skipped=0,
+        urls_found=0,
+        attachments_not_imported=0,
+        parse_errors=0,
+    )
+
+    orig_query_first = db.query_first
+    read_count = 0
+    both_read = asyncio.Event()
+
+    async def synchronized_query_first(sql: str, params=()):
+        nonlocal read_count
+        res = await orig_query_first(sql, params)
+        if "FROM import_status" in sql:
+            read_count += 1
+            if read_count >= 2:
+                both_read.set()
+            await asyncio.wait_for(both_read.wait(), timeout=2.0)
+        return res
+
+    monkeypatch.setattr(db, "query_first", synchronized_query_first)
+
+    await asyncio.gather(
+        apply_chunk_counts(
+            db,
+            user["id"],
+            import_id,
+            {"notes_imported": 2, "notes_processed": 2, "errors": []},
+        ),
+        apply_chunk_counts(
+            db,
+            user["id"],
+            import_id,
+            {"notes_imported": 2, "notes_processed": 2, "errors": []},
+        ),
+    )
+
+    monkeypatch.setattr(db, "query_first", orig_query_first)
+    record = await get_import(db, user["id"], import_id)
+    assert record["notes_processed"] == 4
+    assert record["notes_imported"] == 4
+    assert record["status"] == "completed"
