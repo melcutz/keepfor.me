@@ -631,3 +631,29 @@ async def test_tag_filter_clause_filters_items(db):
     assert await _ids(tags_none=["work"]) == {item2, item3}
     assert await _ids(untagged=True) == {item3}
     assert await _ids() == {item1, item2, item3}
+
+
+@pytest.mark.asyncio
+async def test_retag_by_query_respects_tag_clause_precedence(db):
+    """tag_clause must AND with the title/url OR group, not only the last OR branch."""
+    user_id = str(uuid.uuid4())
+    item1 = await _seed_item(db, user_id, "https://a.example/", "Python guide")
+    item2 = await _seed_item(db, user_id, "https://b.example/", "Python reference")
+    await add_tags_to_item(db, user_id, item1, ["work"])
+
+    tag_clause, tag_params = await tags_model.tag_filter_clause(
+        db, user_id, tags_all=["work"]
+    )
+    res = await tags_model.retag_by_query(
+        db,
+        user_id,
+        query="python",
+        add=["reviewed"],
+        dry_run=False,
+        tag_clause=tag_clause,
+        tag_params=tag_params,
+    )
+    assert res["total_matched"] == 1
+    assert res["match_count"] == 1
+    assert await get_item_tags(db, user_id, item1) == ["reviewed", "work"]
+    assert await get_item_tags(db, user_id, item2) == []

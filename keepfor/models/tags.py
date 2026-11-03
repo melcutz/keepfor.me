@@ -524,7 +524,7 @@ async def retag_by_query(
         "SELECT COUNT(*) as c FROM items i WHERE i.user_id = ?"
         " AND i.deleted_at IS NULL AND ("
         " LOWER(i.title) LIKE ? OR LOWER(i.url) LIKE ? OR LOWER(i.canonical_url) LIKE ?"
-        f"{tag_clause});",
+        f"){tag_clause};",
         params,
     )
     total_matched = int(count_row["c"]) if count_row else 0
@@ -533,7 +533,7 @@ async def retag_by_query(
     rows = await db.query_all(
         "SELECT i.id FROM items i WHERE i.user_id = ? AND i.deleted_at IS NULL AND ("
         " LOWER(i.title) LIKE ? OR LOWER(i.url) LIKE ? OR LOWER(i.canonical_url) LIKE ?"
-        f"{tag_clause}) ORDER BY i.created_at DESC LIMIT {BULK_TAG_LIMIT};",
+        f"){tag_clause} ORDER BY i.created_at DESC LIMIT {BULK_TAG_LIMIT};",
         params,
     )
     item_ids = [r["id"] for r in rows]
