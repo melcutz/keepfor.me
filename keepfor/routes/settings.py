@@ -341,7 +341,13 @@ async def requeue_stuck_items(request: Request):
     sent = 0
     for r in rows:
         try:
-            await queue.send({"item_id": r["id"], "url": r["canonical_url"]})
+            await queue.send(
+                {
+                    "item_id": r["id"],
+                    "url": r["canonical_url"],
+                    "user_id": user["id"],
+                }
+            )
             sent += 1
         except Exception as exc:
             logger.warning(f"Requeue send failed: item={r['id']}: {exc}")

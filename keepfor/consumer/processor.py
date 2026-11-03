@@ -690,8 +690,19 @@ async def process_single_item(
             or getattr(env, "D1", None)
         )
         sqlite_conn = getattr(env, "sqlite_conn", None)
-        db = Database(d1_binding=d1, sqlite_conn=sqlite_conn)
+        db = (
+            d1
+            if isinstance(d1, Database)
+            else Database(d1_binding=d1, sqlite_conn=sqlite_conn)
+        )
         scope = None
+        row = await db.query_first(
+            "SELECT user_id FROM items WHERE id = ?;", (item_id,)
+        )
+        if row and row["user_id"]:
+            user_id = row["user_id"]
+            scope = await providers.scope.scope_for_tenant(user_id, env)
+            db = scope.db
 
     await extract_and_store(db, env, item_id, url, scope=scope, user_id=user_id)
 

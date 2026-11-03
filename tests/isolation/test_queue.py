@@ -207,3 +207,49 @@ async def test_queue_import_batch_isolation(harness: IsolationHarness):
         (a.user["id"],),
     )
     assert len(a_rows) == 0
+
+
+@pytest.mark.asyncio
+async def test_queue_legacy_message_without_user_id_resolves_tenant_scope(
+    harness: IsolationHarness,
+):
+    """Queue message missing user_id looks up owner in DB and resolves tenant scope."""
+    if harness.topology != "shared_db":
+        pytest.skip("Fallback owner lookup applies to shared DB topology")
+
+    a = harness.tenant_a
+    new_url_a = "https://example.com/tenant-a-legacy-msg"
+    new_item_a, _ = await save_item(
+        a.db, harness.env, a.user["id"], new_url_a, ["legacy"], scope=a.scope
+    )
+    new_item_a_id = new_item_a["id"]
+
+    mock_extracted = {
+        "title": "Legacy Queue Article",
+        "clean_html": "<html><body><p>Legacy content for A</p></body></html>",
+        "byline": None,
+        "site_name": "Example",
+        "published_date": None,
+        "word_count": 40,
+        "is_fallback": 0,
+        "content_text": "Legacy content for A",
+        "excerpt": "Legacy content...",
+        "image_url": None,
+    }
+    mock_raw_html = "<html><body><h1>Legacy</h1></body></html>"
+
+    msg_legacy = FakeQueueMessage({"item_id": new_item_a_id, "url": new_url_a})
+    batch_legacy = FakeQueueBatch([msg_legacy])
+
+    with patch(
+        "keepfor.consumer.processor._fetch_and_extract",
+        return_value=(mock_extracted, mock_raw_html),
+    ):
+        await process_queue_batch(batch_legacy, harness.env)
+
+    assert msg_legacy.acked is True
+    expected_clean_key = a.scope.blobs(harness.env).key(
+        "items", new_item_a_id, "clean.html"
+    )
+    store = getattr(harness.env.BUCKET, "store", {})
+    assert expected_clean_key in store
