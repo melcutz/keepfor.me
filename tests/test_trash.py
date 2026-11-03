@@ -1258,5 +1258,20 @@ async def test_trash_items_and_hybrid_search_stay_under_d1_100_param_limit(
     assert total == 120
     assert len(results) == 20
 
+    results_p2, total_p2 = await hybrid_search(
+        db,
+        fake_env,
+        user["id"],
+        "alpha",
+        mode="hybrid",
+        status="saved",
+        category="links",
+        read_state="unread",
+        offset=20,
+    )
+    assert total_p2 == 120
+    assert len(results_p2) == 20
+    assert not (set(r["id"] for r in results) & set(r["id"] for r in results_p2))
+
     trashed = await trash_items(db, user["id"], item_ids)
     assert len(trashed) == 120

@@ -1113,8 +1113,8 @@ async def hybrid_search(
     id_chunk_size = 80
     rows: list[dict[str, Any]] = []
     tag_rows: list[dict[str, Any]] = []
-    for offset in range(0, len(top_ids), id_chunk_size):
-        chunk_ids = top_ids[offset : offset + id_chunk_size]
+    for start in range(0, len(top_ids), id_chunk_size):
+        chunk_ids = top_ids[start : start + id_chunk_size]
         placeholders = ",".join("?" for _ in chunk_ids)
         sql = f"""
             SELECT {RECENT_COLUMNS}
