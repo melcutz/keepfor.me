@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from keepfor import deps
 from keepfor.auth.service import create_pat, delete_pat, list_pats
 from keepfor.models.imports import create_import, fail_import, set_import_counts
-from keepfor.models.items import delete_item
+from keepfor.models.items import delete_items_batch
 from keepfor.routes._shared import user_import_status
 from keepfor.schemas import CreatePATRequest
 from keepfor.search.engine import get_status_counts
@@ -282,14 +282,17 @@ async def cleanup_failed_route(request: Request, pattern: str = Form("all")):
         params,
     )
     deleted = 0
-    for r in rows:
+    if rows:
         try:
-            if await delete_item(
-                db, env, user["id"], r["id"], scope=deps.get_scope(request)
-            ):
-                deleted += 1
+            deleted = await delete_items_batch(
+                db,
+                env,
+                user["id"],
+                [r["id"] for r in rows],
+                scope=deps.get_scope(request),
+            )
         except Exception as exc:
-            logger.warning(f"Cleanup delete failed: item={r['id']}: {exc}")
+            logger.warning(f"Cleanup delete failed: {exc}")
 
     # Re-render settings with the result (same pattern as token creation).
     pats = await list_pats(db, user["id"])
