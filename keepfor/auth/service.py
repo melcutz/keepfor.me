@@ -44,30 +44,51 @@ async def register_user(
         logger.warning(f"Registration attempt blocked: {email_clean}")
         raise RegistrationClosedError("Registration is closed on this instance.")
 
+    existing = await db.query_first(
+        "SELECT id FROM users WHERE email = ?;", (email_clean,)
+    )
+    if existing:
+        raise ValueError("Email already registered")
+
     user_id = str(uuid.uuid4())
     pw_hash = hash_password(password)
 
-    if not allow_public_signups:
-        role = "admin"
-        await db.execute(
-            "INSERT INTO users (id, email, password_hash, role) "
-            "SELECT ?, ?, ?, 'admin' "
-            "WHERE NOT EXISTS (SELECT 1 FROM users);",
-            (user_id, email_clean, pw_hash),
-        )
-        inserted = await db.query_first(
-            "SELECT id, email, role FROM users WHERE id = ?;",
-            (user_id,),
-        )
-        if not inserted:
-            logger.warning(f"Registration attempt blocked: {email_clean}")
-            raise RegistrationClosedError("Registration is closed on this instance.")
-    else:
-        role = "admin" if user_count == 0 else "user"
-        await db.execute(
-            "INSERT INTO users (id, email, password_hash, role) VALUES (?, ?, ?, ?);",
-            (user_id, email_clean, pw_hash, role),
-        )
+    try:
+        if not allow_public_signups:
+            await db.execute(
+                "INSERT INTO users (id, email, password_hash, role) "
+                "SELECT ?, ?, ?, 'admin' "
+                "WHERE NOT EXISTS (SELECT 1 FROM users);",
+                (user_id, email_clean, pw_hash),
+            )
+            inserted = await db.query_first(
+                "SELECT id, email, role FROM users WHERE id = ?;",
+                (user_id,),
+            )
+            if not inserted:
+                logger.warning(f"Registration attempt blocked: {email_clean}")
+                raise RegistrationClosedError(
+                    "Registration is closed on this instance."
+                )
+            role = inserted["role"]
+        else:
+            await db.execute(
+                "INSERT INTO users (id, email, password_hash, role) "
+                "SELECT ?, ?, ?, CASE WHEN (SELECT COUNT(*) FROM users) = 0 "
+                "THEN 'admin' ELSE 'user' END;",
+                (user_id, email_clean, pw_hash),
+            )
+            inserted = await db.query_first(
+                "SELECT id, email, role FROM users WHERE id = ?;",
+                (user_id,),
+            )
+            role = inserted["role"] if inserted else "user"
+    except RegistrationClosedError:
+        raise
+    except Exception as exc:
+        if "unique" in str(exc).lower():
+            raise ValueError("Email already registered") from exc
+        raise
     logger.info(f"User registered: {user_id}, role: {role}")
     return {"id": user_id, "email": email_clean, "role": role}
 
