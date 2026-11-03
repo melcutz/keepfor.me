@@ -784,3 +784,44 @@ def test_highlight_query_terms_unit():
     assert "<mark>ai</mark>" in short_highlighted
     assert "air" in short_highlighted
     assert "<mark>air" not in short_highlighted
+
+
+async def test_item_card_escapes_html_in_excerpt_and_snippet(client, db, search_setup):
+    """Library cards escape HTML in excerpt and search snippets while keeping <mark>."""
+    _login(client, search_setup["session"])
+    user_id = search_setup["user"]["id"]
+    item_id = str(uuid.uuid4())
+    payload = "<script>alert(1)</script> <img src=x onerror=alert(2)> alpha"
+    await db.execute(
+        "INSERT INTO items"
+        " (id, user_id, url, canonical_url, title, excerpt, content_text, status)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, 'saved');",
+        (
+            item_id,
+            user_id,
+            "https://example.com/xss-card",
+            "https://example.com/xss-card",
+            "XSS Card Test",
+            payload,
+            payload,
+        ),
+    )
+    await db.execute(
+        "INSERT INTO items_fts (item_id, user_id, title, content_text)"
+        " VALUES (?, ?, ?, ?);",
+        (item_id, user_id, "XSS Card Test", payload),
+    )
+
+    browse = client.get("/")
+    assert browse.status_code == 200
+    assert "<script>alert(1)</script>" not in browse.text
+    assert "<img src=x onerror=alert(2)>" not in browse.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in browse.text
+
+    search_res = client.post("/search", data={"query": "alpha", "tag": ""})
+    assert search_res.status_code == 200
+    assert "<script>alert(1)</script>" not in search_res.text
+    assert "<img src=x onerror=alert(2)>" not in search_res.text
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in search_res.text
+    assert "&amp;lt;" not in search_res.text
+    assert "<mark>alpha</mark>" in search_res.text

@@ -357,3 +357,47 @@ async def test_quick_notes_included_in_saved_status_group(db):
     items = await get_recent_items(db, user_id, status="saved")
     assert len(items) == 1
     assert items[0]["id"] == note["id"]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_failed_batches_deletes_without_per_item_rpc_loop(
+    client, db, auth_headers, monkeypatch
+):
+    """Cleaning up many failed items uses batched D1 statements, not N delete loops."""
+    user = auth_headers["admin_user"]
+    failed_ids = [f"failed-batch-{i}" for i in range(25)]
+    await db.execute_batch(
+        [
+            (
+                "INSERT INTO items"
+                " (id, user_id, url, canonical_url, status, fail_reason)"
+                " VALUES (?, ?, ?, ?, 'failed', 'HTTP 403 Forbidden');",
+                (
+                    fid,
+                    user["id"],
+                    f"https://example.com/{fid}",
+                    f"https://example.com/{fid}",
+                ),
+            )
+            for fid in failed_ids
+        ]
+    )
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    batch_calls = 0
+    orig_execute_batch = db.execute_batch
+
+    async def counting_execute_batch(statements):
+        nonlocal batch_calls
+        batch_calls += 1
+        return await orig_execute_batch(statements)
+
+    monkeypatch.setattr(db, "execute_batch", counting_execute_batch)
+    response = client.post("/settings/cleanup-failed", data={"pattern": "all"})
+    assert response.status_code == 200
+    remaining = await db.query_all(
+        "SELECT id FROM items WHERE user_id = ? AND status = 'failed';",
+        (user["id"],),
+    )
+    assert remaining == []
+    assert batch_calls <= 4, f"Expected batched deletes (<=4 calls), got {batch_calls}"

@@ -640,6 +640,107 @@ async def delete_item(
     return True
 
 
+async def delete_items_batch(
+    db: Database,
+    env: Any,
+    user_id: str,
+    item_ids: Sequence[str],
+    *,
+    scope: TenantScope | None = None,
+) -> int:
+    """Batch-deletes multiple items and their children, blobs, and vectors."""
+    ids = list(dict.fromkeys(i for i in item_ids if i))
+    if not ids:
+        return 0
+    if scope is None:
+        from keepfor.defaults import default_scope
+
+        scope = default_scope(db, env, user_id)
+
+    live: list[str] = []
+    chunk_ids: list[str] = []
+    for start in range(0, len(ids), _ID_CHUNK):
+        chunk = ids[start : start + _ID_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await db.query_all(
+            f"SELECT id FROM items WHERE id IN ({placeholders}) AND user_id = ?;",
+            (*chunk, user_id),
+        )
+        live.extend(r["id"] for r in rows)
+        crows = await db.query_all(
+            f"SELECT id FROM chunks WHERE item_id IN ({placeholders}) AND user_id = ?;",
+            (*chunk, user_id),
+        )
+        chunk_ids.extend(r["id"] for r in crows)
+
+    if not live:
+        return 0
+
+    chunk_ids.extend(meta_chunk_id(iid) for iid in live)
+    try:
+        vectors = scope.vectors(env)
+        await vectors.delete(chunk_ids)
+    except Exception as exc:
+        logger.warning(
+            "Failed to delete vector embeddings for batch (%d items): %s",
+            len(live),
+            exc,
+        )
+
+    try:
+        blobs = scope.blobs(env)
+        blob_keys: list[str] = []
+        for iid in live:
+            blob_keys.append(blobs.key("items", iid, "raw.html"))
+            blob_keys.append(blobs.key("items", iid, "clean.html"))
+        await blobs.delete_many(blob_keys)
+    except Exception as exc:
+        logger.warning(
+            "Failed to delete R2 snapshots for batch (%d items): %s", len(live), exc
+        )
+
+    await purge_item_children(db, user_id, live)
+
+    statements: list[tuple[str, tuple[Any, ...]]] = [
+        (sql, (iid, user_id)) for iid in live for sql in ITEM_EXTRA_DELETES
+    ]
+    for start in range(0, len(live), _ID_CHUNK):
+        chunk = live[start : start + _ID_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        statements.append(
+            (
+                f"DELETE FROM items_fts WHERE item_id IN ({placeholders})"
+                " AND user_id = ?;",
+                (*chunk, user_id),
+            )
+        )
+        statements.append(
+            (
+                f"DELETE FROM items WHERE id IN ({placeholders}) AND user_id = ?;",
+                (*chunk, user_id),
+            )
+        )
+    await db.execute_batch(statements)
+
+    from keepfor.runtime import get_providers
+
+    providers = get_providers()
+    for iid in live:
+        try:
+            await providers.events.publish(
+                "item.deleted",
+                {
+                    "tenant_id": scope.tenant_id,
+                    "user_id": user_id,
+                    "item_id": iid,
+                },
+            )
+        except Exception as exc:
+            logger.warning("Failed to publish item.deleted event for %s: %s", iid, exc)
+
+    return len(live)
+
+
 # ==========================================
 # Trash (soft delete)
 # ==========================================
@@ -682,21 +783,30 @@ async def trash_items(db: Database, user_id: str, item_ids: Sequence[str]) -> li
     ids = list(dict.fromkeys(i for i in (item_ids or []) if i))
     if not ids:
         return []
-    placeholders = ",".join("?" for _ in ids)
-    rows = await db.query_all(
-        "SELECT id FROM items"
-        f" WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
-        (user_id, *ids),
-    )
-    live = [r["id"] for r in rows]
-    if live:
-        live_placeholders = ",".join("?" for _ in live)
-        await db.execute(
-            "UPDATE items SET deleted_at = CURRENT_TIMESTAMP,"
-            " updated_at = CURRENT_TIMESTAMP"
-            f" WHERE user_id = ? AND id IN ({live_placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
-            (user_id, *live),
+    live: list[str] = []
+    for start in range(0, len(ids), _ID_CHUNK):
+        chunk = ids[start : start + _ID_CHUNK]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await db.query_all(
+            "SELECT id FROM items"
+            f" WHERE user_id = ? AND deleted_at IS NULL AND id IN ({placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
+            (user_id, *chunk),
         )
+        live.extend(r["id"] for r in rows)
+    if live:
+        statements = []
+        for start in range(0, len(live), _ID_CHUNK):
+            chunk = live[start : start + _ID_CHUNK]
+            live_placeholders = ",".join("?" for _ in chunk)
+            statements.append(
+                (
+                    "UPDATE items SET deleted_at = CURRENT_TIMESTAMP,"
+                    " updated_at = CURRENT_TIMESTAMP"
+                    f" WHERE user_id = ? AND id IN ({live_placeholders});",  # nosec B608 # placeholders are generated "?" marks, values are bound parameters
+                    (user_id, *chunk),
+                )
+            )
+        await db.execute_batch(statements)
     return live
 
 

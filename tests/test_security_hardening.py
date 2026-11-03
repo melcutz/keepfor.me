@@ -140,6 +140,56 @@ async def test_register_user_atomic_first_admin_guard(db):
 
 
 @pytest.mark.asyncio
+async def test_register_user_public_signup_race_and_duplicate_email(db, monkeypatch):
+    """Public signup race makes one admin; duplicate email hides DB errors."""
+    orig_query_first = db.query_first
+    interleaved = False
+
+    async def racing_query_first(sql: str, params=()):
+        nonlocal interleaved
+        res = await orig_query_first(sql, params)
+        if not interleaved and "SELECT COUNT(*)" in sql:
+            interleaved = True
+            await db.execute(
+                "INSERT INTO users (id, email, password_hash, role) "
+                "VALUES (?, ?, ?, 'admin');",
+                ("winner-id", "winner@test.local", "salt$hash"),
+            )
+        return res
+
+    monkeypatch.setattr(db, "query_first", racing_query_first)
+    loser = await register_user(
+        db, "loser@test.local", "password123", allow_public_signups=True
+    )
+    monkeypatch.setattr(db, "query_first", orig_query_first)
+
+    assert loser["role"] == "user"
+    admins = await orig_query_first(
+        "SELECT COUNT(*) as c FROM users WHERE role = 'admin';"
+    )
+    assert admins is not None and admins["c"] == 1
+
+    with pytest.raises(ValueError, match="Email already registered"):
+        await register_user(
+            db, "loser@test.local", "password123", allow_public_signups=True
+        )
+
+    env = MockEnv()
+    env.ALLOW_PUBLIC_SIGNUPS = "true"
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    anon_client = TestClient(app)
+    resp = anon_client.post(
+        "/auth/register",
+        data={"email": "loser@test.local", "password": "password123"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 400
+    assert "Email already registered" in resp.text
+    assert "UNIQUE constraint" not in resp.text
+
+
+@pytest.mark.asyncio
 async def test_cross_origin_post_without_session_cookie_allowed(client, db):
     """Cross-origin POST without session cookie passes (e.g., OAuth DCR/token)."""
     # No login, no session cookie

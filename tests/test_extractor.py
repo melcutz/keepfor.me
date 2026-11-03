@@ -601,3 +601,44 @@ def test_is_youtube_url_domain_boundaries():
     assert _is_youtube_url("https://fakeyoutu.be") is False
     assert _is_youtube_url("https://youtube.com.attacker.com") is False
     assert _is_youtube_url("https://youtu.be.attacker.com") is False
+
+
+def test_extractor_escapes_html_in_youtube_github_and_fallback(force_bs4_fallback):
+    """YouTube, GitHub, and fallback extractors escape title, description, and URL."""
+    yt_html = (
+        "<html><head>"
+        '<meta property="og:title" content=\'<img src="https://evil.example/t">Vid\'>'
+        '<meta property="og:description"'
+        " content='<a href=\"https://evil.example/p\">Click</a>'>"
+        "</head><body></body></html>"
+    )
+    yt_out = extract_article(yt_html, "https://www.youtube.com/watch?v=abc123")
+    assert "<img" not in yt_out["clean_html"]
+    assert "<a " not in yt_out["clean_html"]
+    assert "&lt;img" in yt_out["clean_html"]
+    assert "&lt;a " in yt_out["clean_html"]
+
+    gh_html = (
+        "<html><head>"
+        '<meta property="og:title" content=\'<img src="https://evil.example/t">Repo\'>'
+        '<meta property="og:description"'
+        " content='<a href=\"https://evil.example/p\">Repo desc</a>'>"
+        "</head><body></body></html>"
+    )
+    gh_out = extract_article(gh_html, "https://github.com/org/repo")
+    assert "<img" not in gh_out["clean_html"]
+    assert "<a " not in gh_out["clean_html"]
+    assert "&lt;img" in gh_out["clean_html"]
+    assert "&lt;a " in gh_out["clean_html"]
+
+    fb_html = (
+        "<html><head><title> Safe </title>"
+        '<meta name="description"'
+        " content='<a href=\"https://evil.example/p\">Trap</a>'>"
+        "</head><body></body></html>"
+    )
+    fb_url = 'https://example.com/path?a=\'><img src="https://evil.example/u">'
+    fb_out = extract_article(fb_html, fb_url)
+    assert "<img" not in fb_out["clean_html"]
+    assert '<a href="https://evil.example/p"' not in fb_out["clean_html"]
+    assert "&lt;a " in fb_out["clean_html"]

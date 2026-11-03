@@ -22,5 +22,11 @@
     "function": "extract_and_store",
     "table": "items",
     "reason": "Queue worker reads item owner by id to detect and log cross-tenant spoofing before processing"
+  },
+  {
+    "file": "keepfor/consumer/processor.py",
+    "function": "process_single_item",
+    "table": "items",
+    "reason": "Queue worker looks up item owner by id when legacy queue message omits user_id"
   }
 ]

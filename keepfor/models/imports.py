@@ -134,67 +134,72 @@ async def apply_chunk_counts(
 ) -> None:
     """Adds the counts of one processed chunk to the import record.
 
-    The counters are incremented in SQL (chunks may be processed
-    concurrently); the error list is a read-modify-write, so a rare
-    concurrent chunk can drop an error message but never a count.
+    The counters and completion status are updated atomically in SQL
+    (chunks may be processed concurrently); the error list is a
+    read-modify-write, so a rare concurrent chunk can drop an error
+    message but never a count or completion state.
     """
     row = await db.query_first(
-        "SELECT notes_total, notes_processed, errors, status FROM import_status "
-        "WHERE id = ? AND user_id = ?;",
+        "SELECT errors FROM import_status WHERE id = ? AND user_id = ?;",
         (import_id, user_id),
     )
     if not row:
         return
-    total = int(row["notes_total"] or 0)
-    processed = int(row["notes_processed"] or 0) + int(
-        counts.get("notes_processed") or 0
-    )
-    status = row["status"]
-    if status == "running" and total and processed >= total:
-        status = "completed"
-    errors = _decode_errors(row["errors"])
-    errors.extend(_clean_errors(counts.get("errors")))
-    await db.execute_batch(
-        [
+    processed_delta = int(counts.get("notes_processed") or 0)
+    new_errors = _clean_errors(counts.get("errors"))
+    now = _now()
+    statements: list[tuple[str, tuple[Any, ...]]] = [
+        (
+            """
+            UPDATE import_status
+            SET notes_imported = notes_imported + ?,
+                notes_processed = notes_processed + ?,
+                duplicates_skipped = duplicates_skipped + ?,
+                urls_queued = urls_queued + ?,
+                urls_skipped = urls_skipped + ?,
+                parse_errors = parse_errors + ?,
+                plan_skipped = plan_skipped + ?,
+                status = CASE
+                    WHEN status = 'running'
+                     AND notes_total > 0
+                     AND notes_processed + ? >= notes_total
+                    THEN 'completed'
+                    ELSE status
+                END,
+                updated_at = ?
+            WHERE id = ? AND user_id = ?;
+            """,
             (
-                """
-                UPDATE import_status
-                SET notes_imported = notes_imported + ?,
-                    notes_processed = notes_processed + ?,
-                    duplicates_skipped = duplicates_skipped + ?,
-                    urls_queued = urls_queued + ?,
-                    urls_skipped = urls_skipped + ?,
-                    parse_errors = parse_errors + ?,
-                    plan_skipped = plan_skipped + ?,
-                    updated_at = ?
-                WHERE id = ? AND user_id = ?;
-                """,
-                (
-                    int(counts.get("notes_imported") or 0),
-                    int(counts.get("notes_processed") or 0),
-                    int(counts.get("duplicates_skipped") or 0),
-                    int(counts.get("urls_queued") or 0),
-                    int(counts.get("urls_skipped") or 0),
-                    int(counts.get("parse_errors") or 0),
-                    int(counts.get("plan_skipped") or 0),
-                    _now(),
-                    import_id,
-                    user_id,
-                ),
+                int(counts.get("notes_imported") or 0),
+                processed_delta,
+                int(counts.get("duplicates_skipped") or 0),
+                int(counts.get("urls_queued") or 0),
+                int(counts.get("urls_skipped") or 0),
+                int(counts.get("parse_errors") or 0),
+                int(counts.get("plan_skipped") or 0),
+                processed_delta,
+                now,
+                import_id,
+                user_id,
             ),
+        )
+    ]
+    if new_errors:
+        errors = _decode_errors(row["errors"])
+        errors.extend(new_errors)
+        statements.append(
             (
-                "UPDATE import_status SET errors = ?, status = ?, updated_at = ? "
+                "UPDATE import_status SET errors = ?, updated_at = ? "
                 "WHERE id = ? AND user_id = ?;",
                 (
                     json.dumps(errors[:MAX_IMPORT_ERRORS]),
-                    status,
-                    _now(),
+                    now,
                     import_id,
                     user_id,
                 ),
-            ),
-        ]
-    )
+            )
+        )
+    await db.execute_batch(statements)
 
 
 async def get_import(

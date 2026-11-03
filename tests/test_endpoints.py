@@ -772,6 +772,7 @@ async def test_admin_requeue_resends_stuck_items(client, db, auth_headers, monke
     sent_ids = {m["item_id"] for m in env.QUEUE.sent}
     assert sent_ids == {old1, old2}
     assert fresh not in sent_ids
+    assert all(m.get("user_id") == user["id"] for m in env.QUEUE.sent)
 
 
 @pytest.mark.asyncio

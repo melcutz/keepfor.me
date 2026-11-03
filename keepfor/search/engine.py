@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import html
 import json
 import re
 from typing import TYPE_CHECKING, Any
@@ -420,17 +421,30 @@ def _stems_for_term(term: str) -> set[str]:
     return {s for s in stems if len(s) >= MIN_PREFIX_LEN}
 
 
+def _escape_and_highlight(raw: str, combined: re.Pattern[str] | None) -> str:
+    if combined is None:
+        return html.escape(raw)
+    pieces: list[str] = []
+    last = 0
+    for m in combined.finditer(raw):
+        pieces.append(html.escape(raw[last : m.start()]))
+        pieces.append(f"<mark>{html.escape(m.group(0))}</mark>")
+        last = m.end()
+    pieces.append(html.escape(raw[last:]))
+    return "".join(pieces)
+
+
 def highlight_query_terms(text: str, terms: list[str]) -> str:
     """Highlights all query terms, stems and inflections with <mark> tags (#97).
 
-    Preserves existing <mark> tags without nesting. Short words (< 3 chars)
-    match whole words only; words >= 3 chars match their inflections and
-    stems consistent with #76.
+    Preserves existing <mark> tags without nesting and escapes all non-mark
+    HTML. Short words (< 3 chars) match whole words only; words >= 3 chars
+    match their inflections and stems consistent with #76.
     """
-    if not text or not terms:
-        return text or ""
+    if not text:
+        return ""
     patterns = []
-    for t in terms:
+    for t in terms or []:
         t_clean = "".join(c for c in t.strip().lower() if c.isalnum())
         if not t_clean:
             continue
@@ -443,16 +457,19 @@ def highlight_query_terms(text: str, terms: list[str]) -> str:
             else:
                 min_stem = min(stems, key=len)
                 patterns.append(r"\b" + re.escape(min_stem) + r"[a-zA-Z0-9]*\b")
-    if not patterns:
-        return text
-    combined = re.compile("|".join(dict.fromkeys(patterns)), re.IGNORECASE)
+    combined = (
+        re.compile("|".join(dict.fromkeys(patterns)), re.IGNORECASE)
+        if patterns
+        else None
+    )
     parts = re.split(r"(<mark>.*?</mark>)", text, flags=re.IGNORECASE | re.DOTALL)
     out = []
     for part in parts:
         if part.lower().startswith("<mark>") and part.lower().endswith("</mark>"):
-            out.append(part)
+            inner = html.unescape(part[6:-7])
+            out.append(f"<mark>{html.escape(inner)}</mark>")
         else:
-            out.append(combined.sub(r"<mark>\g<0></mark>", part))
+            out.append(_escape_and_highlight(html.unescape(part), combined))
     return "".join(out)
 
 
@@ -1082,8 +1099,7 @@ async def hybrid_search(
     ]
     top_ids = sorted_item_ids  # Full ranked window; sliced per page below
 
-    # Fetch full item details from D1
-    placeholders = ",".join("?" for _ in top_ids)
+    # Fetch full item details from D1 in chunks under the 100-param limit
     status_values = _status_values(status)
     status_clause = ""
     status_params: tuple = ()
@@ -1094,26 +1110,34 @@ async def hybrid_search(
     quick_clause = " AND i.word_count < 1000" if quick else ""
     read_params = (read_state,) if read_state else ()
     read_clause = " AND i.read_state = ?" if read_state else ""
-    sql = f"""
-        SELECT {RECENT_COLUMNS}
-        FROM items i
-        WHERE i.id IN ({placeholders})
-          AND i.user_id = ? AND i.deleted_at IS NULL
-          {status_clause}{cat_clause}{quick_clause}{read_clause};
-    """
-    tag_sql = f"""
-        SELECT it.item_id, t.name as tag_name
-        FROM item_tags it
-        JOIN items i ON i.id = it.item_id AND i.user_id = ?
-        JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
-        WHERE it.item_id IN ({placeholders});
-    """
-    rows, tag_rows = await asyncio.gather(
-        db.query_all(
-            sql, (*top_ids, user_id, *status_params, *cat_params, *read_params)
-        ),
-        db.query_all(tag_sql, (user_id, *top_ids)),
-    )
+    id_chunk_size = 80
+    rows: list[dict[str, Any]] = []
+    tag_rows: list[dict[str, Any]] = []
+    for start in range(0, len(top_ids), id_chunk_size):
+        chunk_ids = top_ids[start : start + id_chunk_size]
+        placeholders = ",".join("?" for _ in chunk_ids)
+        sql = f"""
+            SELECT {RECENT_COLUMNS}
+            FROM items i
+            WHERE i.id IN ({placeholders})
+              AND i.user_id = ? AND i.deleted_at IS NULL
+              {status_clause}{cat_clause}{quick_clause}{read_clause};
+        """
+        tag_sql = f"""
+            SELECT it.item_id, t.name as tag_name
+            FROM item_tags it
+            JOIN items i ON i.id = it.item_id AND i.user_id = ?
+            JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
+            WHERE it.item_id IN ({placeholders});
+        """
+        chunk_rows, chunk_tag_rows = await asyncio.gather(
+            db.query_all(
+                sql, (*chunk_ids, user_id, *status_params, *cat_params, *read_params)
+            ),
+            db.query_all(tag_sql, (user_id, *chunk_ids)),
+        )
+        rows.extend(chunk_rows)
+        tag_rows.extend(chunk_tag_rows)
     item_map = {row["id"]: row for row in rows}
     item_tags_map: dict[str, list[str]] = {}
     for tr in tag_rows:
