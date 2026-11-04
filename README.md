@@ -7,6 +7,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Protocol](https://img.shields.io/badge/MCP-Streamable%20HTTP-000000)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
+[![Support this project](https://img.shields.io/badge/Support-this%20project-ea580c)](https://donate.stripe.com/14AeVea8gcxp4ja0Za4Vy00)
 
 A thin, fast read-it-later and personal library application running entirely on Cloudflare Python Workers, D1 SQLite with FTS5, Vectorize, R2, and the Model Context Protocol (MCP).
 
@@ -423,6 +424,16 @@ Cold starts dominate perceived latency on Python Workers: page loads sit around
   filesorts (`USE TEMP B-TREE FOR ORDER BY`). Status counts, feed items, and tag
   aggregations are parallelized via `asyncio.gather`, and multi-statement tag/deletion
   mutations are batched via `execute_batch` to minimize RPC roundtrips.
+
+---
+
+## Support this project
+
+If you find Keepfor useful, you can support its development:
+
+[![Support this project](https://img.shields.io/badge/Support-this%20project-ea580c)](https://donate.stripe.com/14AeVea8gcxp4ja0Za4Vy00)
+
+Support Keepfor with a donation on [Stripe](https://donate.stripe.com/14AeVea8gcxp4ja0Za4Vy00) (preset $5, or choose your amount).
 
 ---
 
