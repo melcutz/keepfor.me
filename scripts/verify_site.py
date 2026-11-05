@@ -44,8 +44,10 @@ if os.path.exists(CHROME_BIN):
 
 
 def check_em_dashes():
-    print("\n--- 1. Checking for em dashes ---")
-    dash_regex = re.compile(chr(0x2014) + "|" + "&" + "mdash;" + "|" + "&#" + "8212;")
+    print("\n--- 1. Checking for em and en dashes ---")
+    dash_regex = re.compile(
+        chr(0x2014) + "|" + chr(0x2013) + "|" + "&" + "mdash;" + "|" + "&" + "ndash;" + "|" + "&#" + "8212;" + "|" + "&#" + "8211;"
+    )
     files_to_check = (
         glob.glob(os.path.join(BASE_DIR, "**/*.html"), recursive=True)
         + glob.glob(os.path.join(BASE_DIR, "assets/**/*.css"), recursive=True)
@@ -65,14 +67,58 @@ def check_em_dashes():
                 content = f.read()
             matches = dash_regex.findall(content)
             if matches:
-                print(f"FAILED: Found {len(matches)} em dashes in {os.path.relpath(path, BASE_DIR)}")
+                print(f"FAILED: Found {len(matches)} em/en dashes in {os.path.relpath(path, BASE_DIR)}")
                 found_dashes = True
         except Exception as e:
             print(f"Error reading {path}: {e}")
 
     if not found_dashes:
-        print("PASSED: 0 em dashes found across all site files.")
+        print("PASSED: 0 em/en dashes found across all site files.")
     return not found_dashes
+
+
+DONATION_URL = "https://donate.stripe.com/14AeVea8gcxp4ja0Za4Vy00"
+
+
+def check_footer_donation_links():
+    print("\n--- 2. Checking footer Stripe donation links ---")
+    html_files = glob.glob(os.path.join(BASE_DIR, "**/*.html"), recursive=True)
+    pages_with_footer = []
+    missing_links = []
+
+    for path in sorted(html_files):
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+        rel_path = os.path.relpath(path, BASE_DIR)
+        if "site-footer" in content:
+            pages_with_footer.append(rel_path)
+            soup = BeautifulSoup(content, "html.parser")
+            footer = soup.find("footer", class_="site-footer")
+            if not footer:
+                missing_links.append((rel_path, "Found 'site-footer' text but no footer.site-footer element"))
+                continue
+            donation_link = footer.find("a", href=DONATION_URL)
+            if not donation_link:
+                missing_links.append((rel_path, f"Missing donation link {DONATION_URL} in footer"))
+            else:
+                target = donation_link.get("target")
+                rel = donation_link.get("rel") or []
+                if isinstance(rel, str):
+                    rel = rel.split()
+                if target != "_blank":
+                    missing_links.append((rel_path, f"Donation link missing target='_blank' (found {target})"))
+                elif "noopener" not in rel or "noreferrer" not in rel:
+                    missing_links.append((rel_path, f"Donation link rel missing noopener/noreferrer (found {rel})"))
+
+    print(f"Checked {len(html_files)} HTML files; found {len(pages_with_footer)} pages with site-footer.")
+    if missing_links:
+        print("FAILED: Footer donation link issues:")
+        for page, reason in missing_links:
+            print(f"  {page}: {reason}")
+        return False
+    else:
+        print(f"PASSED: All {len(pages_with_footer)} pages with site-footer include valid Stripe donation link.")
+        return True
 
 
 class QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -323,30 +369,45 @@ def run_lighthouse():
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Site verification script for keepfor.me")
+    parser.add_argument("--quick", action="store_true", help="Run dash, footer donation, and link checks only")
+    args = parser.parse_args()
+
     start_time = time.time()
     em_dash_ok = check_em_dashes()
+    footer_ok = check_footer_donation_links()
     httpd = start_server()
 
     time.sleep(1)
 
     link_ok, link_results = check_links()
-    screenshots = capture_screenshots()
-    lighthouse_scores = run_lighthouse()
+
+    if args.quick:
+        screenshots = []
+        lighthouse_scores = {}
+    else:
+        screenshots = capture_screenshots()
+        lighthouse_scores = run_lighthouse()
 
     httpd.shutdown()
 
     print("\n" + "=" * 60)
     print("VERIFICATION SUMMARY REPORT")
     print("=" * 60)
-    print(f"Em dash check: {'PASSED' if em_dash_ok else 'FAILED'}")
+    print(f"Em/en dash check: {'PASSED' if em_dash_ok else 'FAILED'}")
+    print(f"Footer donation link check: {'PASSED' if footer_ok else 'FAILED'}")
     print(f"Link resolution: {'PASSED' if link_ok else 'FAILED'}")
-    print(f"Screenshots captured: {len(screenshots)}")
-    print("\nLighthouse Scores (Target: 90+ across all categories):")
-    for name, s in lighthouse_scores.items():
-        print(f"  {name:10} | Perf: {s.get('Performance', 0):3} | A11y: {s.get('Accessibility', 0):3} | BestPractices: {s.get('Best Practices', 0):3} | SEO: {s.get('SEO', 0):3}")
+    if not args.quick:
+        print(f"Screenshots captured: {len(screenshots)}")
+        print("\nLighthouse Scores (Target: 90+ across all categories):")
+        for name, s in lighthouse_scores.items():
+            print(f"  {name:10} | Perf: {s.get('Performance', 0):3} | A11y: {s.get('Accessibility', 0):3} | BestPractices: {s.get('Best Practices', 0):3} | SEO: {s.get('SEO', 0):3}")
 
     duration = time.time() - start_time
     print(f"\nVerification completed in {duration:.1f}s")
+    if not (em_dash_ok and footer_ok and link_ok):
+        sys.exit(1)
 
 
 if __name__ == "__main__":
