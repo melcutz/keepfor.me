@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import datetime
+import re
 
 import pytest
 
@@ -461,6 +462,12 @@ async def test_export_isolation(harness: IsolationHarness):
     # JSON export
     resp_json = harness.client.get("/api/export", headers=b.auth_headers)
     assert resp_json.status_code == 200
+    cd_json = resp_json.headers.get("content-disposition", "")
+    assert re.search(
+        r'filename="?keepfor.*?\d{4}-\d{2}-\d{2}\.json"?',
+        cd_json,
+        re.IGNORECASE,
+    )
     export_data = resp_json.json()
     exported_urls = [item["url"] for item in export_data]
 
@@ -470,6 +477,12 @@ async def test_export_isolation(harness: IsolationHarness):
     # HTML export
     resp_html = harness.client.get("/api/export?format=html", headers=b.auth_headers)
     assert resp_html.status_code == 200
+    cd_html = resp_html.headers.get("content-disposition", "")
+    assert re.search(
+        r'filename="?keepfor.*?\d{4}-\d{2}-\d{2}\.html"?',
+        cd_html,
+        re.IGNORECASE,
+    )
     assert a.unique_keyword not in resp_html.text
     assert b.unique_keyword in resp_html.text
 
