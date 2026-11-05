@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -227,20 +228,20 @@ async def mcp_no_session(request: Request):
 async def api_export(request: Request, format: str = "json"):
     user = await deps.require_user(request)
     db = deps.get_db(request)
+    # Filenames use the UTC date so successive downloads do not collide.
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     if format == "html":
         content = await export_library_html(db, user["id"])
+        filename = f"keepfor-export-{today}.html"
         return Response(
             content=content,
             media_type="text/html",
-            headers={
-                "Content-Disposition": "attachment; filename=keepfor_me_bookmarks.html"
-            },
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
     else:
         items = await export_library_json(db, user["id"])
+        filename = f"keepfor-export-{today}.json"
         return JSONResponse(
             content=items,
-            headers={
-                "Content-Disposition": "attachment; filename=keepfor_me_library.json"
-            },
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
