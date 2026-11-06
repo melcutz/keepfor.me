@@ -160,9 +160,9 @@ def test_policy_from_env_dict():
     policy = policy_from_env(env)
     assert policy.max_bytes == 2 * 1024 * 1024
     assert policy.timeout_s == 10.5
-    assert "corp.internal" in policy.deny_hosts
-    assert ".private.lan" in policy.deny_hosts
-    assert "blocked.com" in policy.deny_hosts
+    assert policy.deny_hosts == frozenset(
+        {"corp.internal", ".private.lan", "blocked.com"}
+    )
 
 
 def test_policy_from_env_object():
@@ -174,7 +174,7 @@ def test_policy_from_env_object():
     policy = policy_from_env(FakeEnv())
     assert policy.max_bytes == 1048576
     assert policy.timeout_s == 5.0
-    assert "custom.internal" in policy.deny_hosts
+    assert policy.deny_hosts == frozenset({"custom.internal"})
 
 
 # ---------------------------------------------------------------------------

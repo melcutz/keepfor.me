@@ -656,7 +656,7 @@ async def toggle_pin_route(request: Request, item_id: str):
         template = jinja_env.get_template("partials/item_card.html")
         return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
     referer = request.headers.get("referer")
-    fallback = f"/items/{item_id}"
+    fallback = "/items/" + item_id
     dest = fallback
     if referer:
         parsed_ref = urlparse(referer)
@@ -694,9 +694,8 @@ async def update_notes_route(
         tag_styles = tag_styles_for(item.get("tags") or [])
         template = jinja_env.get_template("partials/item_card.html")
         return HTMLResponse(content=template.render(item=item, tag_styles=tag_styles))
-    fallback = f"/items/{item_id}"
-    dest = next if _is_safe_path(next) else fallback
-    return RedirectResponse(url=dest, status_code=303)
+    fallback = "/items/" + item_id
+    return RedirectResponse(url=_safe_next(next, default=fallback), status_code=303)
 
 
 @router.post("/items/{item_id}/archive", response_class=HTMLResponse)
@@ -1390,7 +1389,7 @@ async def create_highlight_route(
         )
 
     # No-JS fallback: redirect back to reader
-    return RedirectResponse(url=f"/items/{item_id}", status_code=303)
+    return RedirectResponse(url="/items/" + item_id, status_code=303)
 
 
 @router.post(
@@ -1418,7 +1417,7 @@ async def delete_highlight_route(request: Request, item_id: str, highlight_id: s
             content=template.render(highlights=highlights, item_id=item_id)
         )
 
-    return RedirectResponse(url=f"/items/{item_id}", status_code=303)
+    return RedirectResponse(url="/items/" + item_id, status_code=303)
 
 
 # ==========================================

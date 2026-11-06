@@ -93,7 +93,7 @@ def _safe_next(value: str | None, default: str = "/") -> str:
     Hence the explicit backslash and control-character rejections below, plus a
     structural parse so the rule does not depend on prefix guessing alone.
     """
-    return value if value is not None and _is_safe_path(value) else default
+    return "/" + value[1:] if value is not None and _is_safe_path(value) else default
 
 
 def is_same_origin(request: Request) -> bool:
