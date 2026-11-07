@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,65 @@ if TYPE_CHECKING:
 
 DEFAULT_EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
 DEFAULT_TEXT_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+
+logger = logging.getLogger(__name__)
+
+
+class WorkersAIError(RuntimeError):
+    """Base exception for Workers AI invocation failures."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        model: str | None = None,
+        retryable: bool = True,
+        cause: BaseException | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.model = model
+        self.retryable = retryable
+        self.cause = cause
+
+
+class WorkersAIRetryableError(WorkersAIError):
+    """Raised when a Workers AI failure is transient and retryable."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        model: str | None = None,
+        cause: BaseException | None = None,
+    ) -> None:
+        super().__init__(message, model=model, retryable=True, cause=cause)
+
+
+class WorkersAINonRetryableError(WorkersAIError):
+    """Raised when a Workers AI failure is permanent and not retryable."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        model: str | None = None,
+        cause: BaseException | None = None,
+    ) -> None:
+        super().__init__(message, model=model, retryable=False, cause=cause)
+
+
+def _log_ai_error(action: str, model: str, exc: BaseException) -> None:
+    """Log safe error metadata without logging user content, prompts, or secrets."""
+    status = getattr(exc, "status", None) or getattr(exc, "status_code", None)
+    is_timeout = isinstance(exc, (asyncio.TimeoutError, TimeoutError))
+    logger.warning(
+        "Workers AI %s failed: model=%s error_type=%s timeout=%s status=%s",
+        action,
+        model,
+        type(exc).__name__,
+        is_timeout,
+        status,
+    )
 
 
 class SessionPatAuthProvider:
@@ -275,15 +335,25 @@ class WorkersAIProvider:
     async def embed(self, env: Any, texts: list[str]) -> list[list[float]]:
         if env is None or getattr(env, "AI", None) is None:
             return []
-        res = await env.AI.run(self.embedding_model, {"text": texts})
-        if not hasattr(res, "_mock_return_value") and hasattr(res, "to_py"):
-            try:
-                res = res.to_py()
-            except Exception:
-                pass
-        if isinstance(res, dict):
-            return res.get("data", [])
-        return getattr(res, "data", []) or []
+        try:
+            res = await env.AI.run(self.embedding_model, {"text": texts})
+            if not hasattr(res, "_mock_return_value") and hasattr(res, "to_py"):
+                try:
+                    res = res.to_py()
+                except Exception:
+                    pass
+            if isinstance(res, dict):
+                return res.get("data", [])
+            return getattr(res, "data", []) or []
+        except Exception as exc:
+            if isinstance(exc, WorkersAIError):
+                raise
+            _log_ai_error("embedding", self.embedding_model, exc)
+            raise WorkersAIRetryableError(
+                f"Workers AI embedding failed: {type(exc).__name__}",
+                model=self.embedding_model,
+                cause=exc,
+            ) from exc
 
     async def summarize(
         self, env: Any, text: str, *, max_words: int = 40
@@ -307,8 +377,15 @@ class WorkersAIProvider:
                 timeout=4.0,
             )
             return _extract_text_response(res)
-        except Exception:
-            return None
+        except Exception as exc:
+            if isinstance(exc, WorkersAIError):
+                raise
+            _log_ai_error("summarization", self.text_model, exc)
+            raise WorkersAIRetryableError(
+                f"Workers AI summarization failed: {type(exc).__name__}",
+                model=self.text_model,
+                cause=exc,
+            ) from exc
 
     async def generate(
         self,
@@ -328,9 +405,25 @@ class WorkersAIProvider:
         ]
         payload: dict[str, Any] = {"messages": messages, "max_tokens": max_tokens}
         if json_schema is not None:
+            if (
+                isinstance(json_schema, dict)
+                and "name" in json_schema
+                and "schema" in json_schema
+            ):
+                schema_wrapper = json_schema
+            else:
+                schema_name = (
+                    json_schema.get("name")
+                    if isinstance(json_schema, dict) and "name" in json_schema
+                    else "enrichment"
+                )
+                schema_wrapper = {
+                    "name": schema_name,
+                    "schema": json_schema,
+                }
             payload["response_format"] = {
                 "type": "json_schema",
-                "json_schema": json_schema,
+                "json_schema": schema_wrapper,
             }
         try:
             res = await asyncio.wait_for(
@@ -341,5 +434,12 @@ class WorkersAIProvider:
             if out is not None and json_schema is not None:
                 out = clean_json_text(out)
             return out
-        except Exception:
-            return None
+        except Exception as exc:
+            if isinstance(exc, WorkersAIError):
+                raise
+            _log_ai_error("generation", self.text_model, exc)
+            raise WorkersAIRetryableError(
+                f"Workers AI generation failed: {type(exc).__name__}",
+                model=self.text_model,
+                cause=exc,
+            ) from exc

@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+import logging
 
 import pytest
 
@@ -11,7 +12,10 @@ from keepfor.consumer.processor import SUMMARY_MODEL, generate_triage_summary
 from keepfor.defaults import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_TEXT_MODEL,
+    WorkersAIError,
+    WorkersAINonRetryableError,
     WorkersAIProvider,
+    WorkersAIRetryableError,
     _extract_text_response,
     clean_json_text,
 )
@@ -24,6 +28,20 @@ def test_text_model_constants():
     assert SUMMARY_MODEL == DEFAULT_TEXT_MODEL
     # Embedding model must remain untouched
     assert DEFAULT_EMBEDDING_MODEL == "@cf/baai/bge-base-en-v1.5"
+
+
+def test_workers_ai_error_types():
+    """Verify WorkersAIError hierarchy and retryable flags."""
+    retryable_err = WorkersAIRetryableError("transient", model="m1")
+    assert retryable_err.retryable is True
+    assert retryable_err.model == "m1"
+    assert isinstance(retryable_err, WorkersAIError)
+    assert isinstance(retryable_err, RuntimeError)
+
+    non_retryable_err = WorkersAINonRetryableError("permanent", model="m2")
+    assert non_retryable_err.retryable is False
+    assert non_retryable_err.model == "m2"
+    assert isinstance(non_retryable_err, WorkersAIError)
 
 
 def test_workers_ai_provider_default_model():
@@ -104,7 +122,13 @@ async def test_generate_and_json_parsing_compatibility():
     class MockGemmaAI:
         async def run(self, model, payload):
             assert model == "@cf/google/gemma-4-26b-a4b-it"
-            assert "response_format" in payload
+            assert payload["response_format"] == {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "enrichment",
+                    "schema": schema,
+                },
+            }
             return {
                 "choices": [{"message": {"role": "assistant", "content": raw_json_str}}]
             }
@@ -214,7 +238,9 @@ async def test_pyodide_jsproxy_handling():
 
 @pytest.mark.asyncio
 async def test_error_and_timeout_fallbacks():
-    """WorkersAIProvider fails open (returns None) on errors or timeouts."""
+    """Verify precondition fallbacks return None while runtime AI failures
+    raise retryable errors.
+    """
 
     class FailingAI:
         async def run(self, model, payload):
@@ -224,8 +250,17 @@ async def test_error_and_timeout_fallbacks():
         AI = FailingAI()
 
     provider = WorkersAIProvider()
-    assert await provider.summarize(EnvFail(), "test text " * 10) is None
-    assert await provider.generate(EnvFail(), "sys", "usr") is None
+
+    # Runtime AI errors raise WorkersAIRetryableError
+    with pytest.raises(WorkersAIRetryableError) as exc_sum:
+        await provider.summarize(EnvFail(), "test text " * 10)
+    assert exc_sum.value.retryable is True
+    assert exc_sum.value.model == DEFAULT_TEXT_MODEL
+    assert isinstance(exc_sum.value.cause, RuntimeError)
+
+    with pytest.raises(WorkersAIRetryableError) as exc_gen:
+        await provider.generate(EnvFail(), "sys", "usr")
+    assert exc_gen.value.retryable is True
 
     class TimeoutAI:
         async def run(self, model, payload):
@@ -235,12 +270,206 @@ async def test_error_and_timeout_fallbacks():
     class EnvTimeout:
         AI = TimeoutAI()
 
-    assert await provider.summarize(EnvTimeout(), "test text " * 10) is None
+    # Timeouts raise WorkersAIRetryableError
+    with pytest.raises(WorkersAIRetryableError) as exc_to:
+        await provider.summarize(EnvTimeout(), "test text " * 10)
+    assert exc_to.value.retryable is True
 
-    # None and empty inputs
+    # Precondition fallbacks (None env, missing AI, empty text) return None
+    # without calling AI
     assert await provider.summarize(None, "test") is None
     assert await provider.summarize(EnvFail(), "") is None
     assert await provider.generate(None, "sys", "usr") is None
+    assert await provider.embed(None, ["test"]) == []
+
+
+@pytest.mark.asyncio
+async def test_workers_ai_request_contract_json_schema_wrapper():
+    """Validate Workers AI request contract: response_format must wrap
+    schema with name and schema.
+    """
+    captured_payloads: list[tuple[str, dict]] = []
+
+    class CapturingAI:
+        async def run(self, model, payload):
+            captured_payloads.append((model, payload))
+            return {"response": json.dumps({"summary": "test", "tags": ["t1"]})}
+
+    env = FakeEnv(ai=CapturingAI())
+    provider = WorkersAIProvider()
+
+    tags_schema = {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string"},
+            "tags": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["summary", "tags"],
+    }
+
+    # 1. Raw TAGS_SCHEMA gets wrapped with name="enrichment" and schema=TAGS_SCHEMA
+    res = await provider.generate(
+        env,
+        system="System prompt",
+        user="Article content",
+        json_schema=tags_schema,
+    )
+    assert res is not None
+    assert len(captured_payloads) == 1
+    model, payload = captured_payloads[0]
+    assert model == DEFAULT_TEXT_MODEL
+    assert payload["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "enrichment",
+            "schema": tags_schema,
+        },
+    }
+
+    # 2. Schema already wrapped with name and schema is not double-wrapped
+    already_wrapped = {
+        "name": "enrichment",
+        "schema": tags_schema,
+    }
+    await provider.generate(
+        env,
+        system="System prompt",
+        user="Article content",
+        json_schema=already_wrapped,
+    )
+    assert len(captured_payloads) == 2
+    assert captured_payloads[1][1]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": already_wrapped,
+    }
+
+    # 3. Schema with explicit custom name
+    custom_named_schema = {
+        "name": "custom_enrichment",
+        "type": "object",
+        "properties": {"tag": {"type": "string"}},
+    }
+    await provider.generate(
+        env,
+        system="System prompt",
+        user="Article content",
+        json_schema=custom_named_schema,
+    )
+    assert len(captured_payloads) == 3
+    assert captured_payloads[2][1]["response_format"] == {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "custom_enrichment",
+            "schema": custom_named_schema,
+        },
+    }
+
+    # 4. Without json_schema, response_format is not in payload
+    await provider.generate(
+        env,
+        system="System prompt",
+        user="Article content",
+        json_schema=None,
+    )
+    assert len(captured_payloads) == 4
+    assert "response_format" not in captured_payloads[3][1]
+
+
+@pytest.mark.asyncio
+async def test_workers_ai_failure_propagation():
+    """Verify Workers AI errors are distinguishable and retryable."""
+
+    class ServiceUnavailableAI:
+        async def run(self, model, payload):
+            raise RuntimeError("Cloudflare 503 Service Unavailable")
+
+    env = FakeEnv(ai=ServiceUnavailableAI())
+    provider = WorkersAIProvider()
+
+    # generate() raises WorkersAIRetryableError
+    with pytest.raises(WorkersAIRetryableError) as exc_gen:
+        await provider.generate(env, "sys", "usr")
+    assert isinstance(exc_gen.value, WorkersAIError)
+    assert exc_gen.value.retryable is True
+    assert exc_gen.value.model == DEFAULT_TEXT_MODEL
+    assert "RuntimeError" in str(exc_gen.value)
+
+    # summarize() raises WorkersAIRetryableError
+    with pytest.raises(WorkersAIRetryableError) as exc_sum:
+        await provider.summarize(env, "article text " * 10)
+    assert isinstance(exc_sum.value, WorkersAIError)
+    assert exc_sum.value.retryable is True
+    assert exc_sum.value.model == DEFAULT_TEXT_MODEL
+
+    # embed() raises WorkersAIRetryableError
+    with pytest.raises(WorkersAIRetryableError) as exc_emb:
+        await provider.embed(env, ["test vector text"])
+    assert isinstance(exc_emb.value, WorkersAIError)
+    assert exc_emb.value.retryable is True
+    assert exc_emb.value.model == DEFAULT_EMBEDDING_MODEL
+
+
+@pytest.mark.asyncio
+async def test_workers_ai_safe_error_logging(caplog):
+    """Ensure error logging contains safe metadata without secrets or user content."""
+
+    class FailingAI:
+        async def run(self, model, payload):
+            raise RuntimeError("Internal Model Server Error 500")
+
+    secret_user_content = "SECRET_USER_DIARY_CONFIDENTIAL_12345"
+    system_prompt = "TOP_SECRET_SYSTEM_INSTRUCTIONS_98765"
+
+    env = FakeEnv(ai=FailingAI())
+    provider = WorkersAIProvider()
+
+    with caplog.at_level(logging.WARNING, logger="keepfor.defaults"):
+        with pytest.raises(WorkersAIRetryableError):
+            await provider.generate(
+                env,
+                system=system_prompt,
+                user=secret_user_content,
+            )
+
+    # Check warning was logged with metadata
+    assert len(caplog.records) >= 1
+    log_text = caplog.text
+    assert DEFAULT_TEXT_MODEL in log_text
+    assert "error_type=RuntimeError" in log_text
+    assert "timeout=False" in log_text
+
+    # Verify secret content and system prompt are NOT in the log
+    assert secret_user_content not in log_text
+    assert system_prompt not in log_text
+
+
+@pytest.mark.asyncio
+async def test_generate_triage_summary_fails_open_when_ai_raises():
+    """Verify generate_triage_summary returns None when ai.summarize raises."""
+    from keepfor.runtime import set_providers
+    from keepfor.spi import Providers
+
+    class FailingAI:
+        async def embed(self, env, texts):
+            return []
+
+        async def summarize(self, env, text, *, max_words=40):
+            raise WorkersAIRetryableError("AI service down", model="test-model")
+
+        async def generate(self, env, system, user, **kwargs):
+            return None
+
+    providers = Providers(ai=FailingAI()).resolved()
+    set_providers(providers)
+
+    class DummyEnv:
+        AI = object()
+
+    result = await generate_triage_summary(DummyEnv(), "Some article content")
+    assert result is None
+
+    # Reset providers
+    set_providers(Providers().resolved())
 
 
 @pytest.mark.asyncio
