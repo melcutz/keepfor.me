@@ -56,7 +56,7 @@ In `templates/library.html`, above the feed:
           "Extract the core thesis and 2 key takeaways from this text in under 40 words total:\n\n"
           f"{plain_text[:2000]}"
       )
-      res = await env.AI.run("@cf/meta/llama-3.2-3b-instruct", {"prompt": prompt, "max_tokens": 80})
+      res = await env.AI.run("@cf/google/gemma-4-26b-a4b-it", {"prompt": prompt, "max_tokens": 80})
       summary = res.get("response", "").strip()
   ```
 * Stored in `items.summary`.

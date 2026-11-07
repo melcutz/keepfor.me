@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from keepfor.spi import Action, TenantScope
 
 from keepfor.consumer.extractor import article_from_reader_markdown, extract_article
+from keepfor.defaults import DEFAULT_TEXT_MODEL
 from keepfor.models.cleanup import (
     BLOCKED_FETCH_COPY,
     BLOCKED_HTTP_STATUSES,
@@ -59,7 +60,7 @@ BROWSER_RETRY_HEADERS = {
 MAX_HTML_BYTES = 5 * 1024 * 1024  # 5MB
 FETCH_TIMEOUT = 20
 SUMMARY_TIMEOUT = 4.0
-SUMMARY_MODEL = "@cf/meta/llama-3.2-3b-instruct"
+SUMMARY_MODEL = DEFAULT_TEXT_MODEL
 # Pending suggestions are listed ORDER BY score DESC, so a match from the
 # user's own vocabulary must outrank every novel keyphrase. A keyphrase
 # score is an occurrence count with small multipliers, so a constant far

@@ -132,7 +132,7 @@
 
 ### Task 3.3: Workers AI 2-Bullet Summaries
 - [ ] In `keepfor/consumer/processor.py`:
-  - Call `@cf/meta/llama-3.2-3b-instruct` when `env.AI` is present for articles with >300 words.
+  - Call `@cf/google/gemma-4-26b-a4b-it` when `env.AI` is present for articles with >300 words.
   - Store 2-bullet summary in `items.summary`.
 - [ ] In `templates/partials/item_card.html`:
   - Render expandable `✨ Key Takeaway` badge.
