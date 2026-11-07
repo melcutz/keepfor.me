@@ -11,13 +11,7 @@
 
 A thin, fast read-it-later and personal library application running entirely on Cloudflare Python Workers, D1 SQLite with FTS5, Vectorize, R2, and the Model Context Protocol (MCP).
 
-<p align="center">
-  <img src="docs/images/library-hero.png" alt="Keepfor.me Library Interface" width="100%">
-</p>
-
-<p align="center">
-  <img src="docs/images/demo.gif" alt="Keepfor.me Demo - Save URL and Query via MCP" width="100%">
-</p>
+> Visual assets and walkthrough guide: see [docs/images/README.md](docs/images/README.md).
 
 ---
 
