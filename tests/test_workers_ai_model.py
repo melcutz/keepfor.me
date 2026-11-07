@@ -12,6 +12,7 @@ from keepfor.defaults import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_TEXT_MODEL,
     WorkersAIProvider,
+    _extract_text_response,
     clean_json_text,
 )
 from tests.fakes import FakeAI, FakeEnv
@@ -269,3 +270,87 @@ async def test_processor_generate_triage_summary():
 
     # Reset providers
     set_providers(Providers().resolved())
+
+
+def test_extract_text_response_formats():
+    """Verify _extract_text_response handles dicts, objects, strings,
+    choices, and edge cases.
+    """
+    # Direct strings
+    assert _extract_text_response("hello") == "hello"
+    assert _extract_text_response("  padded text  ") == "padded text"
+    assert _extract_text_response("") is None
+    assert _extract_text_response("   ") is None
+
+    # None
+    assert _extract_text_response(None) is None
+
+    # Dict legacy response
+    assert _extract_text_response({"response": "legacy"}) == "legacy"
+    assert _extract_text_response({"response": "  trimmed  "}) == "trimmed"
+    assert _extract_text_response({"response": ""}) is None
+    assert _extract_text_response({"response": None}) is None
+
+    # Dict choices with message dict
+    assert (
+        _extract_text_response({"choices": [{"message": {"content": "gemma output"}}]})
+        == "gemma output"
+    )
+    assert (
+        _extract_text_response({"choices": [{"message": {"content": "   "}}]}) is None
+    )
+    assert _extract_text_response({"choices": [{"message": {"content": None}}]}) is None
+
+    # Dict choices with text field
+    assert (
+        _extract_text_response({"choices": [{"text": "completion text"}]})
+        == "completion text"
+    )
+
+    # Dict choices with raw string
+    assert (
+        _extract_text_response({"choices": ["raw choice string"]})
+        == "raw choice string"
+    )
+
+    # Dict empty choices
+    assert _extract_text_response({"choices": []}) is None
+
+    # Object with response attribute
+    class ObjResponse:
+        response = "from obj response"
+
+    assert _extract_text_response(ObjResponse()) == "from obj response"
+
+    # Object with choices attribute containing message object
+    class MsgObj:
+        content = "from message obj"
+
+    class ChoiceObj:
+        message = MsgObj()
+
+    class ResObj:
+        choices = [ChoiceObj()]
+
+    assert _extract_text_response(ResObj()) == "from message obj"
+
+    # Object with choices attribute containing text attribute
+    class ChoiceTextObj:
+        text = "from choice text obj"
+
+    class ResChoiceTextObj:
+        choices = [ChoiceTextObj()]
+
+    assert _extract_text_response(ResChoiceTextObj()) == "from choice text obj"
+
+    # Object with choices attribute containing string
+    class ResStringChoices:
+        choices = ["choice string in obj"]
+
+    assert _extract_text_response(ResStringChoices()) == "choice string in obj"
+
+    # Arbitrary object with no matching attributes
+    class EmptyObj:
+        pass
+
+    assert _extract_text_response(EmptyObj()) is None

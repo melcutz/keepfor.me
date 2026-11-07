@@ -192,6 +192,35 @@ def clean_json_text(text: str) -> str:
     return cleaned
 
 
+def _extract_from_choice(choice: Any) -> Any:
+    """Extract candidate text from a single choice entry (dict, object, or str)."""
+    if isinstance(choice, str):
+        return choice
+    if isinstance(choice, dict):
+        msg = choice.get("message")
+        if isinstance(msg, dict):
+            content = msg.get("content")
+            if content is not None:
+                return content
+        elif msg is not None:
+            content = getattr(msg, "content", None)
+            if content is not None:
+                return content
+        return choice.get("text")
+    if choice is not None:
+        msg = getattr(choice, "message", None)
+        if isinstance(msg, dict):
+            content = msg.get("content")
+            if content is not None:
+                return content
+        elif msg is not None:
+            content = getattr(msg, "content", None)
+            if content is not None:
+                return content
+        return getattr(choice, "text", None)
+    return None
+
+
 def _extract_text_response(res: Any) -> str | None:
     """Extract string response from Workers AI output.
 
@@ -208,46 +237,26 @@ def _extract_text_response(res: Any) -> str | None:
             pass
 
     if isinstance(res, str):
-        text = res.strip()
-        return text or None
+        stripped = res.strip()
+        return stripped or None
 
+    candidate: Any = None
     if isinstance(res, dict):
-        text = res.get("response")
-        if text is None:
+        candidate = res.get("response")
+        if candidate is None:
             choices = res.get("choices")
-            if isinstance(choices, list) and choices:
-                first = choices[0]
-                if isinstance(first, dict):
-                    msg = first.get("message")
-                    if isinstance(msg, dict):
-                        text = msg.get("content")
-                    elif "text" in first:
-                        text = first.get("text")
-                elif isinstance(first, str):
-                    text = first
-        if text is not None:
-            s = str(text).strip()
-            return s or None
-        return None
+            if isinstance(choices, (list, tuple)) and choices:
+                candidate = _extract_from_choice(choices[0])
+    else:
+        candidate = getattr(res, "response", None)
+        if candidate is None:
+            choices = getattr(res, "choices", None)
+            if isinstance(choices, (list, tuple)) and choices:
+                candidate = _extract_from_choice(choices[0])
 
-    resp = getattr(res, "response", None)
-    if resp is not None:
-        s = str(resp).strip()
-        return s or None
-
-    choices = getattr(res, "choices", None)
-    if isinstance(choices, list) and choices:
-        first = choices[0]
-        msg = getattr(first, "message", None)
-        if msg is not None:
-            cnt = getattr(msg, "content", None)
-            if cnt is not None:
-                s = str(cnt).strip()
-                return s or None
-        txt = getattr(first, "text", None)
-        if txt is not None:
-            s = str(txt).strip()
-            return s or None
+    if candidate is not None:
+        text = str(candidate).strip()
+        return text or None
 
     return None
 
