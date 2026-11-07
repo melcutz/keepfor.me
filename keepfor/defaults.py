@@ -60,6 +60,23 @@ class WorkersAIRetryableError(WorkersAIError):
         super().__init__(message, model=model, retryable=True, cause=cause)
 
 
+class WorkersAITruncatedEmptyError(WorkersAIRetryableError):
+    """Raised when Workers AI response is truncated with empty content."""
+
+    def __init__(
+        self,
+        message: str = (
+            "Workers AI response truncated with empty content (finish_reason=length)"
+        ),
+        *,
+        model: str | None = None,
+        finish_reason: str | None = "length",
+        cause: BaseException | None = None,
+    ) -> None:
+        super().__init__(message, model=model, cause=cause)
+        self.finish_reason = finish_reason
+
+
 class WorkersAINonRetryableError(WorkersAIError):
     """Raised when a Workers AI failure is permanent and not retryable."""
 
@@ -84,6 +101,19 @@ def _log_ai_error(action: str, model: str, exc: BaseException) -> None:
         type(exc).__name__,
         is_timeout,
         status,
+    )
+
+
+def _log_truncated_empty_response(
+    action: str, model: str, finish_reason: str | None
+) -> None:
+    """Log safe error metadata for truncated empty response without secrets."""
+    logger.warning(
+        "Workers AI %s response truncated with empty content: "
+        "model=%s finish_reason=%s",
+        action,
+        model,
+        finish_reason,
     )
 
 
@@ -281,12 +311,20 @@ def _extract_from_choice(choice: Any) -> Any:
     return None
 
 
-def _extract_text_response(res: Any) -> str | None:
+def _extract_text_response(
+    res: Any,
+    *,
+    model: str | None = None,
+    action: str = "generation",
+) -> str | None:
     """Extract string response from Workers AI output.
 
-    Handles both legacy {'response': '...'} and OpenAI-compatible
-    {'choices': [{'message': {'content': '...'}}]} / {'choices': [{'text': '...'}]}
-    structures, as well as Pyodide JsProxy instances.
+    Handles legacy {'response': '...'}, OpenAI-compatible
+    {'choices': [{'message': {'content': '...'}}]} / {'choices': [{'text': '...'}]},
+    REST envelope {'result': ...}, and Pyodide JsProxy instances.
+
+    Raises WorkersAITruncatedEmptyError when finish_reason indicates length/token
+    exhaustion but content is empty (e.g. reasoning token starvation).
     """
     if res is None:
         return None
@@ -296,29 +334,78 @@ def _extract_text_response(res: Any) -> str | None:
         except Exception:
             pass
 
+    # Unwrap REST envelope if present
+    if (
+        isinstance(res, dict)
+        and "result" in res
+        and isinstance(res["result"], (dict, list, tuple))
+        and "choices" not in res
+        and "response" not in res
+    ):
+        res = res["result"]
+    elif (
+        not isinstance(res, dict)
+        and hasattr(res, "result")
+        and not hasattr(res, "choices")
+        and not hasattr(res, "response")
+    ):
+        res = getattr(res, "result")
+
     if isinstance(res, str):
         stripped = res.strip()
         return stripped or None
 
     candidate: Any = None
+    finish_reason: str | None = None
+    first_choice: Any = None
+
     if isinstance(res, dict):
         candidate = res.get("response")
-        if candidate is None:
-            choices = res.get("choices")
-            if isinstance(choices, (list, tuple)) and choices:
-                candidate = _extract_from_choice(choices[0])
+        finish_reason = res.get("finish_reason")
+        choices = res.get("choices")
+        if isinstance(choices, (list, tuple)) and choices:
+            first_choice = choices[0]
+            if candidate is None:
+                candidate = _extract_from_choice(first_choice)
     else:
         candidate = getattr(res, "response", None)
-        if candidate is None:
-            choices = getattr(res, "choices", None)
-            if isinstance(choices, (list, tuple)) and choices:
-                candidate = _extract_from_choice(choices[0])
+        finish_reason = getattr(res, "finish_reason", None)
+        choices = getattr(res, "choices", None)
+        if isinstance(choices, (list, tuple)) and choices:
+            first_choice = choices[0]
+            if candidate is None:
+                candidate = _extract_from_choice(first_choice)
 
-    if candidate is not None:
-        text = str(candidate).strip()
-        return text or None
+    if first_choice is not None:
+        choice_finish = (
+            first_choice.get("finish_reason")
+            if isinstance(first_choice, dict)
+            else getattr(first_choice, "finish_reason", None)
+        )
+        if choice_finish is not None:
+            finish_reason = choice_finish
 
-    return None
+    text = str(candidate).strip() if candidate is not None else ""
+    is_empty = not text
+
+    if (
+        is_empty
+        and finish_reason is not None
+        and str(finish_reason).lower() in ("length", "max_tokens")
+    ):
+        target_model = model or "unknown"
+        _log_truncated_empty_response(action, target_model, str(finish_reason))
+        msg = (
+            f"Workers AI {action} response truncated with empty content "
+            f"(finish_reason={finish_reason})"
+        )
+        raise WorkersAITruncatedEmptyError(
+            msg,
+            model=target_model,
+            finish_reason=str(finish_reason),
+        )
+
+    return text or None
 
 
 class WorkersAIProvider:
@@ -376,7 +463,9 @@ class WorkersAIProvider:
                 ),
                 timeout=4.0,
             )
-            return _extract_text_response(res)
+            return _extract_text_response(
+                res, model=self.text_model, action="summarization"
+            )
         except Exception as exc:
             if isinstance(exc, WorkersAIError):
                 raise
@@ -396,6 +485,7 @@ class WorkersAIProvider:
         max_tokens: int = 400,
         json_schema: dict | None = None,
         timeout_s: float = 20.0,
+        chat_template_kwargs: dict[str, Any] | None = None,
     ) -> str | None:
         if env is None or getattr(env, "AI", None) is None:
             return None
@@ -403,7 +493,16 @@ class WorkersAIProvider:
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ]
-        payload: dict[str, Any] = {"messages": messages, "max_tokens": max_tokens}
+        template_kwargs = (
+            dict(chat_template_kwargs)
+            if chat_template_kwargs is not None
+            else {"enable_thinking": False}
+        )
+        payload: dict[str, Any] = {
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "chat_template_kwargs": template_kwargs,
+        }
         if json_schema is not None:
             if (
                 isinstance(json_schema, dict)
@@ -430,7 +529,9 @@ class WorkersAIProvider:
                 env.AI.run(self.text_model, payload),
                 timeout=timeout_s,
             )
-            out = _extract_text_response(res)
+            out = _extract_text_response(
+                res, model=self.text_model, action="generation"
+            )
             if out is not None and json_schema is not None:
                 out = clean_json_text(out)
             return out

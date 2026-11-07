@@ -16,6 +16,7 @@ from keepfor.defaults import (
     WorkersAINonRetryableError,
     WorkersAIProvider,
     WorkersAIRetryableError,
+    WorkersAITruncatedEmptyError,
     _extract_text_response,
     clean_json_text,
 )
@@ -583,3 +584,348 @@ def test_extract_text_response_formats():
         pass
 
     assert _extract_text_response(EmptyObj()) is None
+
+
+def test_workers_ai_truncated_empty_error_type():
+    """Verify WorkersAITruncatedEmptyError is distinguishable and retryable."""
+    err = WorkersAITruncatedEmptyError(
+        "Truncated empty response",
+        model="@cf/google/gemma-4-26b-a4b-it",
+        finish_reason="length",
+    )
+    assert isinstance(err, WorkersAIRetryableError)
+    assert isinstance(err, WorkersAIError)
+    assert isinstance(err, RuntimeError)
+    assert err.retryable is True
+    assert err.model == "@cf/google/gemma-4-26b-a4b-it"
+    assert err.finish_reason == "length"
+
+
+@pytest.mark.asyncio
+async def test_generate_payload_chat_template_kwargs():
+    """Verify generate includes chat_template_kwargs with enable_thinking=False."""
+    captured_payloads = []
+
+    def mock_ai(model, payload):
+        captured_payloads.append((model, payload))
+        return {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": '{"summary": "ok", "tags": ["t"]}'},
+                }
+            ]
+        }
+
+    ai = FakeAI()
+    FakeAI.script(mock_ai)
+    env = FakeEnv(ai=ai)
+    provider = WorkersAIProvider()
+
+    # Default call without chat_template_kwargs argument
+    await provider.generate(env, "system prompt", "user prompt")
+    assert len(captured_payloads) == 1
+    assert captured_payloads[0][1]["chat_template_kwargs"] == {"enable_thinking": False}
+
+    # Explicit custom chat_template_kwargs
+    await provider.generate(
+        env,
+        "system prompt",
+        "user prompt",
+        chat_template_kwargs={"enable_thinking": True, "custom_key": 42},
+    )
+    assert len(captured_payloads) == 2
+    assert captured_payloads[1][1]["chat_template_kwargs"] == {
+        "enable_thinking": True,
+        "custom_key": 42,
+    }
+
+    FakeAI.script(None)
+
+
+@pytest.mark.asyncio
+async def test_generate_truncated_empty_response_raises_retryable_error():
+    """Verify retryable error on finish_reason=length and empty content."""
+
+    # 1. Standard OpenAI choices format with empty string content
+    def mock_truncated_empty(model, payload):
+        return {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "reasoning_content": "Drafting reasoning...",
+                    },
+                }
+            ]
+        }
+
+    ai = FakeAI()
+    FakeAI.script(mock_truncated_empty)
+    env = FakeEnv(ai=ai)
+    provider = WorkersAIProvider()
+
+    with pytest.raises(WorkersAITruncatedEmptyError) as exc_info:
+        await provider.generate(env, "system prompt", "user document")
+
+    assert exc_info.value.retryable is True
+    assert exc_info.value.model == DEFAULT_TEXT_MODEL
+    assert exc_info.value.finish_reason == "length"
+    assert isinstance(exc_info.value, WorkersAIRetryableError)
+
+    # 2. Whitespace-only content
+    def mock_truncated_whitespace(model, payload):
+        return {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"role": "assistant", "content": "   \n  "},
+                }
+            ]
+        }
+
+    FakeAI.script(mock_truncated_whitespace)
+    with pytest.raises(WorkersAITruncatedEmptyError) as exc_info:
+        await provider.generate(env, "system prompt", "user document")
+    assert exc_info.value.finish_reason == "length"
+
+    # 3. None content
+    def mock_truncated_none(model, payload):
+        return {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"role": "assistant", "content": None},
+                }
+            ]
+        }
+
+    FakeAI.script(mock_truncated_none)
+    with pytest.raises(WorkersAITruncatedEmptyError) as exc_info:
+        await provider.generate(env, "system prompt", "user document")
+    assert exc_info.value.finish_reason == "length"
+
+    # 4. REST envelope with result.choices
+    def mock_truncated_rest_envelope(model, payload):
+        return {
+            "success": True,
+            "result": {
+                "choices": [
+                    {
+                        "finish_reason": "length",
+                        "message": {"content": ""},
+                    }
+                ]
+            },
+        }
+
+    FakeAI.script(mock_truncated_rest_envelope)
+    with pytest.raises(WorkersAITruncatedEmptyError) as exc_info:
+        await provider.generate(env, "system prompt", "user document")
+    assert exc_info.value.finish_reason == "length"
+
+    # 5. Choices with text field
+    def mock_truncated_text_choice(model, payload):
+        return {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "text": "",
+                }
+            ]
+        }
+
+    FakeAI.script(mock_truncated_text_choice)
+    with pytest.raises(WorkersAITruncatedEmptyError) as exc_info:
+        await provider.generate(env, "system prompt", "user document")
+    assert exc_info.value.finish_reason == "length"
+
+    FakeAI.script(None)
+
+
+@pytest.mark.asyncio
+async def test_generate_truncated_empty_safe_logging(caplog):
+    """Verify truncated-empty response logs safe warning without content or secrets."""
+    secret_user_text = "SECRET_USER_DIARY_CONFIDENTIAL_TOKEN_XYZ987"
+    secret_sys_prompt = "TOP_SECRET_PROMPT_INSTRUCTION_ABC123"
+
+    def mock_truncated(model, payload):
+        return {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {
+                        "content": "",
+                        "reasoning_content": "Long reasoning...",
+                    },
+                }
+            ]
+        }
+
+    ai = FakeAI()
+    FakeAI.script(mock_truncated)
+    env = FakeEnv(ai=ai)
+    provider = WorkersAIProvider()
+
+    with caplog.at_level(logging.WARNING, logger="keepfor.defaults"):
+        with pytest.raises(WorkersAITruncatedEmptyError):
+            await provider.generate(env, secret_sys_prompt, secret_user_text)
+
+    log_text = caplog.text
+    # Must contain safe metadata: model and finish reason
+    assert DEFAULT_TEXT_MODEL in log_text
+    assert "finish_reason=length" in log_text
+
+    # Must NEVER contain secret content or prompts
+    assert secret_user_text not in log_text
+    assert secret_sys_prompt not in log_text
+
+    FakeAI.script(None)
+
+
+@pytest.mark.asyncio
+async def test_generate_truncated_non_empty_content_passes_through():
+    """Verify finish_reason=length with non-empty content does not raise error."""
+    partial_json = '{"summary": "Incomplete text'
+
+    def mock_partial(model, payload):
+        return {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"content": partial_json},
+                }
+            ]
+        }
+
+    ai = FakeAI()
+    FakeAI.script(mock_partial)
+    env = FakeEnv(ai=ai)
+    provider = WorkersAIProvider()
+
+    # When json_schema is None, raw content is returned as-is
+    res = await provider.generate(env, "system prompt", "user text", json_schema=None)
+    assert res == partial_json
+
+    FakeAI.script(None)
+
+
+@pytest.mark.asyncio
+async def test_generate_normal_stop_empty_content_returns_none():
+    """Verify finish_reason=stop with empty content does not raise, returns None."""
+
+    def mock_stop_empty(model, payload):
+        return {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {"content": ""},
+                }
+            ]
+        }
+
+    ai = FakeAI()
+    FakeAI.script(mock_stop_empty)
+    env = FakeEnv(ai=ai)
+    provider = WorkersAIProvider()
+
+    res = await provider.generate(env, "system prompt", "user text")
+    assert res is None
+
+    FakeAI.script(None)
+
+
+@pytest.mark.asyncio
+async def test_summarize_truncated_empty_response_raises_retryable_error():
+    """Verify summarize raises retryable error when response is truncated and empty."""
+
+    def mock_sum_truncated(model, payload):
+        return {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {"content": ""},
+                }
+            ]
+        }
+
+    ai = FakeAI()
+    FakeAI.script(mock_sum_truncated)
+    env = FakeEnv(ai=ai)
+    provider = WorkersAIProvider()
+
+    with pytest.raises(WorkersAITruncatedEmptyError) as exc_info:
+        await provider.summarize(env, "Some article text " * 10)
+    assert exc_info.value.finish_reason == "length"
+    assert exc_info.value.retryable is True
+
+    FakeAI.script(None)
+
+
+@pytest.mark.asyncio
+async def test_generate_triage_summary_fails_open_on_truncated_empty():
+    """Verify triage summary fails open (returns None) on truncated-empty failure."""
+    from keepfor.runtime import set_providers
+    from keepfor.spi import Providers
+
+    class TruncatedAI:
+        async def embed(self, env, texts):
+            return []
+
+        async def summarize(self, env, text, *, max_words=40):
+            raise WorkersAITruncatedEmptyError(
+                "Truncated empty",
+                model=DEFAULT_TEXT_MODEL,
+                finish_reason="length",
+            )
+
+        async def generate(self, env, system, user, **kwargs):
+            return None
+
+    providers = Providers(ai=TruncatedAI()).resolved()
+    set_providers(providers)
+
+    class DummyEnv:
+        AI = object()
+
+    result = await generate_triage_summary(DummyEnv(), "Some article content")
+    assert result is None
+
+    # Reset providers
+    set_providers(Providers().resolved())
+
+
+def test_extract_text_response_various_shapes_truncated_empty():
+    """Verify _extract_text_response raises across object and dict structures."""
+
+    # 1. Pyodide JsProxy-like object with to_py()
+    class JsProxyMock:
+        def to_py(self):
+            return {
+                "choices": [
+                    {
+                        "finish_reason": "length",
+                        "message": {"content": ""},
+                    }
+                ]
+            }
+
+    with pytest.raises(WorkersAITruncatedEmptyError) as exc:
+        _extract_text_response(JsProxyMock(), model="test-model")
+    assert exc.value.finish_reason == "length"
+    assert exc.value.model == "test-model"
+
+    # 2. Object with choices attribute
+    class ChoiceObj:
+        finish_reason = "length"
+        message = {"content": ""}
+
+    class ResObj:
+        choices = [ChoiceObj()]
+
+    with pytest.raises(WorkersAITruncatedEmptyError) as exc:
+        _extract_text_response(ResObj(), model="obj-model")
+    assert exc.value.finish_reason == "length"
+    assert exc.value.model == "obj-model"
