@@ -297,6 +297,8 @@ async def test_mcp_tools_list_over_http(mcp_client, pat_headers):
     assert res.status_code == 200
     names = [t["name"] for t in res.json()["result"]["tools"]]
     assert len(names) == 46
+    for t in res.json()["result"]["tools"]:
+        assert t.get("title"), f"Tool '{t.get('name')}' missing title over HTTP"
     assert "save_url" in names
     assert "save_urls" in names
     assert "save_note" in names
@@ -1414,3 +1416,72 @@ def test_every_tool_declares_annotations():
         assert "annotations" in tool, tool["name"]
         assert "readOnlyHint" in tool["annotations"], tool["name"]
     assert _tool_scope({"name": "hypothetical"}) == SCOPE_WRITE
+
+
+@pytest.mark.asyncio
+async def test_every_mcp_tool_exposes_human_title(mcp_user):
+    """Regression test for #388 / Claude Connectors Directory:
+    Every MCP tool must expose a non-empty human-readable title in actual
+    tools/list output, compatible with the installed SDK and directory checks.
+    """
+    user, env, db = mcp_user
+    req = {"jsonrpc": "2.0", "id": 100, "method": "tools/list"}
+    res = await process_mcp_request(req, db, env, user)
+    assert "result" in res, res
+    tools = res["result"]["tools"]
+    assert len(tools) == 46
+
+    titles_seen = set()
+    for tool in tools:
+        name = tool.get("name")
+        assert name, "Tool must have a name"
+        assert "title" in tool, f"Tool '{name}' is missing a 'title' field"
+        title = tool["title"]
+        assert isinstance(title, str), (
+            f"Tool '{name}' title must be str, got {type(title)}"
+        )
+        assert title.strip(), f"Tool '{name}' has an empty title"
+        assert len(title) <= 64, f"Tool '{name}' title exceeds 64 chars: '{title}'"
+        assert title not in titles_seen, f"Duplicate title '{title}' for tool '{name}'"
+        titles_seen.add(title)
+
+
+def test_mcp_tool_count_and_docs_sync():
+    """Regression guard for #121: MCP_TOOLS count must match documentation exactly.
+
+    Prevents drift between registered MCP tools in keepfor/mcp/server.py and
+    public docs/README. Stale counts (e.g. 42) must not resurface.
+    """
+    import re
+    from pathlib import Path
+
+    # Exactly 46 registered tools as of Server 0.2.0
+    assert len(MCP_TOOLS) == 46
+
+    readme_path = Path(__file__).resolve().parent.parent / "README.md"
+    assert readme_path.exists(), "README.md must exist at repo root"
+    readme = readme_path.read_text(encoding="utf-8")
+
+    # Guard against stale tool count
+    assert "42 tools" not in readme, "Stale '42 tools' count found in README.md"
+    assert f"exposing {len(MCP_TOOLS)} tools" in readme
+    assert f"The MCP server exposes {len(MCP_TOOLS)} tools" in readme
+
+    # Ensure all registered tools are documented in order in README
+    tools_section = readme.split("### Available MCP Tools")[1].split(
+        "### MCP Resources"
+    )[0]
+    documented_tools = re.findall(
+        r"^\d+\.\s+\*\*`([a-z0-9_]+)`\*\*", tools_section, flags=re.MULTILINE
+    )
+    assert len(documented_tools) == len(MCP_TOOLS), (
+        f"Documented count ({len(documented_tools)}) != MCP_TOOLS ({len(MCP_TOOLS)})"
+    )
+    assert documented_tools == [t["name"] for t in MCP_TOOLS]
+
+    # Also verify that every registered tool is mentioned in the overview section
+    overview_section = readme.split("## Connecting AI Agents")[1].split("### Setup")[0]
+    for tool in MCP_TOOLS:
+        assert f"`{tool['name']}`" in overview_section, (
+            f"Tool '{tool['name']}' missing from Connecting AI Agents overview"
+        )

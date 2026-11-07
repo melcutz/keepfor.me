@@ -533,6 +533,7 @@ def _digest_tag(value: Any) -> str | None:
 MCP_TOOLS = [
     {
         "name": "save_url",
+        "title": "Save URL",
         "description": "Saves a URL to the user's personal library and enqueues "
         "it for content extraction and semantic indexing. Use this to capture "
         "web pages for later reading. For saving personal notes or snippets, "
@@ -577,6 +578,7 @@ MCP_TOOLS = [
     },
     {
         "name": "save_urls",
+        "title": "Save URLs",
         "description": "Saves many URLs to the user's personal library in one "
         "call and reports a status for each of them (queued, exists, invalid "
         "or over_limit) plus the totals. Use this to turn a list of research "
@@ -613,6 +615,7 @@ MCP_TOOLS = [
     },
     {
         "name": "save_note",
+        "title": "Save Note",
         "description": "Saves a personal note, code snippet, prompt template, "
         "or idea to the user's personal knowledge vault and indexes it "
         "for hybrid search. Use this for self-authored content. For saving "
@@ -666,6 +669,7 @@ MCP_TOOLS = [
     },
     {
         "name": "search_library",
+        "title": "Search Library",
         "description": "Searches the library by keyword and meaning using "
         "hybrid search (FTS5 + Vectorize). Matches saved articles, personal "
         "notes, and notes imported from Google Keep, Evernote (ENEX) or "
@@ -726,6 +730,7 @@ MCP_TOOLS = [
     },
     {
         "name": "search_passages",
+        "title": "Search Passages",
         "description": "Searches the library at passage level using hybrid search "
         "over semantic chunks. Returns top passages with item_id, chunk_id, "
         "char offsets, snapshot_url (permanent R2 archive), saved_at, and score. "
@@ -783,6 +788,7 @@ MCP_TOOLS = [
     },
     {
         "name": "read_item",
+        "title": "Read Item",
         "description": (
             "Reads an item's content in paginated chunks for token-efficient "
             "retrieval. Returns text, next_cursor, total_chunks, and outline. "
@@ -821,6 +827,7 @@ MCP_TOOLS = [
     },
     {
         "name": "get_item",
+        "title": "Get Item",
         "description": "Retrieves metadata and excerpt of a saved article. "
         "Identify the item with item_id, url, or an exact title. "
         "By default, content_text is capped to the excerpt for token efficiency; "
@@ -857,6 +864,7 @@ MCP_TOOLS = [
     },
     {
         "name": "find_item",
+        "title": "Find Item",
         "description": "Finds items by exact or prefix title, or by exact or "
         "normalized url, and returns their ids. No search, no embeddings: this is "
         "the cheap way to go from a title you know to an item_id. Use "
@@ -885,6 +893,7 @@ MCP_TOOLS = [
     },
     {
         "name": "list_items",
+        "title": "List Items",
         "description": "Lists library items in a compact shape (id, title, url, "
         "saved_at, tags - no body text) with sorting, filters and pagination. "
         "Use sort=saved for newest first, sort=opened for most recently opened, "
@@ -961,6 +970,7 @@ MCP_TOOLS = [
     },
     {
         "name": "reading_history",
+        "title": "Reading History",
         "description": (
             "Returns reading history with date filtering. Uses created_at (saved) "
             "and item_opens (opened) tables. Answers 'what did I read about X "
@@ -1019,6 +1029,7 @@ MCP_TOOLS = [
     },
     {
         "name": "related_items",
+        "title": "Related Items",
         "description": (
             "Returns related items by vector similarity. Provide either item_id "
             "(uses item's content as query) or text (embeds the text). Excludes "
@@ -1047,6 +1058,7 @@ MCP_TOOLS = [
     },
     {
         "name": "tag_item",
+        "title": "Tag Item",
         "description": "Adds or removes tags on a single saved library item. "
         "For tagging many items at once use tag_items; to replace the whole tag "
         "set of one item use set_item_tags.",
@@ -1071,6 +1083,7 @@ MCP_TOOLS = [
     },
     {
         "name": "list_tags",
+        "title": "List Tags",
         "description": "Lists the user's tags with item count and last-used date. "
         "Use sort=count for the most used, sort=name alphabetically, sort=recent "
         "for the most recently used. prefix filters by name, min_count hides tags "
@@ -1098,6 +1111,7 @@ MCP_TOOLS = [
     },
     {
         "name": "create_tag",
+        "title": "Create Tag",
         "description": "Creates a tag, optionally with a description, a color and "
         "a parent tag for hierarchy (e.g. parent=work creates work/research). "
         "Idempotent: an existing tag is not modified, use update_tag for that.",
@@ -1124,6 +1138,7 @@ MCP_TOOLS = [
     },
     {
         "name": "describe_tag",
+        "title": "Describe Tag",
         "description": "Returns a tag's metadata: description, color, parent, "
         "child tags, item count and last use. Use update_tag to change them.",
         "inputSchema": {
@@ -1137,6 +1152,7 @@ MCP_TOOLS = [
     },
     {
         "name": "update_tag",
+        "title": "Update Tag",
         "description": "Edits a tag's description, color and/or parent. Only the "
         'arguments you pass are changed; description="" clears the description '
         'and parent="" detaches the tag from its parent.',
@@ -1160,6 +1176,7 @@ MCP_TOOLS = [
     },
     {
         "name": "rename_tag",
+        "title": "Rename Tag",
         "description": "Renames a tag; every item carrying it is updated. "
         "Renaming onto an existing tag merges the two. Use merge_tags to fold "
         "several tags into one at once.",
@@ -1175,6 +1192,7 @@ MCP_TOOLS = [
     },
     {
         "name": "merge_tags",
+        "title": "Merge Tags",
         "description": "Merges several source tags into one target tag: every item "
         "carrying a source tag ends up carrying the target tag, and the source "
         "tags disappear. At most 20 source tags per call.",
@@ -1197,6 +1215,7 @@ MCP_TOOLS = [
     },
     {
         "name": "delete_tag",
+        "title": "Delete Tag",
         "description": "Removes a tag from every item that carries it. Items are "
         "never deleted, only untagged. Defaults to dry_run=true, which returns "
         "the number of affected items and a sample without changing anything; "
@@ -1217,6 +1236,7 @@ MCP_TOOLS = [
     },
     {
         "name": "tag_items",
+        "title": "Tag Items",
         "description": "Adds and/or removes tags across many items at once. "
         "Defaults to dry_run=true, which returns the number of affected items "
         "and a sample without changing anything; pass dry_run=false to apply. "
@@ -1252,6 +1272,7 @@ MCP_TOOLS = [
     },
     {
         "name": "retag_by_query",
+        "title": "Retag by Query",
         "description": "Finds items by title/url substring (plus optional tag "
         "filters) and adds/removes tags on them. Defaults to dry_run=true, which "
         "returns the affected items without changing anything; pass dry_run=false "
@@ -1286,6 +1307,7 @@ MCP_TOOLS = [
     },
     {
         "name": "bulk_update",
+        "title": "Bulk Update",
         "description": "Updates many library items at once: sets the status, "
         "the read state, pins or unpins, adds or removes tags, or moves the "
         "matched items to the Trash. Filters: status group (saved/extracting/"
@@ -1379,6 +1401,7 @@ MCP_TOOLS = [
     },
     {
         "name": "set_item_tags",
+        "title": "Set Item Tags",
         "description": "Replaces the whole tag set of one item with the given "
         "tags. Tags not in the list are removed. Use tag_item to add or remove "
         "a few tags without touching the rest.",
@@ -1398,6 +1421,7 @@ MCP_TOOLS = [
     },
     {
         "name": "suggest_tags",
+        "title": "Suggest Tags",
         "description": "Suggests tags for an item (item_id) or for free text "
         "(text). Suggestions are drawn from the user's existing tag vocabulary "
         "first, then from keyphrases. No network calls. Use tag_items or "
@@ -1419,6 +1443,7 @@ MCP_TOOLS = [
     },
     {
         "name": "search_tags",
+        "title": "Search Tags",
         "description": "Fuzzy search over tag names and descriptions: matches "
         "substrings and separator variants, so 'machinelearning' finds "
         "'machine-learning'. Use list_tags to enumerate, search_tags to look one up.",
@@ -1438,6 +1463,7 @@ MCP_TOOLS = [
     },
     {
         "name": "tag_stats",
+        "title": "Tag Statistics",
         "description": "Returns tag usage statistics: total tags, total items, "
         "tagged and untagged item counts, and the most used tags.",
         "inputSchema": {
@@ -1448,6 +1474,7 @@ MCP_TOOLS = [
     },
     {
         "name": "related_tags",
+        "title": "Related Tags",
         "description": "Returns tags that co-occur with a tag on the same items, "
         "most frequent first. Use it to find a tag's neighbourhood in the "
         "vocabulary.",
@@ -1467,6 +1494,7 @@ MCP_TOOLS = [
     },
     {
         "name": "tag_cleanup",
+        "title": "Tag Cleanup",
         "description": "Finds cleanup candidates in the tag vocabulary: "
         "near-duplicate tags (case/plural/separator/acronym variants such as "
         "'ml' and 'machine-learning'), unused tags with no items, and untagged "
@@ -1486,6 +1514,7 @@ MCP_TOOLS = [
     },
     {
         "name": "find_cleanup",
+        "title": "Find Cleanup",
         "description": "Suggests cleanup candidates in the library: duplicate "
         "items (same normalized url), dead links, failed extractions, "
         "never-opened old items, untagged items, and near-duplicate tags. Each "
@@ -1533,6 +1562,7 @@ MCP_TOOLS = [
     },
     {
         "name": "create_highlight",
+        "title": "Create Highlight",
         "description": "Highlights a passage of a saved item: stores the quoted "
         "text and the character offsets it covers inside the item's "
         "content_text. Use it to mark the parts of an article worth "
@@ -1579,6 +1609,7 @@ MCP_TOOLS = [
     },
     {
         "name": "list_highlights",
+        "title": "List Highlights",
         "description": "Lists the highlights of one saved item, ordered by "
         "their position in the text. Each highlight carries the quoted text, "
         "its character offsets in content_text, an optional note and color. "
@@ -1607,6 +1638,7 @@ MCP_TOOLS = [
     },
     {
         "name": "delete_highlight",
+        "title": "Delete Highlight",
         "description": "Deletes one highlight. The item it belongs to is never "
         "deleted.",
         "inputSchema": {
@@ -1623,6 +1655,7 @@ MCP_TOOLS = [
     },
     {
         "name": "update_highlight",
+        "title": "Update Highlight",
         "description": "Edits a highlight: its note and/or its color. The quoted "
         "text and the offsets are never changed, and the item it belongs to "
         "is untouched. An empty note or color removes it. Use list_highlights "
@@ -1655,6 +1688,7 @@ MCP_TOOLS = [
     },
     {
         "name": "create_collection",
+        "title": "Create Collection",
         "description": "Creates a collection: a named bucket of library items, "
         "optionally with a description. Idempotent: an existing collection "
         "with the same name is returned unchanged. With a query and/or a tag "
@@ -1693,6 +1727,7 @@ MCP_TOOLS = [
     },
     {
         "name": "list_collections",
+        "title": "List Collections",
         "description": "Lists the user's collections with their kind (manual or "
         "smart), the number of items each holds and the ids of the items it "
         "holds (at most 20 per collection, with items_truncated when there "
@@ -1718,6 +1753,7 @@ MCP_TOOLS = [
     },
     {
         "name": "add_to_collection",
+        "title": "Add to Collection",
         "description": "Adds library items to a collection, addressed by "
         "collection name or id. Items that are not yours, that do not exist, "
         "or that are already in the collection are skipped: the result "
@@ -1742,6 +1778,7 @@ MCP_TOOLS = [
     },
     {
         "name": "remove_from_collection",
+        "title": "Remove from Collection",
         "description": "Removes library items from a collection. The items "
         "themselves are never deleted, only the link to the collection. At "
         "most 100 items are processed per call.",
@@ -1764,6 +1801,7 @@ MCP_TOOLS = [
     },
     {
         "name": "rename_collection",
+        "title": "Rename Collection",
         "description": "Renames a collection, addressed by its current name or "
         "id, and sets its smart filter. The new name must be free; an "
         "existing collection is never merged into. A query and/or a tag turn "
@@ -1801,6 +1839,7 @@ MCP_TOOLS = [
     },
     {
         "name": "delete_collection",
+        "title": "Delete Collection",
         "description": "Deletes a collection and its links. The items it held "
         "are never deleted. To empty a collection without deleting it, use "
         "remove_from_collection.",
@@ -1818,6 +1857,7 @@ MCP_TOOLS = [
     },
     {
         "name": "delete_item",
+        "title": "Delete Item",
         "description": "Moves an item to the Trash. The item leaves the library "
         "but is not destroyed: it stays restorable for 30 days, and only the "
         "user can delete it for good from the Trash view. The result carries "
@@ -1836,6 +1876,7 @@ MCP_TOOLS = [
     },
     {
         "name": "list_trash",
+        "title": "List Trash",
         "description": "Lists the items in the Trash: the items that were "
         "deleted but are still restorable for 30 days. Read-only: it changes "
         "nothing. The result carries the item ids and the date every item is "
@@ -1863,6 +1904,7 @@ MCP_TOOLS = [
     },
     {
         "name": "restore_item",
+        "title": "Restore Item",
         "description": "Restores items from the Trash back into the library. "
         "Takes the item ids of delete_item or list_trash (at most 50 per "
         "call). Every id is reported: restored (it was in the Trash and is "
@@ -1883,6 +1925,7 @@ MCP_TOOLS = [
     },
     {
         "name": "pin_item",
+        "title": "Pin Item",
         "description": "Pins or unpins an item to/from the top shelf of the library.",
         "inputSchema": {
             "type": "object",
@@ -1896,6 +1939,7 @@ MCP_TOOLS = [
     },
     {
         "name": "update_item",
+        "title": "Update Item",
         "description": "Edits a saved item in place: fix its title, write notes, "
         "mark it read or archived, pin or unpin it. Only the fields you pass "
         "are changed. A title or a notes change re-indexes the item, so it "
@@ -1939,6 +1983,7 @@ MCP_TOOLS = [
     },
     {
         "name": "library_digest",
+        "title": "Library Digest",
         "description": "Summarizes the library for a period: how many items "
         "were saved and opened, how many are still unread, the most used "
         "tags, and a short list of unread highlights. Every count covers "
@@ -1974,6 +2019,7 @@ MCP_TOOLS = [
     },
     {
         "name": "get_account",
+        "title": "Get Account",
         "description": "Returns the account of the calling user: the plan, "
         "the end of the trial period if there is one, and the quota of every "
         "metered action (limit, used and remaining for the current period, "
