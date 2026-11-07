@@ -1414,3 +1414,44 @@ def test_every_tool_declares_annotations():
         assert "annotations" in tool, tool["name"]
         assert "readOnlyHint" in tool["annotations"], tool["name"]
     assert _tool_scope({"name": "hypothetical"}) == SCOPE_WRITE
+
+
+def test_mcp_tool_count_and_docs_sync():
+    """Regression guard for #121: MCP_TOOLS count must match documentation exactly.
+
+    Prevents drift between registered MCP tools in keepfor/mcp/server.py and
+    public docs/README. Stale counts (e.g. 42) must not resurface.
+    """
+    import re
+    from pathlib import Path
+
+    # Exactly 46 registered tools as of Server 0.2.0
+    assert len(MCP_TOOLS) == 46
+
+    readme_path = Path(__file__).resolve().parent.parent / "README.md"
+    assert readme_path.exists(), "README.md must exist at repo root"
+    readme = readme_path.read_text(encoding="utf-8")
+
+    # Guard against stale tool count
+    assert "42 tools" not in readme, "Stale '42 tools' count found in README.md"
+    assert f"exposing {len(MCP_TOOLS)} tools" in readme
+    assert f"The MCP server exposes {len(MCP_TOOLS)} tools" in readme
+
+    # Ensure all registered tools are documented in order in README
+    tools_section = readme.split("### Available MCP Tools")[1].split(
+        "### MCP Resources"
+    )[0]
+    documented_tools = re.findall(
+        r"^\d+\.\s+\*\*`([a-z0-9_]+)`\*\*", tools_section, flags=re.MULTILINE
+    )
+    assert len(documented_tools) == len(MCP_TOOLS), (
+        f"Documented count ({len(documented_tools)}) != MCP_TOOLS ({len(MCP_TOOLS)})"
+    )
+    assert documented_tools == [t["name"] for t in MCP_TOOLS]
+
+    # Also verify that every registered tool is mentioned in the overview section
+    overview_section = readme.split("## Connecting AI Agents")[1].split("### Setup")[0]
+    for tool in MCP_TOOLS:
+        assert f"`{tool['name']}`" in overview_section, (
+            f"Tool '{tool['name']}' missing from Connecting AI Agents overview"
+        )
