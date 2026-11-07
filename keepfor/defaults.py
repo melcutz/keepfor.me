@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import TYPE_CHECKING, Any
 
 from keepfor.auth.service import validate_pat, validate_session
@@ -23,7 +24,7 @@ if TYPE_CHECKING:
     from fastapi import Request
 
 DEFAULT_EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
-DEFAULT_TEXT_MODEL = "@cf/meta/llama-3.2-3b-instruct"
+DEFAULT_TEXT_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 
 
 class SessionPatAuthProvider:
@@ -175,6 +176,91 @@ class NoopFetchBudget:
         pass
 
 
+def clean_json_text(text: str) -> str:
+    """Strip markdown code fences and reasoning tags from model JSON output."""
+    if not text:
+        return ""
+    cleaned = text.strip()
+    cleaned = re.sub(r"<(think|thought)>.*?</\1>", "", cleaned, flags=re.DOTALL).strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if len(lines) >= 2 and lines[0].startswith("```"):
+            if lines[-1].strip() == "```":
+                cleaned = "\n".join(lines[1:-1]).strip()
+            else:
+                cleaned = "\n".join(lines[1:]).strip()
+    return cleaned
+
+
+def _extract_from_choice(choice: Any) -> Any:
+    """Extract candidate text from a single choice entry (dict, object, or str)."""
+    if isinstance(choice, str):
+        return choice
+    if isinstance(choice, dict):
+        msg = choice.get("message")
+        if isinstance(msg, dict):
+            content = msg.get("content")
+            if content is not None:
+                return content
+        elif msg is not None:
+            content = getattr(msg, "content", None)
+            if content is not None:
+                return content
+        return choice.get("text")
+    if choice is not None:
+        msg = getattr(choice, "message", None)
+        if isinstance(msg, dict):
+            content = msg.get("content")
+            if content is not None:
+                return content
+        elif msg is not None:
+            content = getattr(msg, "content", None)
+            if content is not None:
+                return content
+        return getattr(choice, "text", None)
+    return None
+
+
+def _extract_text_response(res: Any) -> str | None:
+    """Extract string response from Workers AI output.
+
+    Handles both legacy {'response': '...'} and OpenAI-compatible
+    {'choices': [{'message': {'content': '...'}}]} / {'choices': [{'text': '...'}]}
+    structures, as well as Pyodide JsProxy instances.
+    """
+    if res is None:
+        return None
+    if not hasattr(res, "_mock_return_value") and hasattr(res, "to_py"):
+        try:
+            res = res.to_py()
+        except Exception:
+            pass
+
+    if isinstance(res, str):
+        stripped = res.strip()
+        return stripped or None
+
+    candidate: Any = None
+    if isinstance(res, dict):
+        candidate = res.get("response")
+        if candidate is None:
+            choices = res.get("choices")
+            if isinstance(choices, (list, tuple)) and choices:
+                candidate = _extract_from_choice(choices[0])
+    else:
+        candidate = getattr(res, "response", None)
+        if candidate is None:
+            choices = getattr(res, "choices", None)
+            if isinstance(choices, (list, tuple)) and choices:
+                candidate = _extract_from_choice(choices[0])
+
+    if candidate is not None:
+        text = str(candidate).strip()
+        return text or None
+
+    return None
+
+
 class WorkersAIProvider:
     """Wraps Cloudflare Workers AI binding."""
 
@@ -220,16 +306,7 @@ class WorkersAIProvider:
                 ),
                 timeout=4.0,
             )
-            if not hasattr(res, "_mock_return_value") and hasattr(res, "to_py"):
-                try:
-                    res = res.to_py()
-                except Exception:
-                    pass
-            if isinstance(res, dict):
-                summary = str(res.get("response", "")).strip()
-            else:
-                summary = str(getattr(res, "response", "") or "").strip()
-            return summary or None
+            return _extract_text_response(res)
         except Exception:
             return None
 
@@ -260,12 +337,9 @@ class WorkersAIProvider:
                 env.AI.run(self.text_model, payload),
                 timeout=timeout_s,
             )
-            if hasattr(res, "to_py"):
-                res = res.to_py()
-            if isinstance(res, dict):
-                out = str(res.get("response", "")).strip()
-            else:
-                out = str(getattr(res, "response", "") or "").strip()
-            return out or None
+            out = _extract_text_response(res)
+            if out is not None and json_schema is not None:
+                out = clean_json_text(out)
+            return out
         except Exception:
             return None
