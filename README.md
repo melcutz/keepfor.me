@@ -11,6 +11,8 @@
 
 A thin, fast read-it-later and personal library application running entirely on Cloudflare Python Workers, D1 SQLite with FTS5, Vectorize, R2, and the Model Context Protocol (MCP).
 
+> Visual assets and walkthrough guide: see [docs/images/README.md](docs/images/README.md).
+
 ---
 
 ## Features
