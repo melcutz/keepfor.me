@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
@@ -324,10 +324,13 @@ async def record_import_items(
     """
     if not items:
         return []
-    now = _now()
+    base_dt = datetime.now(timezone.utc)
     row_ids: list[str] = []
     statements: list[tuple[str, tuple[Any, ...]]] = []
-    for entry in items:
+    for idx, entry in enumerate(items):
+        row_now = (
+            (base_dt + timedelta(microseconds=idx)).isoformat().replace("+00:00", "Z")
+        )
         row_id = str(entry.get("id") or uuid.uuid4())
         row_ids.append(row_id)
         kind = "attachment" if entry.get("kind") == "attachment" else "link"
@@ -357,8 +360,8 @@ async def record_import_items(
                     item_id,
                     reason,
                     mime_or_ext,
-                    now,
-                    now,
+                    row_now,
+                    row_now,
                 ),
             )
         )
