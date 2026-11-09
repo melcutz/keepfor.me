@@ -13,10 +13,16 @@ from __future__ import annotations
 import pytest
 
 from keepfor.models.imports import (
+    LinkSkipReason,
     apply_chunk_counts,
     create_import,
     get_import,
+    get_import_detail,
+    list_import_items,
     list_imports,
+    record_import_items,
+    retry_all_failed_import_items,
+    retry_import_item,
     set_import_counts,
 )
 from tests.isolation.conftest import IsolationHarness, snapshot
@@ -105,3 +111,76 @@ async def test_import_status_is_not_rendered_for_another_tenant(
     page = harness.client.get("/settings", cookies=a.cookies)
     assert page.status_code == 200
     assert "tenant-a-keep.zip" in page.text
+
+
+@pytest.mark.asyncio
+async def test_import_items_and_detail_routes_are_scoped_to_owner(
+    harness: IsolationHarness,
+):
+    """Tenant B gets 404 on Tenant A's import status, detail, and retry routes."""
+    a = harness.tenant_a
+    b = harness.tenant_b
+
+    import_id = await _seed_import(a.db, a.user["id"], "tenant-a-keep.zip")
+    row_ids = await record_import_items(
+        a.db,
+        a.user["id"],
+        import_id,
+        [
+            {
+                "kind": "link",
+                "state": "skipped",
+                "url": "https://example.com/tenant-a-secret-link",
+                "reason": LinkSkipReason.QUEUE_FAILED.value,
+            }
+        ],
+    )
+    row_id = row_ids[0]
+    before = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+
+    # Model-level checks for Tenant B
+    assert await list_import_items(b.db, b.user["id"], import_id) == []
+    assert await get_import_detail(b.db, b.user["id"], import_id) is None
+    res_item = await retry_import_item(
+        b.db, harness.env, b.user["id"], import_id, row_id, scope=b.scope
+    )
+    assert res_item["status"] == "not_found"
+    res_all = await retry_all_failed_import_items(
+        b.db, harness.env, b.user["id"], import_id, scope=b.scope
+    )
+    assert res_all["status"] == "not_found"
+
+    # HTTP route checks for Tenant B (must 404 and leave Tenant A untouched)
+    harness.client.cookies.clear()
+    r_status = harness.client.get(f"/imports/{import_id}/status", cookies=b.cookies)
+    assert r_status.status_code == 404
+    assert "tenant-a" not in r_status.text
+
+    r_detail = harness.client.get(f"/imports/{import_id}", cookies=b.cookies)
+    assert r_detail.status_code == 404
+    assert "tenant-a-secret-link" not in r_detail.text
+
+    r_retry_one = harness.client.post(
+        f"/imports/{import_id}/items/{row_id}/retry",
+        cookies=b.cookies,
+        follow_redirects=False,
+    )
+    assert r_retry_one.status_code == 404
+
+    r_retry_all = harness.client.post(
+        f"/imports/{import_id}/retry",
+        cookies=b.cookies,
+        follow_redirects=False,
+    )
+    assert r_retry_all.status_code == 404
+
+    after = await snapshot(a.db, a.user["id"], env=harness.env, scope=a.scope)
+    assert after == before
+
+    # Owner can view status and detail
+    harness.client.cookies.clear()
+    owner_status = harness.client.get(f"/imports/{import_id}/status", cookies=a.cookies)
+    assert owner_status.status_code == 200
+    owner_detail = harness.client.get(f"/imports/{import_id}", cookies=a.cookies)
+    assert owner_detail.status_code == 200
+    assert "https://example.com/tenant-a-secret-link" in owner_detail.text

@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% from "partials/import_status.html" import import_status_card %}
+
+{% block title %}Import Details — Keepfor.me{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+  <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <div class="flex items-center gap-3 text-xs text-slate-500 mb-1">
+        <a href="/" class="hover:text-slate-800 hover:underline">← Library</a>
+        <span>·</span>
+        <a href="/settings" class="hover:text-slate-800 hover:underline">Settings</a>
+      </div>
+      <h1 class="text-xl font-bold text-slate-900">Import Details</h1>
+    </div>
+    {% if detail.retryable_count > 0 %}
+    <form method="post" action="/imports/{{ record.id }}/retry">
+      <button type="submit"
+              class="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--brand-600)] text-white hover:bg-[var(--brand-700)] transition">
+        Retry failed links ({{ detail.retryable_count }})
+      </button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if retry_status == 'ok' %}
+  <div class="mb-4 p-3 rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800 text-xs" role="status">
+    Retry succeeded: link re-queued for extraction.
+  </div>
+  {% elif retry_status == 'partial' %}
+  <div class="mb-4 p-3 rounded-lg border bg-amber-50 border-amber-200 text-amber-800 text-xs" role="alert">
+    Partial retry: some links were re-queued, but one or more links still failed.
+  </div>
+  {% elif retry_status == 'failed' %}
+  <div class="mb-4 p-3 rounded-lg border bg-red-50 border-red-200 text-red-800 text-xs" role="alert">
+    Retry failed: link could not be queued or extracted.
+  </div>
+  {% endif %}
+
+  <div class="mb-6">
+    {{ import_status_card(record) }}
+  </div>
+
+  {# Section 1: Queued links #}
+  <section id="import-queued-links" class="mb-6 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <h2 class="text-sm font-semibold text-slate-900">
+        Queued links ({{ detail.queued_links | length }})
+      </h2>
+      {% if detail.queued_links %}
+      <div class="flex flex-wrap gap-2 text-xs text-slate-500">
+        {% for state_key, state_count in detail.live_state_counts.items() %}
+        {% if state_count > 0 %}
+        <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+          {{ state_key }}: {{ state_count }}
+        </span>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {% if detail.queued_links %}
+    <ul class="divide-y divide-slate-100 text-xs">
+      {% for row in detail.queued_links %}
+      <li class="py-2.5 flex flex-wrap items-center justify-between gap-2" data-row-id="{{ row.id }}" data-live-state="{{ row.live_state }}">
+        <div class="min-w-0 flex-1">
+          <span class="font-mono text-slate-800 break-all">{{ row.url }}</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="px-2 py-0.5 rounded-full font-medium
+            {% if row.live_state == 'ready' %}bg-emerald-50 text-emerald-700
+            {% elif row.live_state == 'failed' %}bg-red-50 text-red-700
+            {% elif row.live_state == 'extracting' %}bg-blue-50 text-blue-700
+            {% else %}bg-slate-100 text-slate-700{% endif %}">
+            {{ row.live_state_label }} ({{ row.live_state }})
+          </span>
+          {% if row.item_href %}
+          <a href="{{ row.item_href }}" class="text-[var(--brand-700)] hover:underline font-medium">
+            Open in library
+          </a>
+          {% endif %}
+          {% if row.can_retry %}
+          <form method="post" action="/imports/{{ record.id }}/items/{{ row.id }}/retry" class="inline">
+            <button type="submit"
+                    class="px-2.5 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 font-medium">
+              Retry
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-xs text-slate-500">No links were queued in this import.</p>
+    {% endif %}
+  </section>
+
+  {# Section 2: Skipped links #}
+  <section id="import-skipped-links" class="mb-6 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <h2 class="text-sm font-semibold text-slate-900">
+        Skipped links ({{ detail.skipped_links | length }}{% if detail.plan_skipped_links %} + {{ detail.plan_skipped_links | length }} plan limit{% endif %})
+      </h2>
+      {% if detail.all_skipped_links %}
+      <div class="flex flex-wrap gap-2 text-xs text-slate-500">
+        {% for reason_key, reason_count in detail.skip_reason_counts.items() %}
+        {% if reason_count > 0 %}
+        <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700" data-reason-summary="{{ reason_key }}">
+          {{ skip_reason_labels.get(reason_key, reason_key) }} ({{ reason_key }}): {{ reason_count }}
+        </span>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+
+    {% if detail.all_skipped_links %}
+    <ul class="divide-y divide-slate-100 text-xs">
+      {% for row in detail.all_skipped_links %}
+      <li class="py-2.5 flex flex-wrap items-center justify-between gap-2" data-row-id="{{ row.id }}" data-skip-reason="{{ row.reason }}">
+        <div class="min-w-0 flex-1">
+          <span class="font-mono text-slate-800 break-all">{{ row.url }}</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 font-medium">
+            {{ row.reason_label }} ({{ row.reason }})
+          </span>
+          {% if row.item_href %}
+          <a href="{{ row.item_href }}" class="text-[var(--brand-700)] hover:underline font-medium">
+            Open in library
+          </a>
+          {% endif %}
+          {% if row.can_retry %}
+          <form method="post" action="/imports/{{ record.id }}/items/{{ row.id }}/retry" class="inline">
+            <button type="submit"
+                    class="px-2.5 py-1 rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 font-medium">
+              Retry
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-xs text-slate-500">No links were skipped in this import.</p>
+    {% endif %}
+  </section>
+
+  {# Section 3: Attachments not imported #}
+  <section id="import-attachments" class="mb-6 bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+    <h2 class="text-sm font-semibold text-slate-900 mb-3">
+      Attachments not imported ({{ detail.attachments | length }})
+    </h2>
+
+    {% if detail.attachments %}
+    <ul class="divide-y divide-slate-100 text-xs">
+      {% for row in detail.attachments %}
+      <li class="py-2.5 flex flex-wrap items-center justify-between gap-2" data-row-id="{{ row.id }}" data-attachment-reason="{{ row.reason }}">
+        <span class="font-mono text-slate-700">{{ row.mime_or_ext or 'unknown' }}</span>
+        <span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+          {{ row.reason_label }} ({{ row.reason }})
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="text-xs text-slate-500">No attachments were skipped in this import.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
