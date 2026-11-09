@@ -685,7 +685,7 @@ async def test_import_retry_csrf_requeue_no_double_entitlement_and_partial(
     """Retry enforces CSRF, avoids double entitlement counting, and reports partial."""
     from fastapi.testclient import TestClient
 
-    from keepfor.app import app
+    from keepfor.app import create_app
     from keepfor.models.items import save_item
     from keepfor.runtime import set_providers
     from keepfor.spi import Decision, Providers
@@ -706,12 +706,12 @@ async def test_import_retry_csrf_requeue_no_double_entitlement_and_partial(
 
     counting = CountingEntitlements()
     providers = Providers(entitlements=counting).resolved()
-    monkeypatch.setattr(app.state, "providers", providers)
     set_providers(providers)
 
     env = StatusEnv(sqlite_conn)
     monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
     monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    app = create_app(providers=providers)
     client = TestClient(app)
 
     user = await register_user(db, "retry@test.local", "password123")
