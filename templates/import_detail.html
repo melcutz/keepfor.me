@@ -25,7 +25,7 @@
   </div>
 
   {% if retry_status == 'ok' %}
-  <div class="mb-4 p-3 rounded-lg border bg-emerald-50 border-emerald-200 text-emerald-800 text-xs" role="status">
+  <div class="mb-4 p-3 rounded-lg border bg-[var(--brand-50)] border-[var(--brand-200)] text-[var(--brand-800)] text-xs" role="status">
     Retry succeeded: link re-queued for extraction.
   </div>
   {% elif retry_status == 'partial' %}
@@ -70,9 +70,9 @@
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <span class="px-2 py-0.5 rounded-full font-medium
-            {% if row.live_state == 'ready' %}bg-emerald-50 text-emerald-700
+            {% if row.live_state == 'ready' %}bg-[var(--brand-50)] text-[var(--brand-700)]
             {% elif row.live_state == 'failed' %}bg-red-50 text-red-700
-            {% elif row.live_state == 'extracting' %}bg-blue-50 text-blue-700
+            {% elif row.live_state == 'extracting' %}bg-amber-50 text-amber-700
             {% else %}bg-slate-100 text-slate-700{% endif %}">
             {{ row.live_state_label }} ({{ row.live_state }})
           </span>
