@@ -83,6 +83,10 @@ EXERCISED_ROUTES: set[tuple[str, str]] = {
     ("POST", "/tags/prune"),
     ("POST", "/tags/rules/delete"),
     ("POST", "/settings/tokens/{pat_id}/delete"),
+    ("GET", "/imports/{import_id}"),
+    ("GET", "/imports/{import_id}/status"),
+    ("POST", "/imports/{import_id}/retry"),
+    ("POST", "/imports/{import_id}/items/{row_id}/retry"),
 }
 
 # Routes that do not carry cross-tenant data risks, with documented reasons

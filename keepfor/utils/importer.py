@@ -13,15 +13,20 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import iterparse
 
 from keepfor.models.db import Database
 from keepfor.models.imports import (
+    ATTACHMENT_REASON,
     MAX_ERROR_LENGTH,
     MAX_IMPORT_ERRORS,
+    LinkSkipReason,
     apply_chunk_counts,
+    get_import_prior_link_state,
+    record_import_items,
 )
 from keepfor.models.items import _send_extraction_batch, save_item, save_note
 from keepfor.utils.url import canonicalize_url
@@ -122,11 +127,59 @@ async def import_bookmarks(
 
 # ===== Google Keep Takeout Parser =====
 
-_URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+_URL_RE = re.compile(
+    r"(?:https?://|[a-z][a-z0-9+.-]*://|(?:mailto|javascript|tel|data):)[^\s<>\"']+",
+    re.IGNORECASE,
+)
+
+
+def _is_supported_http_url(url: str) -> bool:
+    """True when `url` is a valid http:// or https:// URL with a network host."""
+    try:
+        parsed = urlparse(url.strip())
+    except Exception:
+        return False
+    return parsed.scheme.lower() in ("http", "https") and bool(parsed.netloc)
+
+
+def _attachment_mime_or_ext(
+    mimetype: str | None = None, file_path: str | None = None
+) -> str:
+    """Extracts a safe mime type or file extension without exposing filenames."""
+    mime = (mimetype or "").strip().lower()
+    if mime and "/" in mime:
+        return mime[:64]
+    ext = Path(str(file_path or "")).suffix.lstrip(".").lower()
+    if ext and ext.isalnum():
+        return ext[:16]
+    return "unknown"
+
+
+def _note_attachment_types(note: dict[str, Any]) -> list[str]:
+    """Returns one mime/extension string per non-imported attachment in `note`."""
+    raw_atts = note.get("attachments")
+    count = int(note.get("attachments_count") or 0)
+    out: list[str] = []
+    if isinstance(raw_atts, list):
+        for item in raw_atts:
+            if isinstance(item, dict):
+                out.append(
+                    _attachment_mime_or_ext(
+                        item.get("mime_or_ext") or item.get("mimetype"),
+                        item.get("filePath"),
+                    )
+                )
+            elif isinstance(item, str) and item.strip():
+                out.append(item.strip().lower()[:64])
+            else:
+                out.append("unknown")
+    if count > len(out):
+        out.extend(["unknown"] * (count - len(out)))
+    return out
 
 
 def _extract_urls_from_text(text: str, title: str) -> list[dict[str, Any]]:
-    """Regex-extract http(s) URLs embedded in a note body."""
+    """Regex-extract URLs embedded in a note body."""
     urls = []
     for match in _URL_RE.finditer(text):
         urls.append(
@@ -190,7 +243,7 @@ def _zip_member_read(
     if info.file_size > ZIP_MAX_MEMBER_BYTES:
         if stats is not None:
             stats["parse_errors"] = stats.get("parse_errors", 0) + 1
-        _add_parse_error(stats, f"{info.filename}: file is too large")
+        _add_parse_error(stats, "note: file is too large")
         return None
     try:
         with zf.open(info) as f:
@@ -200,13 +253,13 @@ def _zip_member_read(
         # size and the CRC check fails. Skip it instead of failing the import.
         if stats is not None:
             stats["parse_errors"] = stats.get("parse_errors", 0) + 1
-        _add_parse_error(stats, f"{info.filename}: could not be read")
+        _add_parse_error(stats, "note: could not be read")
         return None
     if len(raw) > ZIP_MAX_MEMBER_BYTES:
         # The declared size lied: the member is over the cap anyway.
         if stats is not None:
             stats["parse_errors"] = stats.get("parse_errors", 0) + 1
-        _add_parse_error(stats, f"{info.filename}: file is too large")
+        _add_parse_error(stats, "note: file is too large")
         return None
     return raw
 
@@ -242,7 +295,7 @@ def parse_keep_takeout(
             except (UnicodeDecodeError, json.JSONDecodeError, zipfile.BadZipFile):
                 if stats is not None:
                     stats["parse_errors"] = stats.get("parse_errors", 0) + 1
-                _add_parse_error(stats, f"{name}: invalid note file")
+                _add_parse_error(stats, "note: invalid note file")
                 continue
 
             # Skip trashed notes (counted in the summary)
@@ -291,15 +344,19 @@ def parse_keep_takeout(
             # Source ID: use the filename as unique identifier
             source_id = Path(name).stem
 
-            # Attachments - list them in body
+            # Extract URLs from body text before appending attachment footers
+            urls = _extract_urls_from_text(body, title)
+
+            # Attachments - list them in body and record mime/ext metadata only
             attachments = data.get("attachments", [])
+            attachment_types: list[str] = []
             if attachments:
                 for att in attachments:
                     file_path = att.get("filePath", "attachment")
                     body += f"\n\n📎 {file_path} (not imported)"
-
-            # Extract URLs from body text
-            urls = _extract_urls_from_text(body, title)
+                    attachment_types.append(
+                        _attachment_mime_or_ext(att.get("mimetype"), file_path)
+                    )
 
             # URL annotations - these become separate URL saves
             for ann in data.get("annotations", []):
@@ -324,6 +381,7 @@ def parse_keep_takeout(
                     "source_id": source_id,
                     "urls": urls,
                     "attachments_count": len(attachments),
+                    "attachments": attachment_types,
                 }
             )
 
@@ -397,6 +455,7 @@ def parse_enex(enex_bytes: bytes) -> list[dict[str, Any]]:
 
     current_note: dict[str, Any] = {}
     resource_count = 0
+    resource_mimes: list[str] = []
 
     for event, elem in context:
         if event == "start":
@@ -426,6 +485,9 @@ def parse_enex(enex_bytes: bytes) -> list[dict[str, Any]]:
                 current_note["content"] = elem.text or ""
             elif elem.tag == "resource":
                 resource_count += 1
+            elif elem.tag == "mime":
+                if elem.text:
+                    resource_mimes.append(_attachment_mime_or_ext(elem.text, None))
 
         elif event == "end" and elem.tag == "note":
             # Process the complete note
@@ -484,10 +546,15 @@ def parse_enex(enex_bytes: bytes) -> list[dict[str, Any]]:
                     "source_id": source_id,
                     "urls": urls,
                     "attachments_count": resource_count,
+                    "attachments": (
+                        resource_mimes[:resource_count]
+                        + ["unknown"] * max(0, resource_count - len(resource_mimes))
+                    ),
                 }
             )
 
             resource_count = 0
+            resource_mimes = []
             # Clear element to free memory
             root.clear()
 
@@ -726,14 +793,52 @@ async def import_notes(
     quota_exhausted = False
     total_urls_in_notes = 0
     urls_seen: set[str] = set()
+    prior_urls_queued = 0
+    if import_id:
+        try:
+            urls_seen, prior_urls_queued = await get_import_prior_link_state(
+                db, user_id, import_id
+            )
+        except Exception:
+            urls_seen = set()
+            prior_urls_queued = 0
+
     errors: list[str] = []
     queue_messages: list[dict[str, Any]] = []
+    item_records: list[dict[str, Any]] = []
+    batch_queued_records: list[dict[str, Any]] = []
+
+    def _record_plan_skipped_urls(url_list: list[dict[str, Any]]) -> None:
+        for u_info in url_list:
+            raw_u = (u_info.get("url") or "").strip()
+            if not raw_u:
+                continue
+            u_val = canonicalize_url(raw_u) if _is_supported_http_url(raw_u) else raw_u
+            item_records.append(
+                {
+                    "kind": "link",
+                    "state": "skipped",
+                    "url": u_val,
+                    "reason": LinkSkipReason.PLAN_LIMIT.value,
+                }
+            )
 
     for note in notes:
+        for mime_or_ext in _note_attachment_types(note):
+            item_records.append(
+                {
+                    "kind": "attachment",
+                    "state": "skipped",
+                    "reason": ATTACHMENT_REASON,
+                    "mime_or_ext": mime_or_ext,
+                }
+            )
+
         # Plan limit already hit for this tenant: everything outstanding is
         # refused and counted, never silently aborted with an exception.
         if quota_exhausted:
             plan_skipped += 1 + len(note.get("urls", []))
+            _record_plan_skipped_urls(note.get("urls", []))
             continue
 
         # Dedupe on (source, source_id); fall back to a content hash when the
@@ -752,6 +857,7 @@ async def import_notes(
         decision = await providers.entitlements.check(scope.tenant_id, "import", qty=1)
         if not decision.allowed:
             plan_skipped += 1 + len(note.get("urls", []))
+            _record_plan_skipped_urls(note.get("urls", []))
             quota_exhausted = True
             continue
 
@@ -784,23 +890,61 @@ async def import_notes(
             total_urls_in_notes += len(note_urls)
 
             for url_info in note_urls:
-                if urls_queued >= MAX_URLS_PER_IMPORT:
-                    break
-
-                url = url_info.get("url")
+                url = (url_info.get("url") or "").strip()
                 if not url:
+                    continue
+
+                if not _is_supported_http_url(url):
+                    urls_skipped += 1
+                    item_records.append(
+                        {
+                            "kind": "link",
+                            "state": "skipped",
+                            "url": url,
+                            "reason": LinkSkipReason.UNSUPPORTED_SCHEME.value,
+                        }
+                    )
                     continue
 
                 canonical = canonicalize_url(url)
                 if canonical in urls_seen:
                     urls_skipped += 1
+                    item_records.append(
+                        {
+                            "kind": "link",
+                            "state": "skipped",
+                            "url": canonical,
+                            "reason": LinkSkipReason.DUPLICATE_IN_FILE.value,
+                        }
+                    )
                     continue
+
+                if prior_urls_queued + urls_queued >= MAX_URLS_PER_IMPORT:
+                    urls_skipped += 1
+                    item_records.append(
+                        {
+                            "kind": "link",
+                            "state": "skipped",
+                            "url": canonical,
+                            "reason": LinkSkipReason.IMPORT_LIMIT.value,
+                        }
+                    )
+                    continue
+
                 urls_seen.add(canonical)
 
                 # Check entitlement for the URL: it costs the same unit as
                 # the note it came from.
                 if quota_exhausted:
                     plan_skipped += 1
+                    item_records.append(
+                        {
+                            "kind": "link",
+                            "state": "skipped",
+                            "url": canonical,
+                            "reason": LinkSkipReason.PLAN_LIMIT.value,
+                        }
+                    )
                     continue
                 url_decision = await providers.entitlements.check(
                     scope.tenant_id, "import", qty=1
@@ -808,12 +952,20 @@ async def import_notes(
                 if not url_decision.allowed:
                     plan_skipped += 1
                     quota_exhausted = True
+                    item_records.append(
+                        {
+                            "kind": "link",
+                            "state": "skipped",
+                            "url": canonical,
+                            "reason": LinkSkipReason.PLAN_LIMIT.value,
+                        }
+                    )
                     continue
 
                 # Save as URL item (will dedupe on canonical_url)
                 try:
                     url_tags = note["tags"] + ["from-notes"]
-                    _, is_new = await save_item(
+                    saved_item, is_new = await save_item(
                         db=db,
                         env=env,
                         user_id=user_id,
@@ -831,14 +983,48 @@ async def import_notes(
                             )
                         except Exception:
                             pass
+                        rec = {
+                            "kind": "link",
+                            "state": "queued",
+                            "url": canonical,
+                            "item_id": saved_item["id"],
+                            "reason": None,
+                        }
+                        item_records.append(rec)
+                        batch_queued_records.append(rec)
                     else:
                         urls_skipped += 1
+                        item_records.append(
+                            {
+                                "kind": "link",
+                                "state": "skipped",
+                                "url": canonical,
+                                "item_id": saved_item["id"],
+                                "reason": LinkSkipReason.ALREADY_IN_LIBRARY.value,
+                            }
+                        )
                 except EntitlementDenied:
                     # The plan's item limit refused this URL: count it as a
                     # plan skip, not as a parse error.
                     plan_skipped += 1
+                    item_records.append(
+                        {
+                            "kind": "link",
+                            "state": "skipped",
+                            "url": canonical,
+                            "reason": LinkSkipReason.PLAN_LIMIT.value,
+                        }
+                    )
                 except Exception as exc:
                     urls_skipped += 1
+                    item_records.append(
+                        {
+                            "kind": "link",
+                            "state": "skipped",
+                            "url": canonical,
+                            "reason": LinkSkipReason.QUEUE_FAILED.value,
+                        }
+                    )
                     # The exception text can carry SQL, D1 or other internal
                     # detail: it goes to the log, never to the user's list.
                     logger.warning(
@@ -856,7 +1042,19 @@ async def import_notes(
             continue
 
     if queue_messages:
-        await _send_extraction_batch(env, queue_messages)
+        try:
+            await _send_extraction_batch(env, queue_messages)
+        except Exception as exc:
+            logger.warning(
+                f"import_notes queue batch failed: {type(exc).__name__}: {exc}"
+            )
+            for rec in batch_queued_records:
+                rec["state"] = "skipped"
+                rec["reason"] = LinkSkipReason.QUEUE_FAILED.value
+                urls_queued = max(0, urls_queued - 1)
+                urls_skipped += 1
+                if len(errors) < MAX_IMPORT_ERRORS:
+                    errors.append("link: could not be queued")
 
     summary = {
         "notes_imported": imported,
@@ -876,6 +1074,8 @@ async def import_notes(
         # The status record is a nicety: a failure here must not fail the
         # import itself.
         try:
+            if item_records:
+                await record_import_items(db, user_id, import_id, item_records)
             await apply_chunk_counts(db, user_id, import_id, summary)
         except Exception as exc:
             logger.warning(f"import status update failed: {exc}")

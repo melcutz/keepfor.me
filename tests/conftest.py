@@ -99,12 +99,23 @@ def clear_logging_context():
 
 @pytest.fixture(autouse=True)
 def reset_providers_state():
-    """Reset the runtime providers before and after each test."""
+    """Reset runtime providers and app.state.providers before and after each test."""
     from keepfor.runtime import reset_providers
 
+    def _reset_app_providers():
+        import sys
+
+        if "keepfor.app" in sys.modules:
+            from keepfor.app import app
+            from keepfor.spi import Providers
+
+            app.state.providers = Providers().resolved()
+
+    _reset_app_providers()
     reset_providers()
     yield
     reset_providers()
+    _reset_app_providers()
 
 
 @pytest.fixture

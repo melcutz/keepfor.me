@@ -16,6 +16,7 @@ TENANT_TABLES: tuple[str, ...] = (
     "sessions",
     "personal_access_tokens",
     "import_status",
+    "import_items",
     "highlights",
     "collections",
     "collection_items",

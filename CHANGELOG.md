@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Live import progress, import detail view, and link retry** (keepfor-cloud#397):
+  - While an import is running, the Library (`/`) and Settings (`/settings`) import status banner polls `GET /imports/{import_id}/status` via htmx (`every 3s`) to refresh progress (`N of M notes processed` + bar) and stops polling once the import completes or fails.
+  - Owner-scoped `GET /imports/{import_id}` detail page listing every queued link with live state derived from the linked item (`queued`, `extracting`, `ready`, `failed`) and deep link to `/items/{item_id}`, every skipped link with a reason from `LinkSkipReason` (`duplicate_in_file`, `already_in_library`, `plan_limit`, `unsupported_scheme`, `queue_failed`, `import_limit`), and every non-imported attachment with reason `attachments_not_supported` and `mime_or_ext` only.
+  - CSRF-protected `POST /imports/{import_id}/items/{row_id}/retry` and `POST /imports/{import_id}/retry` to re-queue failed extractions or `queue_failed` links without re-uploading or double-counting plan entitlements when the item already exists.
+  - Migration `0017_import_items.sql` (additive): `import_items` table indexed by `(user_id, import_id, created_at ASC)`.
 - **MCP `update_highlight`** (GitHub issue #93): edits a highlight's note and/or color. The quoted text and offsets are never changed. An empty note or color removes it. Annotated as a write tool, requires write scope. Tenant-scoped: a highlight of another user is not found.
 - **MCP smart (query-backed) collections** (GitHub issue #93): a collection can carry a `query` and/or a `tag` filter. Its members are resolved at read time through the existing hybrid search, so it stays current.
   - `create_collection` and `rename_collection` accept optional `query` and `tag` arguments.

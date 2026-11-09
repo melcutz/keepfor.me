@@ -32,6 +32,13 @@ from keepfor.models.highlights import (
     list_highlights,
     resolve_highlight_offsets,
 )
+from keepfor.models.imports import (
+    SKIP_REASON_LABELS,
+    get_import,
+    get_import_detail,
+    retry_all_failed_import_items,
+    retry_import_item,
+)
 from keepfor.models.items import (
     accept_suggestion,
     add_tags_to_item,
@@ -1517,3 +1524,117 @@ async def cleanup_page(request: Request, kind: str = "duplicates", page: int = 1
         labels=CLEANUP_LABELS,
     )
     return HTMLResponse(content=html)
+
+
+# ==========================================
+# Import status polling, detail view, and retry
+# ==========================================
+
+
+@router.get("/imports/{import_id}/status", response_class=HTMLResponse)
+async def import_status_partial(request: Request, import_id: str):
+    """Owner-scoped htmx partial for live import progress polling."""
+    user = await deps.get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    db = deps.get_db(request)
+    record = await get_import(db, user["id"], import_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Import not found")
+    template = jinja_env.get_template("partials/import_status_card.html")
+    return HTMLResponse(content=template.render(record=record))
+
+
+@router.get("/imports/{import_id}", response_class=HTMLResponse)
+async def import_detail_page(request: Request, import_id: str):
+    """Owner-scoped detail page listing queued links, skipped links, and attachments."""
+    user = await deps.get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/auth/login", status_code=303)
+    db = deps.get_db(request)
+    detail = await get_import_detail(db, user["id"], import_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Import not found")
+    retry_status = (request.query_params.get("retry") or "").strip().lower()
+    template = jinja_env.get_template("import_detail.html")
+    return HTMLResponse(
+        content=template.render(
+            current_user=user,
+            record=detail["import"],
+            detail=detail,
+            skip_reason_labels=SKIP_REASON_LABELS,
+            retry_status=retry_status,
+            active_nav="settings",
+        )
+    )
+
+
+@router.post("/imports/{import_id}/items/{row_id}/retry")
+async def retry_import_item_route(request: Request, import_id: str, row_id: str):
+    """CSRF-protected retry of one failed or queue_failed import link row."""
+    if not _is_same_origin(request):
+        raise HTTPException(status_code=403, detail="Invalid Origin")
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+    env = deps.get_env_from_request(request)
+    record = await get_import(db, user["id"], import_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Import not found")
+
+    res = await retry_import_item(
+        db,
+        env,
+        user["id"],
+        import_id,
+        row_id,
+        providers=deps.get_providers(request),
+        scope=deps.get_scope(request),
+    )
+    if res["status"] == "not_found":
+        raise HTTPException(status_code=404, detail=res["error"])
+    if res["status"] == "not_retryable":
+        raise HTTPException(status_code=409, detail=res["error"])
+
+    if "application/json" in (request.headers.get("accept") or ""):
+        status_code = 200 if res.get("ok") else 502
+        return JSONResponse(content=res, status_code=status_code)
+
+    return RedirectResponse(
+        url=f"/imports/{import_id}?retry={res['status']}",
+        status_code=303,
+    )
+
+
+@router.post("/imports/{import_id}/retry")
+async def retry_import_all_route(request: Request, import_id: str):
+    """CSRF-protected bulk retry of all retryable link rows in an import."""
+    if not _is_same_origin(request):
+        raise HTTPException(status_code=403, detail="Invalid Origin")
+    user = await deps.require_user(request)
+    db = deps.get_db(request)
+    env = deps.get_env_from_request(request)
+    record = await get_import(db, user["id"], import_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Import not found")
+
+    res = await retry_all_failed_import_items(
+        db,
+        env,
+        user["id"],
+        import_id,
+        providers=deps.get_providers(request),
+        scope=deps.get_scope(request),
+    )
+    if res["status"] == "noop":
+        raise HTTPException(status_code=409, detail="No retryable links found.")
+
+    if "application/json" in (request.headers.get("accept") or ""):
+        status_code = (
+            200 if res.get("ok") else 207 if res["status"] == "partial" else 502
+        )
+        return JSONResponse(content=res, status_code=status_code)
+
+    return RedirectResponse(
+        url=f"/imports/{import_id}?retry={res['status']}",
+        status_code=303,
+    )
