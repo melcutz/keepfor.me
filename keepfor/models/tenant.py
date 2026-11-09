@@ -19,7 +19,9 @@ async def delete_all_tenant_rows(db: Database, user_id: str) -> None:
         [
             # 1. item_opens
             ("DELETE FROM item_opens WHERE user_id = ?;", (user_id,)),
-            # 2. import_status
+            # 2. import_items (children of import_status)
+            ("DELETE FROM import_items WHERE user_id = ?;", (user_id,)),
+            # 3. import_status
             ("DELETE FROM import_status WHERE user_id = ?;", (user_id,)),
             # 3. rule_suggestion_dismissals
             ("DELETE FROM rule_suggestion_dismissals WHERE user_id = ?;", (user_id,)),

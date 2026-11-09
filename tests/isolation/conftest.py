@@ -246,6 +246,14 @@ async def snapshot(
     if rows:
         res["import_status"] = _hash_rows(rows)
 
+    # 12b. import_items
+    rows = await db.query_all(
+        "SELECT * FROM import_items WHERE user_id = ? ORDER BY id;",
+        (user_id,),
+    )
+    if rows:
+        res["import_items"] = _hash_rows(rows)
+
     # 13. highlights
     rows = await db.query_all(
         "SELECT * FROM highlights WHERE user_id = ? ORDER BY id;", (user_id,)
