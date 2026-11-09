@@ -978,6 +978,7 @@ async def test_keep_regression_fixture_reimport_stability_and_500_cap(db, sqlite
     )
 
     env = StatusEnv(sqlite_conn)
+    sqlite_conn.execute("PRAGMA synchronous = OFF;")
     user = await register_user(db, "regression@test.local", "password123")
     user_id = user["id"]
     scope = default_scope(db, env, user_id)
