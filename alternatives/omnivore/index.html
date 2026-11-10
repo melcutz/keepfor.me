@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Omnivore Alternative: Open-Source Read-It-Later and AI Vault | Keepfor.me</title>
+  <meta name="description" content="Looking for an Omnivore alternative? Import your Omnivore HTML, CSV, or Markdown exports into Keepfor.me. Self-host free on Cloudflare or use managed plans from $5/mo.">
+  <link rel="canonical" href="https://keepfor.me/alternatives/omnivore/">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://keepfor.me/alternatives/omnivore/">
+  <meta property="og:title" content="Omnivore Alternative: Open-Source Read-It-Later and AI Vault | Keepfor.me">
+  <meta property="og:description" content="Looking for an Omnivore alternative? Import your Omnivore HTML, CSV, or Markdown exports into Keepfor.me. Self-host free on Cloudflare or use managed plans from $5/mo.">
+  <meta property="og:image" content="https://keepfor.me/assets/og-preview.png">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://keepfor.me/alternatives/omnivore/">
+  <meta name="twitter:title" content="Omnivore Alternative: Open-Source Read-It-Later and AI Vault | Keepfor.me">
+  <meta name="twitter:description" content="Looking for an Omnivore alternative? Import your Omnivore HTML, CSV, or Markdown exports into Keepfor.me. Self-host free on Cloudflare or use managed plans from $5/mo.">
+  <meta name="twitter:image" content="https://keepfor.me/assets/og-preview.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cdefs%3E%3ClinearGradient id='kfm' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='40' height='40' rx='11' fill='url(%23kfm)'/%3E%3Cpath d='M17 11h10v16l-5-3.8-5 3.8z' fill='%23fff'/%3E%3C/svg%3E">
+
+  <!-- Typography: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="/assets/css/site.css">
+
+  <!-- Structured Data: Article -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "Omnivore Alternative: Open-Source Read-It-Later and AI Vault",
+    "description": "Looking for an Omnivore alternative? Import your Omnivore HTML, CSV, or Markdown exports into Keepfor.me. Self-host free on Cloudflare or use managed plans from $5/mo.",
+    "mainEntityOfPage": {"@type": "WebPage", "@id": "https://keepfor.me/alternatives/omnivore/"},
+    "author": {"@type": "Organization", "name": "Keepfor.me", "url": "https://keepfor.me/"},
+    "publisher": {"@type": "Organization", "name": "Keepfor.me", "logo": {"@type": "ImageObject", "url": "https://keepfor.me/assets/og-preview.png"}},
+    "datePublished": "2026-11-10",
+    "image": "https://keepfor.me/assets/og-preview.png"
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Site Navigation -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
+        <svg width="28" height="28" viewBox="0 0 44 44" aria-hidden="true">
+          <defs>
+            <linearGradient id="header-logo" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#4f46e5"/>
+              <stop offset="100%" stop-color="#0ea5e9"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#header-logo)"/>
+          <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
+        </svg>
+        <span>Keepfor<span class="dot-me">.me</span></span>
+        <span class="brand-badge">Guide</span>
+      </a>
+
+      <nav aria-label="Main Navigation">
+        <ul class="nav-links">
+          <li><a href="/" class="nav-link">Home</a></li>
+          <li><a href="#importing-omnivore" class="nav-link">Importing</a></li>
+          <li><a href="#architecture" class="nav-link">Self-Hosting</a></li>
+          <li><a href="#plans" class="nav-link">Plans</a></li>
+          <li><a href="/pricing/" class="nav-link">Pricing</a></li>
+          <li><a href="/self-host/" class="nav-link" style="color: var(--brand-indigo); font-weight: 700;">Self-Host Free</a></li>
+          <li class="mobile-only-auth"><a href="https://app.keepfor.me/auth/login" class="nav-link kfm-login-cta" data-kfm-cta="login">Log in</a></li>
+        </ul>
+      </nav>
+
+      <div class="header-actions">
+        <a href="https://app.keepfor.me/auth/login" class="btn-header-login kfm-login-cta" data-kfm-cta="login">
+          <span class="cta-label">Log in</span>
+        </a>
+        <a href="https://app.keepfor.me/auth/register" class="btn-header-cta kfm-primary-cta" data-kfm-cta="primary" aria-label="Start free trial">
+          <span class="cta-label">Start free trial</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <button class="mobile-toggle" aria-label="Toggle navigation menu" aria-expanded="false">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Page Header -->
+    <section class="pricing-page-header">
+      <div class="container">
+        <div class="hero-pill-badge">
+          <span class="sparkle">🌱</span>
+          <span>Omnivore Alternative &amp; Migration Guide</span>
+        </div>
+
+        <h1 class="hero-title">
+          Omnivore Alternative: <span class="gradient-text">Open-Source Reading That Stays Yours</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          How to bring your Omnivore HTML, CSV, or Markdown exports into Keepfor.me, self-host on serverless Cloudflare edge primitives without container bloat, or run on managed cloud plans with 46 MCP tools.
+        </p>
+      </div>
+    </section>
+
+    <!-- Article Content -->
+    <section class="legal-section">
+      <div class="container">
+        <div class="legal-document-wrapper">
+          <article class="legal-document">
+            <div class="legal-meta-bar">
+              <span class="legal-updated">Migration &amp; Architecture Guide · November 2026</span>
+              <a href="/" class="legal-back-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                <span>Back to Homepage</span>
+              </a>
+            </div>
+
+            <p>Readers who gravitated toward Omnivore cared about a specific set of values: open-source code, a clean distraction-free reading environment, highlights and notes, and complete ownership of their saved library. When evaluating an Omnivore alternative, those structural guarantees matter more than marketing promises. A replacement should be simple to self-host, effortless to import into, and transparent about how it sustains itself.</p>
+
+            <h2 id="importing-omnivore">Importing your Omnivore archive into Keepfor.me</h2>
+            <p>Keepfor's importer is built to ingest Omnivore exports directly. Depending on how you exported your data, Keepfor handles three formats out of the box:</p>
+            <ul>
+              <li><strong>Netscape Bookmark HTML (<code>.html</code>):</strong> Keepfor parses standard bookmark HTML files exported by Omnivore, Pocket, or web browsers, keeping every saved URL, title, and tag list.</li>
+              <li><strong>CSV exports (<code>.csv</code>):</strong> Keepfor's CSV parser reads <code>url</code>, <code>title</code>, and <code>tags</code> (or <code>folder</code>) columns directly from Omnivore and Instapaper CSV sheets.</li>
+              <li><strong>Markdown and text zip archives (<code>.zip</code>):</strong> If you exported notes and saved pages as Markdown files, Keepfor's notes importer ingests zip archives up to 50 MB, preserves tags and original timestamps, and queues embedded links as regular library saves.</li>
+            </ul>
+            <p>Every bulk upload runs asynchronously through Cloudflare Queues in batches of 25 items, so importing hundreds of saved articles never times out your request. Duplicate URLs are skipped automatically, and each upload produces a persistent status record showing imported counts, skipped duplicates, and any parse errors.</p>
+
+            <h2 id="architecture">Why serverless self-hosting beats multi-container stacks</h2>
+            <p>One of the hardest lessons in open-source read-it-later software is that an open license only protects you if you can actually afford and maintain the self-hosted deployment. Traditional self-hosted stacks often require a virtual private server, multiple Docker containers, a background worker fleet, and an external database.</p>
+            <p>Keepfor.me is licensed under <strong>AGPL-3.0-only</strong> and takes a deliberately thinner path: it runs entirely on serverless Cloudflare edge primitives:</p>
+            <ul>
+              <li><strong>Cloudflare Python Workers:</strong> FastAPI application running at the edge with zero idle compute cost.</li>
+              <li><strong>D1 SQLite with FTS5:</strong> Serverless relational database with native BM25 full-text keyword indexing.</li>
+              <li><strong>Cloudflare R2 Object Storage:</strong> Stores both the original raw HTML (<code>raw.html</code>) and sanitized reader HTML (<code>clean.html</code>) so your archive survives link rot.</li>
+              <li><strong>Cloudflare Vectorize:</strong> 768-dimension semantic vector index (<code>bge-base-en-v1.5</code>) for meaning-based search.</li>
+              <li><strong>Cloudflare Queues:</strong> Resilient background extraction via <code>trafilatura</code> with visible status tracking (<code>Extracting...</code>, content, or explicit failure reason such as <code>HTTP 403</code>).</li>
+            </ul>
+            <p>You can deploy your own private single-tenant instance in five CLI steps (see our <a href="/self-host/">Self-Host Guide</a>). The first account registered automatically claims admin ownership and locks public signups.</p>
+
+            <h2 id="reading-and-ai">Distraction-free reading, highlights, and 46 MCP tools</h2>
+            <p>Keepfor pairs a calm human reading experience with a first-class AI interface:</p>
+            <ul>
+              <li><strong>Reader Sanctuary:</strong> Read long-form articles in Paper, Warm Sepia, or Night themes with Sans, Serif, or Mono typography and adjustable font sizing.</li>
+              <li><strong>Highlights and Collections:</strong> Anchor highlights to exact character offsets inside saved text, attach personal notes and colors, and group items into named collections or hierarchical tags (such as <code>work/research</code>).</li>
+              <li><strong>Trash Protection:</strong> Deleting an item in the UI or via an AI agent moves it to a 30-day restorable Trash while keeping the database row, R2 snapshots, and vector embeddings intact. Only "Delete forever" in the Trash view permanently removes data.</li>
+              <li><strong>Remote MCP Server (46 tools):</strong> Keepfor exposes 46 MCP tools over Streamable HTTP at <code>https://app.keepfor.me/api/mcp</code>. Connect Claude Desktop, Claude Code, Cursor, or opencode using a Bearer Personal Access Token (with read-only or write scope) to search passages, summarize unread saves, suggest tags, or save new links from chat.</li>
+            </ul>
+
+            <h2 id="plans">Keepfor.me options side by side</h2>
+            <div class="mobile-table-hint">↔ Scroll horizontally to compare</div>
+            <div class="comparison-table-wrap">
+              <table class="comparison-table">
+                <thead>
+                  <tr>
+                    <th class="col-feature">Feature</th>
+                    <th class="col-tier">Self-Host Free</th>
+                    <th class="col-tier">Hosted Personal</th>
+                    <th class="col-tier">Hosted Pro</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="col-feature">Price</td>
+                    <td>$0 forever (AGPL-3.0-only)</td>
+                    <td>$5/mo or $55/yr</td>
+                    <td>$9/mo or $90/yr</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Free trial</td>
+                    <td>Always free on your Cloudflare</td>
+                    <td>14 days, no credit card required</td>
+                    <td>14 days, no credit card required</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Omnivore HTML, CSV &amp; Markdown import</td>
+                    <td>Included</td>
+                    <td>Included</td>
+                    <td>Included</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Dual R2 snapshots (raw &amp; clean HTML)</td>
+                    <td>Your own R2 bucket</td>
+                    <td>Managed R2 included</td>
+                    <td>Managed R2 included</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Hybrid FTS5 + Vectorize semantic search</td>
+                    <td>Your own index</td>
+                    <td>Included</td>
+                    <td>Included</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Remote MCP server (46 MCP tools)</td>
+                    <td>Self-managed endpoint</td>
+                    <td>Hosted MCP included</td>
+                    <td>Hosted MCP included</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Monthly AI summaries &amp; Ask quota</td>
+                    <td>Bring your own Workers AI</td>
+                    <td>150 summaries + 50 Ask / mo</td>
+                    <td>1,000 summaries + 500 Ask / mo</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Full export (HTML, CSV, JSON)</td>
+                    <td>Anytime</td>
+                    <td>Anytime</td>
+                    <td>Anytime</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="deciding">Why sustainable pricing matters</h2>
+            <p>Free VC-backed or unmonetized cloud services eventually face a reckoning when hosting and compute bills grow. Keepfor's model is intentionally straightforward: the open-source core is free forever to self-host on your own Cloudflare account, and the hosted service charges a sustainable subscription from day one (Personal at $5/month, Pro at $9/month) so your hosted vault pays its own way.</p>
+            <p>Want to compare other tools in the space? See our <a href="/alternatives/best-read-it-later-apps-2026/">Best Read-It-Later Apps in 2026</a> guide, <a href="/alternatives/pocket/">Pocket migration guide</a>, or <a href="/keepfor-vs-raindrop/">Keepfor vs Raindrop.io comparison</a>.</p>
+
+            <p><em>Sources: Importer capabilities from the Keepfor open-source repository (<code>keepfor/utils/importer.py</code> and <code>README.md</code>); MCP tool count (46 tools) from <code>keepfor/mcp/server.py</code>; pricing and plan quotas from <a href="/pricing/">keepfor.me/pricing</a> and <a href="/terms/">keepfor.me/terms</a>.</em></p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Banner -->
+    <section class="cta-banner-section">
+      <div class="container">
+        <div class="cta-banner-box">
+          <h2 class="cta-banner-title">Import your archive in minutes</h2>
+          <p class="cta-banner-desc">
+            Start a 14-day free trial with no credit card required, or deploy the AGPL-3.0 open-source edition on your own Cloudflare account today.
+          </p>
+          <div class="cta-banner-actions">
+            <a href="https://app.keepfor.me/auth/register" class="btn-banner-primary kfm-primary-cta" data-kfm-cta="primary" aria-label="Start free trial">
+              <span class="cta-label">Start free trial</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+            <a href="/self-host/" class="btn-banner-secondary">
+              <span>Self-Host Free</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <!-- Col 1: Brand -->
+        <div class="footer-brand">
+          <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
+            <svg width="28" height="28" viewBox="0 0 44 44" aria-hidden="true">
+              <defs>
+                <linearGradient id="footer-logo" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#4f46e5"/>
+                  <stop offset="100%" stop-color="#0ea5e9"/>
+                </linearGradient>
+              </defs>
+              <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#footer-logo)"/>
+              <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
+            </svg>
+            <span>Keepfor<span class="dot-me">.me</span></span>
+            <span class="brand-badge">Guide</span>
+          </a>
+          <p class="footer-tagline">
+            The personal library and AI context vault for developers and researchers. Fast, private, open core.
+          </p>
+        </div>
+
+        <!-- Col 2: Product -->
+        <div>
+          <div class="footer-col-title">Product</div>
+          <ul class="footer-col-links">
+            <li><a href="/#showcase">Context in Action</a></li>
+            <li><a href="/#pillars">Features</a></li>
+            <li><a href="/#mcp">Works with AI (MCP)</a></li>
+            <li><a href="/#reader">Reader Sanctuary</a></li>
+            <li><a href="/pricing/">Pricing &amp; Plans</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 3: Alternatives & Guides -->
+        <div>
+          <div class="footer-col-title">Alternatives</div>
+          <ul class="footer-col-links">
+            <li><a href="/alternatives/pocket/">Pocket Alternative</a></li>
+            <li><a href="/alternatives/omnivore/">Omnivore Alternative</a></li>
+            <li><a href="/alternatives/karakeep/">Karakeep Alternative</a></li>
+            <li><a href="/alternatives/readwise/">Readwise Alternative</a></li>
+            <li><a href="/alternatives/best-read-it-later-apps-2026/">Best Read-It-Later Apps 2026</a></li>
+            <li><a href="/keepfor-vs-raindrop/">Keepfor vs Raindrop.io</a></li>
+            <li><a href="/claude-mcp/">Claude MCP Guide</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 4: Open Source & Self-Host -->
+        <div>
+          <div class="footer-col-title">Open Source</div>
+          <ul class="footer-col-links">
+            <li><a href="/self-host/">Self-Host Free (5 Steps)</a></li>
+            <li><a href="https://oss.keepfor.me" target="_blank" rel="noopener noreferrer">Live OSS Demo</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me/blob/main/LICENSING.md" target="_blank" rel="noopener noreferrer">Licensing (AGPL-3.0)</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contributing</a></li>
+            <li><a href="https://donate.stripe.com/14AeVea8gcxp4ja0Za4Vy00" target="_blank" rel="noopener noreferrer">Support this project</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 5: Trust & Access -->
+        <div>
+          <div class="footer-col-title">Access &amp; Trust</div>
+          <ul class="footer-col-links">
+            <li><a href="https://app.keepfor.me/auth/register" class="kfm-primary-cta" data-kfm-cta="primary">Start Free Trial</a></li>
+            <li><a href="https://app.keepfor.me/auth/login" class="kfm-login-cta" data-kfm-cta="login">Log In</a></li>
+            <li><a href="/terms/">Terms of Service</a></li>
+            <li><a href="/privacy/">Privacy Policy</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>&copy; 2026 Keepfor.me. All rights reserved.</span>
+        <span>Open source under AGPL-3.0-only. Commercial licensing available upon request.</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast for feedback -->
+  <div id="copy-toast" role="status" aria-live="polite">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    <span id="copy-toast-msg">Copied!</span>
+  </div>
+
+  <script src="/assets/js/site.js"></script>
+</body>
+</html>

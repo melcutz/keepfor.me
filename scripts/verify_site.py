@@ -136,7 +136,7 @@ def start_server():
     return httpd
 
 
-def check_links():
+def check_links(local_only=False):
     print("\n--- 2. Checking all links (internal & external) ---")
     html_files = [
         os.path.join(BASE_DIR, "index.html"),
@@ -144,6 +144,14 @@ def check_links():
         os.path.join(BASE_DIR, "self-host", "index.html"),
         os.path.join(BASE_DIR, "privacy", "index.html"),
         os.path.join(BASE_DIR, "terms", "index.html"),
+        os.path.join(BASE_DIR, "pocket-alternative", "index.html"),
+        os.path.join(BASE_DIR, "keepfor-vs-raindrop", "index.html"),
+        os.path.join(BASE_DIR, "claude-mcp", "index.html"),
+        os.path.join(BASE_DIR, "alternatives", "pocket", "index.html"),
+        os.path.join(BASE_DIR, "alternatives", "omnivore", "index.html"),
+        os.path.join(BASE_DIR, "alternatives", "karakeep", "index.html"),
+        os.path.join(BASE_DIR, "alternatives", "readwise", "index.html"),
+        os.path.join(BASE_DIR, "alternatives", "best-read-it-later-apps-2026", "index.html"),
     ]
 
     links = set()
@@ -188,7 +196,12 @@ def check_links():
             # Internal anchor on same page
             continue
         elif url.startswith("http://") or url.startswith("https://"):
-            test_url = url
+            if local_only and url != "https://keepfor.me":
+                continue
+            if url == "https://keepfor.me":
+                test_url = f"http://localhost:{PORT}/"
+            else:
+                test_url = url
         else:
             test_url = f"http://localhost:{PORT}/{url}"
 
@@ -372,6 +385,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="Site verification script for keepfor.me")
     parser.add_argument("--quick", action="store_true", help="Run dash, footer donation, and link checks only")
+    parser.add_argument("--local", action="store_true", help="Run dash, footer donation, and local-only link checks")
     args = parser.parse_args()
 
     start_time = time.time()
@@ -381,9 +395,9 @@ def main():
 
     time.sleep(1)
 
-    link_ok, link_results = check_links()
+    link_ok, link_results = check_links(local_only=args.local)
 
-    if args.quick:
+    if args.quick or args.local:
         screenshots = []
         lighthouse_scores = {}
     else:
@@ -398,7 +412,7 @@ def main():
     print(f"Em/en dash check: {'PASSED' if em_dash_ok else 'FAILED'}")
     print(f"Footer donation link check: {'PASSED' if footer_ok else 'FAILED'}")
     print(f"Link resolution: {'PASSED' if link_ok else 'FAILED'}")
-    if not args.quick:
+    if not (args.quick or args.local):
         print(f"Screenshots captured: {len(screenshots)}")
         print("\nLighthouse Scores (Target: 90+ across all categories):")
         for name, s in lighthouse_scores.items():
