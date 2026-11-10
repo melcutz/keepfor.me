@@ -187,3 +187,108 @@ def test_internal_links_resolve_locally():
                     target = os.path.join(target, "index.html")
             assert os.path.isfile(target), f"{rel_path}: broken internal link {href} -> {target}"
 
+
+def test_raindrop_mcp_claims_accurate():
+    false_raindrop_mcp_patterns = [
+        r"\bnot\s+MCP\b",
+        r"\bno\s+(?:native\s+|official\s+|built-in\s+)?MCP\b",
+        r"\bonly\s+a\s+classic\s+(?:REST\s+)?API\b",
+        r"\bclassic\s+(?:REST\s+)?API\s*,\s*not\s+MCP\b",
+        r"\bclassic\s+(?:REST\s+)?API\s+rather\s+than\s+(?:a\s+|an\s+)?(?:native\s+|official\s+)?MCP\b",
+        r"\brather\s+than\s+(?:a\s+|an\s+)?(?:native\s+|official\s+)?MCP\s+server\b",
+        r"\binstead\s+of\s+(?:a\s+|an\s+)?(?:native\s+|official\s+)?MCP\b",
+        r"\bclassic\s+(?:REST\s+)?API\b[^.<>\n]{0,120}\bnot\s+the\s+same\s+thing\s+as\s+an\s+AI-native\b",
+        r"\bMCP\s+support\s+is\s+(?:currently\s+)?unique\b",
+        r"\bRaindrop(?:\.io)?\b[^.<>\n]{0,100}\b(?:lacks|without|does\s+not\s+(?:have|offer|provide|support)|doesn't\s+(?:have|offer|provide|support))\b[^.<>\n]{0,60}\bMCP\b",
+    ]
+    raindrop_pages = [
+        "alternatives/best-read-it-later-apps-2026/index.html",
+        "keepfor-vs-raindrop/index.html",
+    ]
+    for rel_path in raindrop_pages:
+        html = _read_page(rel_path)
+        soup = BeautifulSoup(html, "html.parser")
+        text = soup.get_text(" ", strip=True)
+
+        for pat in false_raindrop_mcp_patterns:
+            assert not re.search(pat, text, re.IGNORECASE), f"{rel_path}: matched false Raindrop MCP pattern {pat}"
+            assert not re.search(pat, html, re.IGNORECASE), f"{rel_path}: matched false Raindrop MCP HTML pattern {pat}"
+
+        mcp_row_found = False
+        for tr in soup.find_all("tr"):
+            cells = tr.find_all(["td", "th"])
+            if len(cells) >= 3 and re.search(r"\bMCP\b", cells[0].get_text(" ", strip=True), re.IGNORECASE):
+                mcp_row_found = True
+                raindrop_cell = cells[2].get_text(" ", strip=True)
+                assert not re.match(r"^(?:no|none)\b", raindrop_cell, re.IGNORECASE), (
+                    f"{rel_path}: Raindrop MCP cell still starts with no/none: {raindrop_cell}"
+                )
+                assert re.search(r"\b(?:yes|mcp|official)\b", raindrop_cell, re.IGNORECASE), (
+                    f"{rel_path}: Raindrop MCP cell does not acknowledge official MCP: {raindrop_cell}"
+                )
+        assert mcp_row_found, f"{rel_path}: missing MCP comparison row"
+        assert "Stella" in text and "ChatGPT" in text and "Claude" in text, (
+            f"{rel_path}: expected mention of Raindrop Stella features in ChatGPT and Claude via MCP"
+        )
+        assert "47 tools" not in text, f"{rel_path}: outdated 47 tools count found"
+
+
+def test_omnivore_shutdown_and_official_zip_export_claims():
+    omni_path = "alternatives/omnivore/index.html"
+    omni_html = _read_page(omni_path)
+    omni_soup = BeautifulSoup(omni_html, "html.parser")
+    omni_text = omni_soup.get_text(" ", strip=True)
+
+    assert re.search(r"\b(?:shut\s*down|shutdown)\b", omni_text, re.IGNORECASE)
+    assert re.search(r"\bNovember\s+2024\b", omni_text, re.IGNORECASE)
+    assert re.search(r"\bNovember\s+15,\s*2024\b", omni_text, re.IGNORECASE)
+    assert "ElevenLabs" in omni_text
+
+    assert re.search(r"\.zip\b|\bzip\b", omni_text, re.IGNORECASE)
+    assert re.search(r"metadata_\*\.json", omni_html)
+    assert re.search(r"content/\*\.html", omni_html)
+    assert re.search(r"highlights/\*\.md", omni_html)
+    assert "_prepare_zip_bookmarks" in omni_text
+    assert re.search(r"links,\s*titles,\s*and\s*labels", omni_text, re.IGNORECASE)
+    assert re.search(r"does\s+not\s+import\s+Omnivore's\s+highlights/\*\.md", omni_text, re.IGNORECASE)
+
+    false_omnivore_export_patterns = [
+        r"\bOmnivore\s+HTML,\s*CSV(?:,?\s*(?:or|and|&|&amp;)\s*Markdown)?\s+(?:exports?|import)\b",
+        r"\bbookmark\s+HTML\s+files?\s+exported\s+by\s+Omnivore\b",
+        r"\bfrom\s+Omnivore\s+and\s+Instapaper\s+CSV\b",
+        r"\bOmnivore\s+CSV\s+(?:exports?|sheets?|files?)\b",
+        r"\bOmnivore(?:'s)?\s+(?:official\s+|native\s+|standard\s+)?exports?\s+(?:was|were|is|are|in|as|produced)\s+(?:a\s+|an\s+)?(?:standard\s+)?(?:Netscape\s+)?(?:Bookmark\s+)?(?:HTML|CSV|Markdown)\b",
+    ]
+    for check_page in (
+        omni_path,
+        "alternatives/best-read-it-later-apps-2026/index.html",
+        "alternatives/pocket/index.html",
+        "pocket-alternative/index.html",
+    ):
+        page_html = _read_page(check_page)
+        page_text = BeautifulSoup(page_html, "html.parser").get_text(" ", strip=True)
+        for pat in false_omnivore_export_patterns:
+            assert not re.search(pat, page_text, re.IGNORECASE), f"{check_page}: matched false Omnivore export pattern {pat}"
+            assert not re.search(pat, page_html, re.IGNORECASE), f"{check_page}: matched false Omnivore export HTML pattern {pat}"
+
+
+def test_non_blocking_pocket_karakeep_and_readwise_facts():
+    for rel_path in (
+        "alternatives/pocket/index.html",
+        "alternatives/best-read-it-later-apps-2026/index.html",
+        "keepfor-vs-raindrop/index.html",
+        "pocket-alternative/index.html",
+    ):
+        text = BeautifulSoup(_read_page(rel_path), "html.parser").get_text(" ", strip=True)
+        assert "10 million" not in text, f"{rel_path}: still contains unsourced '10 million' claim"
+        assert "pulled back in May 2025" not in text, f"{rel_path}: still contains unsourced 'pulled back in May 2025' claim"
+
+    karakeep_text = BeautifulSoup(_read_page("alternatives/karakeep/index.html"), "html.parser").get_text(" ", strip=True)
+    assert "Docker Compose" in karakeep_text
+    assert "Meilisearch" in karakeep_text
+
+    readwise_text = BeautifulSoup(_read_page("alternatives/readwise/index.html"), "html.parser").get_text(" ", strip=True)
+    assert "$9.99/month" in readwise_text
+    assert "readwise.io/export" in readwise_text
+
+

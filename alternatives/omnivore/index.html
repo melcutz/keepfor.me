@@ -4,21 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Omnivore Alternative: Open-Source Read-It-Later and AI Vault | Keepfor.me</title>
-  <meta name="description" content="Looking for an Omnivore alternative? Import your Omnivore HTML, CSV, or Markdown exports into Keepfor.me. Self-host free on Cloudflare or use managed plans from $5/mo.">
+  <meta name="description" content="Looking for an Omnivore alternative after the November 2024 shutdown? Import your Omnivore export zip (metadata_*.json) into Keepfor.me, self-host free on Cloudflare, or use managed plans from $5/mo.">
   <link rel="canonical" href="https://keepfor.me/alternatives/omnivore/">
 
   <!-- Open Graph / Facebook -->
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://keepfor.me/alternatives/omnivore/">
   <meta property="og:title" content="Omnivore Alternative: Open-Source Read-It-Later and AI Vault | Keepfor.me">
-  <meta property="og:description" content="Looking for an Omnivore alternative? Import your Omnivore HTML, CSV, or Markdown exports into Keepfor.me. Self-host free on Cloudflare or use managed plans from $5/mo.">
+  <meta property="og:description" content="Looking for an Omnivore alternative after the November 2024 shutdown? Import your Omnivore export zip (metadata_*.json) into Keepfor.me, self-host free on Cloudflare, or use managed plans from $5/mo.">
   <meta property="og:image" content="https://keepfor.me/assets/og-preview.png">
 
   <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:url" content="https://keepfor.me/alternatives/omnivore/">
   <meta name="twitter:title" content="Omnivore Alternative: Open-Source Read-It-Later and AI Vault | Keepfor.me">
-  <meta name="twitter:description" content="Looking for an Omnivore alternative? Import your Omnivore HTML, CSV, or Markdown exports into Keepfor.me. Self-host free on Cloudflare or use managed plans from $5/mo.">
+  <meta name="twitter:description" content="Looking for an Omnivore alternative after the November 2024 shutdown? Import your Omnivore export zip (metadata_*.json) into Keepfor.me, self-host free on Cloudflare, or use managed plans from $5/mo.">
   <meta name="twitter:image" content="https://keepfor.me/assets/og-preview.png">
 
   <!-- Favicon -->
@@ -37,7 +37,7 @@
     "@context": "https://schema.org",
     "@type": "Article",
     "headline": "Omnivore Alternative: Open-Source Read-It-Later and AI Vault",
-    "description": "Looking for an Omnivore alternative? Import your Omnivore HTML, CSV, or Markdown exports into Keepfor.me. Self-host free on Cloudflare or use managed plans from $5/mo.",
+    "description": "Looking for an Omnivore alternative after the November 2024 shutdown? Import your Omnivore export zip (metadata_*.json) into Keepfor.me, self-host free on Cloudflare, or use managed plans from $5/mo.",
     "mainEntityOfPage": {"@type": "WebPage", "@id": "https://keepfor.me/alternatives/omnivore/"},
     "author": {"@type": "Organization", "name": "Keepfor.me", "url": "https://keepfor.me/"},
     "publisher": {"@type": "Organization", "name": "Keepfor.me", "logo": {"@type": "ImageObject", "url": "https://keepfor.me/assets/og-preview.png"}},
@@ -107,7 +107,7 @@
         </h1>
 
         <p class="hero-subtitle">
-          How to bring your Omnivore HTML, CSV, or Markdown exports into Keepfor.me, self-host on serverless Cloudflare edge primitives without container bloat, or run on managed cloud plans with 46 MCP tools.
+          Hosted Omnivore shut down in November 2024 when its team joined ElevenLabs. Here is how to import your Omnivore export zip into Keepfor.me, self-host on serverless Cloudflare edge primitives without container bloat, or run on managed cloud plans with 46 MCP tools.
         </p>
       </div>
     </section>
@@ -125,14 +125,15 @@
               </a>
             </div>
 
-            <p>Readers who gravitated toward Omnivore cared about a specific set of values: open-source code, a clean distraction-free reading environment, highlights and notes, and complete ownership of their saved library. When evaluating an Omnivore alternative, those structural guarantees matter more than marketing promises. A replacement should be simple to self-host, effortless to import into, and transparent about how it sustains itself.</p>
+            <p>People searching for an Omnivore alternative usually share the same backstory: the hosted Omnivore app shut down in November 2024 when its team joined ElevenLabs. Exports stayed open until November 15, 2024, and then the hosted data was deleted. Even though Omnivore's code was open source, running its self-hosted stack required multiple containers, Postgres, Redis, and background workers that few individual readers wanted to maintain.</p>
+            <p>Readers who gravitated toward Omnivore cared about a specific set of values: open-source code, a clean distraction-free reading environment, highlights and notes, and complete ownership of their saved library. When evaluating an Omnivore alternative, those structural guarantees matter more than marketing promises. A replacement should be simple to self-host, honest about what its importer handles, and transparent about how it sustains itself.</p>
 
             <h2 id="importing-omnivore">Importing your Omnivore archive into Keepfor.me</h2>
-            <p>Keepfor's importer is built to ingest Omnivore exports directly. Depending on how you exported your data, Keepfor handles three formats out of the box:</p>
+            <p>Omnivore's official export was a <code>.zip</code> archive containing batched <code>metadata_*.json</code> files (such as <code>metadata_0_to_20.json</code>) plus saved article snapshots in <code>content/*.html</code> and exported notes and highlights in <code>highlights/*.md</code>. Keepfor Cloud's importer (<code>_prepare_zip_bookmarks</code> and its Omnivore metadata JSON parser) reads that export directly:</p>
             <ul>
-              <li><strong>Netscape Bookmark HTML (<code>.html</code>):</strong> Keepfor parses standard bookmark HTML files exported by Omnivore, Pocket, or web browsers, keeping every saved URL, title, and tag list.</li>
-              <li><strong>CSV exports (<code>.csv</code>):</strong> Keepfor's CSV parser reads <code>url</code>, <code>title</code>, and <code>tags</code> (or <code>folder</code>) columns directly from Omnivore and Instapaper CSV sheets.</li>
-              <li><strong>Markdown and text zip archives (<code>.zip</code>):</strong> If you exported notes and saved pages as Markdown files, Keepfor's notes importer ingests zip archives up to 50 MB, preserves tags and original timestamps, and queues embedded links as regular library saves.</li>
+              <li><strong>What carries over (links, titles, and labels):</strong> Upload your Omnivore <code>metadata_*.json</code> files or your Omnivore export <code>.zip</code> containing <code>metadata_*.json</code> and <code>content/*.html</code>. Keepfor reads each entry's <code>url</code>, <code>title</code>, and <code>labels</code> (mapping Omnivore labels to Keepfor tags), deduplicates by URL, and queues every link for fresh extraction and permanent dual snapshots (<code>raw.html</code> and <code>clean.html</code>) in Cloudflare R2.</li>
+              <li><strong>What does not carry over:</strong> Keepfor's bookmark importer does not import Omnivore's <code>highlights/*.md</code> files as character-anchored article highlights, and it does not import pre-rendered <code>content/*.html</code> files in place of fetching its own R2 snapshots. (If your Omnivore <code>.zip</code> still includes <code>highlights/*.md</code>, upload the <code>metadata_*.json</code> files directly or remove the <code>highlights/*.md</code> files from the zip first, because zips containing <code>.md</code> files are routed to the Markdown notes importer instead of the bookmark importer.)</li>
+              <li><strong>Standard bookmark and note formats:</strong> Keepfor also imports Netscape Bookmark HTML (<code>.html</code>) from browsers and Pocket, CSV bookmark files, Markdown note zips up to 50 MB, Google Keep Takeout zips, and Evernote <code>.enex</code> files.</li>
             </ul>
             <p>Every bulk upload runs asynchronously through Cloudflare Queues in batches of 25 items, so importing hundreds of saved articles never times out your request. Duplicate URLs are skipped automatically, and each upload produces a persistent status record showing imported counts, skipped duplicates, and any parse errors.</p>
 
@@ -183,13 +184,13 @@
                     <td>14 days, no credit card required</td>
                   </tr>
                   <tr>
-                    <td class="col-feature">Omnivore HTML, CSV &amp; Markdown import</td>
+                    <td class="col-feature">Omnivore zip and metadata JSON import (links, titles, and labels)</td>
                     <td>Included</td>
                     <td>Included</td>
                     <td>Included</td>
                   </tr>
                   <tr>
-                    <td class="col-feature">Dual R2 snapshots (raw &amp; clean HTML)</td>
+                    <td class="col-feature">Dual R2 snapshots (raw and clean HTML)</td>
                     <td>Your own R2 bucket</td>
                     <td>Managed R2 included</td>
                     <td>Managed R2 included</td>
@@ -207,7 +208,7 @@
                     <td>Hosted MCP included</td>
                   </tr>
                   <tr>
-                    <td class="col-feature">Monthly AI summaries &amp; Ask quota</td>
+                    <td class="col-feature">Monthly AI summaries and Ask quota</td>
                     <td>Bring your own Workers AI</td>
                     <td>150 summaries + 50 Ask / mo</td>
                     <td>1,000 summaries + 500 Ask / mo</td>
@@ -226,7 +227,7 @@
             <p>Free VC-backed or unmonetized cloud services eventually face a reckoning when hosting and compute bills grow. Keepfor's model is intentionally straightforward: the open-source core is free forever to self-host on your own Cloudflare account, and the hosted service charges a sustainable subscription from day one (Personal at $5/month, Pro at $9/month) so your hosted vault pays its own way.</p>
             <p>Want to compare other tools in the space? See our <a href="/alternatives/best-read-it-later-apps-2026/">Best Read-It-Later Apps in 2026</a> guide, <a href="/alternatives/pocket/">Pocket migration guide</a>, or <a href="/keepfor-vs-raindrop/">Keepfor vs Raindrop.io comparison</a>.</p>
 
-            <p><em>Sources: Importer capabilities from the Keepfor open-source repository (<code>keepfor/utils/importer.py</code> and <code>README.md</code>); MCP tool count (46 tools) from <code>keepfor/mcp/server.py</code>; pricing and plan quotas from <a href="/pricing/">keepfor.me/pricing</a> and <a href="/terms/">keepfor.me/terms</a>.</em></p>
+            <p><em>Sources: Omnivore November 2024 shutdown and November 15, 2024 export window from Omnivore's ElevenLabs transition announcement and export documentation; Omnivore zip and metadata JSON importer behavior verified from Keepfor Cloud (<code>import_routes.py</code> <code>_prepare_zip_bookmarks</code>) and the Keepfor open-source repository (<code>keepfor/utils/importer.py</code> and <code>README.md</code>); MCP tool count (46 tools) from <code>keepfor/mcp/server.py</code>; pricing and plan quotas from <a href="/pricing/">keepfor.me/pricing</a> and <a href="/terms/">keepfor.me/terms</a>.</em></p>
           </article>
         </div>
       </div>

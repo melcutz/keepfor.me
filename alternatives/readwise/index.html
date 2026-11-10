@@ -125,8 +125,8 @@
               </a>
             </div>
 
-            <p>Readwise and Readwise Reader are widely known among heavy readers. People who start looking for a Readwise alternative usually have one of four reasons: they want a calmer, faster web reader without feature bloat, they want an open-source codebase they can self-host and audit, they want a lower monthly subscription, or they want their saved articles and highlights accessible directly inside Claude and Cursor via the Model Context Protocol (MCP).</p>
-            <p>Rather than making unverified claims about third-party roadmaps or pricing tiers, this guide documents exactly how Keepfor.me works so you can judge whether it fits your reading and research workflow.</p>
+            <p>Readwise and Readwise Reader are widely known among heavy readers. Readwise's Full plan ($9.99/month billed annually or $12.99/month billed monthly, per readwise.io/pricing) bundles spaced-repetition highlight review and note-app sync (for Kindle, Obsidian, Notion, and Roam) with Readwise Reader for web articles, RSS feeds, newsletters, PDFs, and EPUBs. Readwise Lite ($5.59/month billed annually or $6.99/month billed monthly) covers highlight review and daily digests without the Reader app.</p>
+            <p>People who start looking for a Readwise alternative usually have one of four reasons: they want a calmer, focused web reader without an all-in-one RSS/EPUB/newsletter inbox, they want an open-source (AGPL-3.0-only) codebase they can self-host and audit, they want a lower monthly subscription ($5/month Personal or $9/month Pro), or they want their saved articles and highlights accessible directly inside Claude and Cursor via 46 MCP tools.</p>
 
             <h2 id="reading-and-highlights">Calm reading, passage highlights, and dual snapshots</h2>
             <p>Keepfor focuses on four core jobs: capture, store, search, and share context with AI assistants. Every piece of the reading pipeline is built for speed and permanence:</p>
@@ -212,11 +212,11 @@
               </table>
             </div>
 
-            <h2 id="moving-data">Importing your existing notes and bookmarks</h2>
-            <p>You can test Keepfor alongside your current setup in minutes. Keepfor's importer accepts CSV files (preserving URLs, titles, and tags), Netscape Bookmark HTML files, zips of Markdown and text files (such as Obsidian vaults or exported notes), Google Keep Takeout zips, and Evernote <code>.enex</code> archives. And if you ever leave Keepfor, one-click export gives you your entire library in HTML, CSV, or structured JSON.</p>
+            <h2 id="moving-data">Importing your Readwise CSV and existing bookmarks</h2>
+            <p>Readwise lets you export your highlights and saved documents as a CSV file from <code>readwise.io/export</code> or from Reader's command palette. Keepfor Cloud's CSV importer reads Readwise CSV exports directly (matching <code>Article URL</code>, <code>Book Title</code>, <code>Tags</code>, and <code>Document tags</code>), deduplicates multiple highlight rows from the same article into a single saved link, and merges both article and highlight tags. Book quotes that have no web URL are skipped, and highlight text in the CSV is not imported as character-anchored article highlights. Keepfor also accepts Netscape Bookmark HTML files, zips of Markdown and text notes, Google Keep Takeout zips, and Evernote <code>.enex</code> archives, and exports your library in HTML, CSV, or JSON at any time.</p>
             <p>Explore more comparisons in our <a href="/alternatives/best-read-it-later-apps-2026/">Best Read-It-Later Apps in 2026</a> guide, <a href="/keepfor-vs-raindrop/">Keepfor vs Raindrop.io</a>, or our <a href="/claude-mcp/">Claude MCP setup guide</a>.</p>
 
-            <p><em>Sources: Keepfor feature specifications, highlight tools, importer support, and 46 MCP tools verified from the Keepfor open-source repository (<code>README.md</code>, <code>PRODUCT.md</code>, and <code>keepfor/mcp/server.py</code>). Pricing and quotas from <a href="/pricing/">keepfor.me/pricing</a> and <a href="/terms/">keepfor.me/terms</a>.</em></p>
+            <p><em>Sources: Readwise Full and Lite plan pricing and CSV export documentation from readwise.io/pricing and readwise.io/export; Readwise CSV import normalization verified from Keepfor Cloud (<code>import_routes.py</code>); Keepfor feature specifications, highlight tools, and 46 MCP tools verified from the Keepfor open-source repository (<code>README.md</code>, <code>PRODUCT.md</code>, and <code>keepfor/mcp/server.py</code>). Pricing and quotas from <a href="/pricing/">keepfor.me/pricing</a> and <a href="/terms/">keepfor.me/terms</a>.</em></p>
           </article>
         </div>
       </div>

@@ -134,7 +134,7 @@
             <h2 id="short-version">The short version</h2>
             <ul>
               <li><strong>Pick Raindrop.io</strong> if you want the most polished, cheapest bookmark manager with a decade-long track record and native apps on every platform.</li>
-              <li><strong>Pick Keepfor</strong> if you want open source you can self-host, AI features woven through the product, or direct AI-assistant access to your library.</li>
+              <li><strong>Pick Keepfor</strong> if you want open source you can self-host, hybrid semantic search and AI features woven through the product, and 46 MCP tools for deep AI-assistant access to your library.</li>
             </ul>
             <p>Both are good tools. They are built for slightly different jobs.</p>
 
@@ -156,7 +156,7 @@
                   <tr><td class="col-feature">Self-hosting</td><td>Yes, free on your own Cloudflare account</td><td>No</td></tr>
                   <tr><td class="col-feature">Full-text search</td><td>Yes, plus semantic search</td><td>Yes, on Pro</td></tr>
                   <tr><td class="col-feature">AI summaries</td><td>Included in plans (150/mo Personal, 1,000/mo Pro)</td><td>Via Stella AI assistant (Pro)</td></tr>
-                  <tr><td class="col-feature">AI assistant access (MCP)</td><td>Yes, 47 tools for Claude, Cursor, and others</td><td>No (has a classic API, not MCP)</td></tr>
+                  <tr><td class="col-feature">AI assistant access (MCP)</td><td>Yes, hosted MCP server with 46 MCP tools for Claude, Cursor, and others</td><td>Yes, official MCP server (Stella AI features in ChatGPT and Claude via MCP)</td></tr>
                   <tr><td class="col-feature">Apps</td><td>Web app, browser extension</td><td>Web, Mac, Windows, Linux, iOS, Android; extensions for all major browsers</td></tr>
                   <tr><td class="col-feature">Import</td><td>Bookmark HTML, CSV, JSON, Markdown, Evernote</td><td>Pocket, browser bookmarks, HTML, CSV</td></tr>
                   <tr><td class="col-feature">Export</td><td>Full library export as HTML or JSON, any time</td><td>Export on all plans, including free</td></tr>
@@ -172,21 +172,21 @@
             <p><strong>Free tier.</strong> Raindrop's free plan is genuinely generous: unlimited bookmarks, collections, highlights, and devices. It is enough for most people, which is worth saying on a competitor's website.</p>
 
             <h2 id="where-keepfor-wins">Where Keepfor wins</h2>
-            <p><strong>Open source and self-hosting.</strong> Keepfor's core is AGPL-3.0 licensed and free to self-host on your own Cloudflare account. Raindrop is closed source and cloud-only. After the Pocket shutdown stranded 10 million users, this is not an abstract preference. It is the difference between a tool you own and a tool you rent.</p>
+            <p><strong>Open source and self-hosting.</strong> Keepfor's core is AGPL-3.0 licensed and free to self-host on your own Cloudflare account. Raindrop is closed source and cloud-only. After the July 2025 Pocket shutdown forced readers to move their archives, this is not an abstract preference. It is the difference between a tool you own and a tool you rent.</p>
             <p><strong>AI is the product, not an add-on.</strong> Raindrop added its Stella AI assistant in 2026 as a Pro feature. Keepfor was built around AI from the start: semantic search across your library, automatic AI summaries, suggested tags, and ask-your-library Q&amp;A are core to the paid plans, not a sidebar.</p>
-            <p><strong>Your AI assistant can use your library.</strong> This is the genuine differentiator. Keepfor exposes 47 tools over the Model Context Protocol, so Claude Desktop, Cursor, or Claude Code can search your saved articles, summarize them, tag them, and save new ones, all inside the assistant. Raindrop has a documented classic API, which is useful for integrations but is not the same thing as an AI-native interface.</p>
+            <p><strong>Deep MCP tool coverage across your vault.</strong> Both products now ship official MCP servers, and Raindrop's help docs note that Stella's features work inside ChatGPT and Claude via MCP. Keepfor exposes 46 MCP tools over the Model Context Protocol (plus a self-hostable MCP endpoint), so Claude Desktop, Cursor, or Claude Code can search passages with character offsets, read saved articles in chunks, manage highlights and collections, audit dead links, and save new URLs inside the assistant.</p>
             <p><strong>No lock-in, by architecture.</strong> Full library export as HTML or JSON at any time, and the open-source core means your archive survives even the company.</p>
 
             <h2 id="deciding">The deciding questions</h2>
             <ol>
               <li><strong>Do you care about open source or self-hosting?</strong> If yes, Keepfor is the only option of the two.</li>
-              <li><strong>Do you want an AI assistant working with your reading list?</strong> If yes, Keepfor's MCP support is currently unique.</li>
+              <li><strong>Do you want an AI assistant working with your reading list?</strong> Both tools ship official MCP servers (Raindrop connects Stella's features to ChatGPT and Claude via MCP), while Keepfor exposes 46 MCP tools across passages, snapshots, highlights, and cleanup on an open-source stack you can also self-host.</li>
               <li><strong>Do you mostly save links and want the cheapest polished tool?</strong> Raindrop Pro at ~$28/year is hard to argue with.</li>
               <li><strong>Do you live in native mobile apps?</strong> Raindrop's iOS and Android apps are the safer bet today.</li>
             </ol>
             <p>If you are migrating from Pocket specifically, both tools import bookmark HTML, which is the format Pocket's export used.</p>
 
-            <p><em>Sources: Raindrop.io pricing and features verified October 2026 via raindrop.io/pricing and independent reviews (contextbolt.com, marqly.com, nubiapage.com). Keepfor pricing from keepfor.me/pricing; MCP tool list from the Keepfor open-source repository.</em></p>
+            <p><em>Sources: Raindrop.io pricing, features, and official MCP server verified via raindrop.io/pricing, help.raindrop.io, and independent reviews (contextbolt.com, marqly.com, nubiapage.com). Keepfor pricing from keepfor.me/pricing; 46 MCP tools verified from the Keepfor open-source repository (<code>keepfor/mcp/server.py</code>).</em></p>
           </article>
         </div>
       </div>

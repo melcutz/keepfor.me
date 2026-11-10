@@ -125,7 +125,7 @@
               </a>
             </div>
 
-            <p>When Mozilla shut down Pocket on July 8, 2025 (and deleted remaining accounts after the export window closed in November 2025), over 10 million readers had to find a new home for their reading lists. That shutdown changed how people evaluate a read-it-later tool. A clean font and a browser button are no longer enough; you need to know whether your archive can survive the company behind it, and whether you can actually find and use what you saved months later.</p>
+            <p>When Mozilla shut down Pocket on July 8, 2025 (and deleted remaining accounts after the export window closed on November 12, 2025), longtime Pocket readers had to find a new home for their reading lists. That shutdown changed how people evaluate a read-it-later tool. A clean font and a browser button are no longer enough; you need to know whether your archive can survive the company behind it, and whether you can actually find and use what you saved months later.</p>
 
             <h2 id="criteria">Five rules for picking a read-it-later app in 2026</h2>
             <ol>
@@ -189,7 +189,7 @@
                   <tr>
                     <td class="col-feature">AI assistant access (MCP)</td>
                     <td>Yes, hosted MCP server with 46 MCP tools</td>
-                    <td>No (classic REST API, not MCP)</td>
+                    <td>Yes, official MCP server (Stella AI features in ChatGPT and Claude via MCP)</td>
                     <td>None</td>
                   </tr>
                   <tr>
@@ -221,22 +221,22 @@
             <p>In continuous development since 2013, Raindrop.io is the most established visual bookmark manager in the category.</p>
             <ul>
               <li><strong>Why pick Raindrop.io:</strong> It has a generous permanent free tier, its Pro plan costs roughly $28/year (about half the price of Keepfor Personal at $55/year), and it ships polished native apps on Mac, Windows, Linux, iOS, and Android.</li>
-              <li><strong>Where Raindrop.io differs from Keepfor:</strong> Raindrop is closed source with no self-hosting option, and it offers a classic API rather than a native MCP server for AI coding and research assistants. Read our full <a href="/keepfor-vs-raindrop/">Keepfor vs Raindrop.io comparison</a>.</li>
+              <li><strong>Where Raindrop.io differs from Keepfor:</strong> Both products ship official MCP servers (Raindrop's help docs note that Stella's features work inside ChatGPT and Claude via MCP). Raindrop is closed source with no self-hosting option, while Keepfor is open source (AGPL-3.0-only) on Cloudflare and exposes 46 MCP tools covering passage search, chunked article reading, highlights, and library cleanup. Read our full <a href="/keepfor-vs-raindrop/">Keepfor vs Raindrop.io comparison</a>.</li>
             </ul>
 
             <h3>3. Specialized Guides for Migrating or Comparing Other Tools</h3>
             <p>Depending on what you used previously or what workflow you prefer, we have dedicated guides grounded in verified repository facts:</p>
             <ul>
               <li><strong><a href="/alternatives/pocket/">Moving from Pocket</a>:</strong> How to import your <code>pocket.html</code> or <code>ril_export.html</code> bookmark file into Keepfor and turn saved links into permanent R2 snapshots.</li>
-              <li><strong><a href="/alternatives/omnivore/">Omnivore Alternative</a>:</strong> How Keepfor imports Omnivore HTML, CSV, and Markdown zip exports directly, and why serverless Cloudflare Workers avoid multi-container self-hosting overhead.</li>
-              <li><strong><a href="/alternatives/karakeep/">Karakeep vs Keepfor.me</a>:</strong> Comparing visual card browsing, serverless Cloudflare edge deployment vs container maintenance, and Keepfor's 46 MCP tools.</li>
+              <li><strong><a href="/alternatives/omnivore/">Omnivore Alternative</a>:</strong> What happened when hosted Omnivore shut down in November 2024, how Keepfor imports Omnivore export zips (<code>metadata_*.json</code>), and why serverless Cloudflare Workers avoid multi-container self-hosting overhead.</li>
+              <li><strong><a href="/alternatives/karakeep/">Karakeep vs Keepfor.me</a>:</strong> Comparing visual card browsing, serverless Cloudflare edge deployment vs Docker container maintenance, and Keepfor's 46 MCP tools.</li>
               <li><strong><a href="/alternatives/readwise/">Readwise Alternative</a>:</strong> How Keepfor approaches distraction-free reading, character-anchored passage highlights, hybrid search, and MCP integration starting at $5/month.</li>
             </ul>
 
             <h2 id="bottom-line">The bottom line</h2>
-            <p>If your top priority is the lowest-cost cloud bookmark manager with native desktop and mobile apps, pick <strong>Raindrop.io</strong>. If your priority is owning an open-source library that you can self-host on Cloudflare for free, search by meaning, and connect directly to Claude and Cursor through 46 MCP tools, start with <strong>Keepfor.me</strong>.</p>
+            <p>If your top priority is the lowest-cost cloud bookmark manager with native desktop and mobile apps, pick <strong>Raindrop.io</strong>. If your priority is owning an open-source library that you can self-host on Cloudflare for free, search by meaning, and connect to Claude and Cursor through 46 MCP tools, start with <strong>Keepfor.me</strong>.</p>
 
-            <p><em>Sources: Pocket shutdown timeline from Mozilla support (support.mozilla.org); Raindrop.io pricing and platform support verified October 2026 (see <a href="/keepfor-vs-raindrop/">keepfor.me/keepfor-vs-raindrop</a>); Keepfor pricing and quotas from <a href="/pricing/">keepfor.me/pricing</a> and <a href="/terms/">keepfor.me/terms</a>; 46 MCP tools and importer specifications from the Keepfor open-source repository (<code>keepfor/mcp/server.py</code> and <code>README.md</code>).</em></p>
+            <p><em>Sources: Pocket shutdown timeline from Mozilla support (support.mozilla.org); Raindrop.io pricing, platform support, and official MCP server verified via raindrop.io/pricing and help.raindrop.io (see <a href="/keepfor-vs-raindrop/">keepfor.me/keepfor-vs-raindrop</a>); Keepfor pricing and quotas from <a href="/pricing/">keepfor.me/pricing</a> and <a href="/terms/">keepfor.me/terms</a>; 46 MCP tools and importer specifications from the Keepfor open-source repository (<code>keepfor/mcp/server.py</code> and <code>README.md</code>).</em></p>
           </article>
         </div>
       </div>

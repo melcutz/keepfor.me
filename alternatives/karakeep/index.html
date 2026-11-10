@@ -125,7 +125,7 @@
               </a>
             </div>
 
-            <p>If you are comparing Karakeep and Keepfor.me, you are likely looking for an open-source bookmark and read-it-later manager with visual card browsing, automatic tagging, and full control over your data. Rather than publishing unverified claims about third-party feature checklists, this guide lays out Keepfor.me's exact architecture, capabilities, and pricing so you can compare both projects directly against your workflow.</p>
+            <p>If you are comparing Karakeep and Keepfor.me, you are looking at two open-source (AGPL-3.0) self-hostable bookmark and read-it-later tools that take very different infrastructure paths. <strong>Karakeep</strong> (formerly known as Hoarder) is a self-hosted "bookmark-everything" app for links, notes, images, and PDFs. Its standard deployment runs on a server via Docker Compose using three containers (the Karakeep web app, Meilisearch for full-text search, and headless Chrome for page archival) with optional AI tagging through OpenAI or local Ollama models. <strong>Keepfor.me</strong> is built for distraction-free reading, hybrid semantic search, and an AI context vault (46 MCP tools) running entirely on serverless Cloudflare edge primitives with zero containers to maintain.</p>
 
             <h2 id="visual-browsing">Visual density and calm long-form reading</h2>
             <p>Keepfor's interface was designed with high-density browsing and visual polish in mind, combining visual card covers, multi-view layouts, and a pinned top shelf with a quiet reader view:</p>
@@ -136,8 +136,8 @@
               <li><strong>Highlights, notes, and collections:</strong> Save quick notes and snippets alongside web links, highlight passages anchored by character offsets, and organize items with collections and hierarchical tags (such as <code>work/research</code>).</li>
             </ul>
 
-            <h2 id="edge-vs-containers">Serverless Cloudflare edge vs always-on servers</h2>
-            <p>When self-hosting a personal library, the biggest operational question is what infrastructure you want to run. Keepfor.me is licensed under <strong>AGPL-3.0-only</strong> and runs without Docker containers or always-on virtual machines:</p>
+            <h2 id="edge-vs-containers">Serverless Cloudflare edge vs Docker Compose containers</h2>
+            <p>When self-hosting a personal library, the biggest operational question is what infrastructure you want to run. Karakeep's official Docker Compose setup runs a persistent Node.js web container, a Meilisearch container, and an Alpine headless Chrome container on your own VPS or home server. Keepfor.me is also licensed under <strong>AGPL-3.0-only</strong>, and runs without Docker containers or always-on virtual machines:</p>
             <div class="mobile-table-hint">↔ Scroll horizontally to view</div>
             <div class="comparison-table-wrap">
               <table class="comparison-table">
@@ -202,7 +202,7 @@
             <h2 id="deciding">How to test with your own bookmarks</h2>
             <p>Because Keepfor imports and exports standard Netscape Bookmark HTML, CSV, JSON, Markdown zip archives, Google Keep Takeout zips, and Evernote <code>.enex</code> files, you never have to commit blindly. Import a subset of your bookmarks into our <a href="https://oss.keepfor.me" target="_blank" rel="noopener noreferrer">Live OSS Demo</a>, <a href="/self-host/">self-host for free</a>, or start a 14-day free trial, and compare the reading and search experience firsthand. You can also review our <a href="/alternatives/best-read-it-later-apps-2026/">Best Read-It-Later Apps in 2026</a> guide.</p>
 
-            <p><em>Sources: Keepfor architecture, multi-view layout design, importer formats, and 46 MCP tools verified from the Keepfor open-source repository (<code>README.md</code>, <code>PRODUCT.md</code>, and <code>keepfor/mcp/server.py</code>). Pricing and quotas from <a href="/pricing/">keepfor.me/pricing</a>.</em></p>
+            <p><em>Sources: Karakeep (formerly Hoarder) Docker Compose architecture, Meilisearch and headless Chrome services, and AGPL-3.0 license from docs.karakeep.app and github.com/karakeep-app/karakeep. Keepfor architecture, multi-view layout design, importer formats, and 46 MCP tools verified from the Keepfor open-source repository (<code>README.md</code>, <code>PRODUCT.md</code>, and <code>keepfor/mcp/server.py</code>). Pricing and quotas from <a href="/pricing/">keepfor.me/pricing</a>.</em></p>
           </article>
         </div>
       </div>
