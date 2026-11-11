@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Karakeep vs Keepfor.me: Self-Hosted Bookmarking and AI MCP Compared</title>
+  <meta name="description" content="Evaluating Karakeep and Keepfor.me? Compare serverless Cloudflare edge self-hosting, multi-view visual browsing, hybrid semantic search, and 46 MCP tools.">
+  <link rel="canonical" href="https://keepfor.me/alternatives/karakeep/">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://keepfor.me/alternatives/karakeep/">
+  <meta property="og:title" content="Karakeep vs Keepfor.me: Self-Hosted Bookmarking and AI MCP Compared">
+  <meta property="og:description" content="Evaluating Karakeep and Keepfor.me? Compare serverless Cloudflare edge self-hosting, multi-view visual browsing, hybrid semantic search, and 46 MCP tools.">
+  <meta property="og:image" content="https://keepfor.me/assets/og-preview.png">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://keepfor.me/alternatives/karakeep/">
+  <meta name="twitter:title" content="Karakeep vs Keepfor.me: Self-Hosted Bookmarking and AI MCP Compared">
+  <meta name="twitter:description" content="Evaluating Karakeep and Keepfor.me? Compare serverless Cloudflare edge self-hosting, multi-view visual browsing, hybrid semantic search, and 46 MCP tools.">
+  <meta name="twitter:image" content="https://keepfor.me/assets/og-preview.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cdefs%3E%3ClinearGradient id='kfm' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='40' height='40' rx='11' fill='url(%23kfm)'/%3E%3Cpath d='M17 11h10v16l-5-3.8-5 3.8z' fill='%23fff'/%3E%3C/svg%3E">
+
+  <!-- Typography: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="/assets/css/site.css">
+
+  <!-- Structured Data: Article -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "Karakeep vs Keepfor.me: Self-Hosted Bookmarking and AI MCP Compared",
+    "description": "Evaluating Karakeep and Keepfor.me? Compare serverless Cloudflare edge self-hosting, multi-view visual browsing, hybrid semantic search, and 46 MCP tools.",
+    "mainEntityOfPage": {"@type": "WebPage", "@id": "https://keepfor.me/alternatives/karakeep/"},
+    "author": {"@type": "Organization", "name": "Keepfor.me", "url": "https://keepfor.me/"},
+    "publisher": {"@type": "Organization", "name": "Keepfor.me", "logo": {"@type": "ImageObject", "url": "https://keepfor.me/assets/og-preview.png"}},
+    "datePublished": "2026-11-10",
+    "image": "https://keepfor.me/assets/og-preview.png"
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Site Navigation -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
+        <svg width="28" height="28" viewBox="0 0 44 44" aria-hidden="true">
+          <defs>
+            <linearGradient id="header-logo" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#4f46e5"/>
+              <stop offset="100%" stop-color="#0ea5e9"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#header-logo)"/>
+          <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
+        </svg>
+        <span>Keepfor<span class="dot-me">.me</span></span>
+        <span class="brand-badge">Comparison</span>
+      </a>
+
+      <nav aria-label="Main Navigation">
+        <ul class="nav-links">
+          <li><a href="/" class="nav-link">Home</a></li>
+          <li><a href="#edge-vs-containers" class="nav-link">Architecture</a></li>
+          <li><a href="#mcp-and-search" class="nav-link">MCP &amp; Search</a></li>
+          <li><a href="#deciding" class="nav-link">Deciding</a></li>
+          <li><a href="/pricing/" class="nav-link">Pricing</a></li>
+          <li><a href="/self-host/" class="nav-link" style="color: var(--brand-indigo); font-weight: 700;">Self-Host Free</a></li>
+          <li class="mobile-only-auth"><a href="https://app.keepfor.me/auth/login" class="nav-link kfm-login-cta" data-kfm-cta="login">Log in</a></li>
+        </ul>
+      </nav>
+
+      <div class="header-actions">
+        <a href="https://app.keepfor.me/auth/login" class="btn-header-login kfm-login-cta" data-kfm-cta="login">
+          <span class="cta-label">Log in</span>
+        </a>
+        <a href="https://app.keepfor.me/auth/register" class="btn-header-cta kfm-primary-cta" data-kfm-cta="primary" aria-label="Start free trial">
+          <span class="cta-label">Start free trial</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <button class="mobile-toggle" aria-label="Toggle navigation menu" aria-expanded="false">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Page Header -->
+    <section class="pricing-page-header">
+      <div class="container">
+        <div class="hero-pill-badge">
+          <span class="sparkle">🛠️</span>
+          <span>Self-Hosting &amp; Architecture Comparison</span>
+        </div>
+
+        <h1 class="hero-title">
+          Karakeep vs Keepfor.me: <span class="gradient-text">Choosing Your Personal Vault</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          Evaluating Karakeep and Keepfor.me? Here is how Keepfor approaches visual card browsing, serverless Cloudflare edge self-hosting, hybrid semantic search, and native MCP integration.
+        </p>
+      </div>
+    </section>
+
+    <!-- Article Content -->
+    <section class="legal-section">
+      <div class="container">
+        <div class="legal-document-wrapper">
+          <article class="legal-document">
+            <div class="legal-meta-bar">
+              <span class="legal-updated">Architecture Guide · November 2026</span>
+              <a href="/" class="legal-back-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                <span>Back to Homepage</span>
+              </a>
+            </div>
+
+            <p>If you are comparing Karakeep and Keepfor.me, you are looking at two open-source (AGPL-3.0) self-hostable bookmark and read-it-later tools that take very different infrastructure paths. <strong>Karakeep</strong> (formerly known as Hoarder) is a self-hosted "bookmark-everything" app for links, notes, images, and PDFs. Its standard deployment runs on a server via Docker Compose using three containers (the Karakeep web app, Meilisearch for full-text search, and headless Chrome for page archival) with optional AI tagging through OpenAI or local Ollama models. <strong>Keepfor.me</strong> is built for distraction-free reading, hybrid semantic search, and an AI context vault (46 MCP tools) running entirely on serverless Cloudflare edge primitives with zero containers to maintain.</p>
+
+            <h2 id="visual-browsing">Visual density and calm long-form reading</h2>
+            <p>Keepfor's interface was designed with high-density browsing and visual polish in mind, combining visual card covers, multi-view layouts, and a pinned top shelf with a quiet reader view:</p>
+            <ul>
+              <li><strong>Multi-view library layouts:</strong> Switch between Grid, Compact List, and Magazine card views, with a pinned top shelf (<code>pin_item</code>) for active research and tag chips for instant filtering.</li>
+              <li><strong>Distraction-free reader mode:</strong> Every saved article is extracted with <code>trafilatura</code> and presented in Paper, Warm Sepia, or Night mode with customizable fonts (Sans, Serif, Mono) and font sizes.</li>
+              <li><strong>Dual HTML snapshots:</strong> Keepfor stores both the original HTML (<code>raw.html</code>) and sanitized reader HTML (<code>clean.html</code>) in Cloudflare R2 object storage, with visible extraction states (<code>Extracting...</code>, content, or explicit failure reasons).</li>
+              <li><strong>Highlights, notes, and collections:</strong> Save quick notes and snippets alongside web links, highlight passages anchored by character offsets, and organize items with collections and hierarchical tags (such as <code>work/research</code>).</li>
+            </ul>
+
+            <h2 id="edge-vs-containers">Serverless Cloudflare edge vs Docker Compose containers</h2>
+            <p>When self-hosting a personal library, the biggest operational question is what infrastructure you want to run. Karakeep's official Docker Compose setup runs a persistent Node.js web container, a Meilisearch container, and an Alpine headless Chrome container on your own VPS or home server. Keepfor.me is also licensed under <strong>AGPL-3.0-only</strong>, and runs without Docker containers or always-on virtual machines:</p>
+            <div class="mobile-table-hint">↔ Scroll horizontally to view</div>
+            <div class="comparison-table-wrap">
+              <table class="comparison-table">
+                <thead>
+                  <tr>
+                    <th class="col-feature">Keepfor.me Stack Layer</th>
+                    <th class="col-tier">Self-Host Free (AGPL-3.0)</th>
+                    <th class="col-tier">Managed Cloud (Personal &amp; Pro)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="col-feature">Compute runtime</td>
+                    <td>Cloudflare Python Workers (FastAPI on Pyodide)</td>
+                    <td>Fully managed Cloudflare edge isolates</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Database &amp; keyword search</td>
+                    <td>Your own D1 SQLite database with FTS5 BM25</td>
+                    <td>Dedicated tenant D1 shard with FTS5</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Snapshot storage</td>
+                    <td>Your own R2 bucket (raw &amp; clean HTML)</td>
+                    <td>Managed R2 storage included</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Semantic vector search</td>
+                    <td>Your own Vectorize index (768-dim BGE)</td>
+                    <td>Included on both Personal and Pro</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Remote MCP server</td>
+                    <td>Self-hosted at <code>/api/mcp</code> (46 MCP tools)</td>
+                    <td>Hosted at <code>app.keepfor.me/api/mcp</code> (46 MCP tools)</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Monthly price</td>
+                    <td>$0 (within Cloudflare free tier limits)</td>
+                    <td>Personal $5/mo ($55/yr); Pro $9/mo ($90/yr)</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p style="margin-top: 20px;">If you already run a home server or VPS and prefer container-based self-hosting, evaluate whether a container stack fits your setup better. If you prefer serverless edge infrastructure that scales to zero on Cloudflare's free tier (or want a managed cloud vault with zero maintenance), Keepfor is built specifically for that model.</p>
+
+            <h2 id="mcp-and-search">AI context vault: hybrid search and 46 MCP tools</h2>
+            <p>Keepfor treats AI assistants as first-class readers of your library alongside humans:</p>
+            <ul>
+              <li><strong>Hybrid search (RRF):</strong> Combines SQLite FTS5 BM25 keyword matching with Cloudflare Vectorize semantic embeddings concurrently. If an AI binding is ever slow, search degrades gracefully to keyword results rather than hanging.</li>
+              <li><strong>46 MCP tools over Streamable HTTP:</strong> Point Claude Desktop, Claude Code, Cursor, or opencode at <code>https://app.keepfor.me/api/mcp</code> with a Bearer Personal Access Token. Your assistant can search passages (<code>search_passages</code>), read full articles in token-efficient chunks (<code>read_item</code>), save batches of up to 50 URLs (<code>save_urls</code>), audit duplicate links and dead fetches (<code>find_cleanup</code>), and manage tags and collections.</li>
+              <li><strong>Built-in safety rails:</strong> Bulk MCP tools default to <code>dry_run=true</code> so an agent previews changes before writing, tokens support read-only or write scopes, and <code>delete_item</code> moves items to a 30-day restorable Trash instead of permanently deleting data.</li>
+            </ul>
+
+            <h2 id="pricing">Managed pricing and quotas</h2>
+            <p>If you prefer not to manage Wrangler bindings or D1 migrations yourself, Keepfor Cloud offers a 14-day free trial (no credit card required, 50 AI summaries and 20 ask-your-library queries per month) and two paid tiers:</p>
+            <ul>
+              <li><strong>Personal ($5/month or $55/year):</strong> Hosted MCP, hybrid semantic search, unlimited bookmarks and permanent R2 snapshots, 150 AI summaries per month, and 50 ask-your-library queries per month.</li>
+              <li><strong>Pro ($9/month or $90/year):</strong> Everything in Personal, plus higher AI quota and hosting scale: 1,000 AI summaries per month, 500 ask-your-library queries per month, and priority asynchronous extraction queue.</li>
+            </ul>
+
+            <h2 id="deciding">How to test with your own bookmarks</h2>
+            <p>Because Keepfor imports and exports standard Netscape Bookmark HTML, CSV, JSON, Markdown zip archives, Google Keep Takeout zips, and Evernote <code>.enex</code> files, you never have to commit blindly. Import a subset of your bookmarks into our <a href="https://oss.keepfor.me" target="_blank" rel="noopener noreferrer">Live OSS Demo</a>, <a href="/self-host/">self-host for free</a>, or start a 14-day free trial, and compare the reading and search experience firsthand. You can also review our <a href="/alternatives/best-read-it-later-apps-2026/">Best Read-It-Later Apps in 2026</a> guide.</p>
+
+            <p><em>Sources: Karakeep (formerly Hoarder) Docker Compose architecture, Meilisearch and headless Chrome services, and AGPL-3.0 license from docs.karakeep.app and github.com/karakeep-app/karakeep. Keepfor architecture, multi-view layout design, importer formats, and 46 MCP tools verified from the Keepfor open-source repository (<code>README.md</code>, <code>PRODUCT.md</code>, and <code>keepfor/mcp/server.py</code>). Pricing and quotas from <a href="/pricing/">keepfor.me/pricing</a>.</em></p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Banner -->
+    <section class="cta-banner-section">
+      <div class="container">
+        <div class="cta-banner-box">
+          <h2 class="cta-banner-title">Self-host on Cloudflare or start a free trial</h2>
+          <p class="cta-banner-desc">
+            Deploy the AGPL-3.0 open-source edition in five steps, or try the managed cloud vault free for 14 days with no credit card required.
+          </p>
+          <div class="cta-banner-actions">
+            <a href="https://app.keepfor.me/auth/register" class="btn-banner-primary kfm-primary-cta" data-kfm-cta="primary" aria-label="Start free trial">
+              <span class="cta-label">Start free trial</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+            <a href="/self-host/" class="btn-banner-secondary">
+              <span>Self-Host Free</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <!-- Col 1: Brand -->
+        <div class="footer-brand">
+          <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
+            <svg width="28" height="28" viewBox="0 0 44 44" aria-hidden="true">
+              <defs>
+                <linearGradient id="footer-logo" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#4f46e5"/>
+                  <stop offset="100%" stop-color="#0ea5e9"/>
+                </linearGradient>
+              </defs>
+              <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#footer-logo)"/>
+              <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
+            </svg>
+            <span>Keepfor<span class="dot-me">.me</span></span>
+            <span class="brand-badge">Comparison</span>
+          </a>
+          <p class="footer-tagline">
+            The personal library and AI context vault for developers and researchers. Fast, private, open core.
+          </p>
+        </div>
+
+        <!-- Col 2: Product -->
+        <div>
+          <div class="footer-col-title">Product</div>
+          <ul class="footer-col-links">
+            <li><a href="/#showcase">Context in Action</a></li>
+            <li><a href="/#pillars">Features</a></li>
+            <li><a href="/#mcp">Works with AI (MCP)</a></li>
+            <li><a href="/#reader">Reader Sanctuary</a></li>
+            <li><a href="/pricing/">Pricing &amp; Plans</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 3: Alternatives & Guides -->
+        <div>
+          <div class="footer-col-title">Alternatives</div>
+          <ul class="footer-col-links">
+            <li><a href="/alternatives/pocket/">Pocket Alternative</a></li>
+            <li><a href="/alternatives/omnivore/">Omnivore Alternative</a></li>
+            <li><a href="/alternatives/karakeep/">Karakeep Alternative</a></li>
+            <li><a href="/alternatives/readwise/">Readwise Alternative</a></li>
+            <li><a href="/alternatives/best-read-it-later-apps-2026/">Best Read-It-Later Apps 2026</a></li>
+            <li><a href="/keepfor-vs-raindrop/">Keepfor vs Raindrop.io</a></li>
+            <li><a href="/claude-mcp/">Claude MCP Guide</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 4: Open Source & Self-Host -->
+        <div>
+          <div class="footer-col-title">Open Source</div>
+          <ul class="footer-col-links">
+            <li><a href="/self-host/">Self-Host Free (5 Steps)</a></li>
+            <li><a href="https://oss.keepfor.me" target="_blank" rel="noopener noreferrer">Live OSS Demo</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me/blob/main/LICENSING.md" target="_blank" rel="noopener noreferrer">Licensing (AGPL-3.0)</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contributing</a></li>
+            <li><a href="https://donate.stripe.com/14AeVea8gcxp4ja0Za4Vy00" target="_blank" rel="noopener noreferrer">Support this project</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 5: Trust & Access -->
+        <div>
+          <div class="footer-col-title">Access &amp; Trust</div>
+          <ul class="footer-col-links">
+            <li><a href="https://app.keepfor.me/auth/register" class="kfm-primary-cta" data-kfm-cta="primary">Start Free Trial</a></li>
+            <li><a href="https://app.keepfor.me/auth/login" class="kfm-login-cta" data-kfm-cta="login">Log In</a></li>
+            <li><a href="/terms/">Terms of Service</a></li>
+            <li><a href="/privacy/">Privacy Policy</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>&copy; 2026 Keepfor.me. All rights reserved.</span>
+        <span>Open source under AGPL-3.0-only. Commercial licensing available upon request.</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast for feedback -->
+  <div id="copy-toast" role="status" aria-live="polite">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    <span id="copy-toast-msg">Copied!</span>
+  </div>
+
+  <script src="/assets/js/site.js"></script>
+</body>
+</html>
