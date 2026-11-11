@@ -1492,6 +1492,32 @@ button {
   gap: 14px;
 }
 
+.footer-badges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: 100%;
+}
+
+.footer-badges a {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.15s ease;
+}
+
+.footer-badges a:hover {
+  color: var(--brand-indigo);
+}
+
+.footer-badges img {
+  max-width: 100%;
+  height: auto;
+}
+
 .footer-edge-badge {
   display: inline-flex;
   align-items: center;
