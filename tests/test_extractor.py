@@ -965,3 +965,16 @@ def test_extract_article_large_rfc_html_streaming_and_fast(monkeypatch):
     assert "<pre><pre>" not in out["clean_html"]
     assert "<h1" not in out["clean_html"]
     assert out["blocked_reason"] is None
+
+
+def test_sanitize_clean_html_large_pre_code_no_stray_end_tag():
+    """Closing </code> inside <pre> must not emit a stray </code> end tag."""
+    padding = "<p>padding</p>" * 40_000  # > 512 KB to trigger streaming path
+    html = (
+        f"<div>{padding}<pre><code>foo</code></pre>"
+        "<p>inline <code>bar</code> text</p></div>"
+    )
+    clean = sanitize_clean_html(html)
+    assert "<pre>foo</pre>" in clean
+    assert "foo</code>" not in clean
+    assert "<p>inline <code>bar</code> text</p>" in clean

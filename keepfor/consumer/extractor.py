@@ -364,7 +364,7 @@ class _StreamingHTMLSanitizer(HTMLParser):
         if tag == "code":
             if self.code_depth > 0:
                 self.code_depth -= 1
-                if self.code_depth == 0:
+                if self.pre_depth == 0 and self.code_depth == 0:
                     self.html_chunks.append("</code>")
             return
 
