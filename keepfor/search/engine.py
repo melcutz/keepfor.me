@@ -341,9 +341,40 @@ LIBRARY_META_WORDS = frozenset(
 )
 
 
+_SYMBOL_TOKEN_RE = re.compile(r"[a-zA-Z0-9]+[+#][a-zA-Z0-9+#]*")
+
+
+def _split_symbol_tokens(query: str) -> tuple[list[str], str]:
+    """Extract technical tokens containing '+' or '#' (e.g. 'c++', 'c#', 'f#').
+
+    Returns (lowercased unique symbol tokens, query with those tokens replaced
+    by spaces) so they are matched literally instead of degrading to bare
+    single-letter FTS5 tokens.
+    """
+    symbols: list[str] = []
+
+    def _collect(match: re.Match[str]) -> str:
+        symbols.append(match.group(0).lower())
+        return " "
+
+    remainder = _SYMBOL_TOKEN_RE.sub(_collect, query)
+    return list(dict.fromkeys(symbols)), remainder
+
+
+def _is_single_ascii_letter(term: str) -> bool:
+    """True for a single ASCII letter ('z', 'e', 'x'), False for CJK or multi-char."""
+    return len(term) == 1 and term.isascii() and term.isalpha()
+
+
+def _filter_single_ascii(terms: list[str]) -> list[str]:
+    """Drop single-ASCII-letter tokens if a non-single-ASCII term exists."""
+    non_single = [t for t in terms if not _is_single_ascii_letter(t)]
+    return non_single if non_single else terms
+
+
 def _query_terms(query: str) -> list[str]:
     """The lowercased terms of a query (the tokens the FTS matcher sees)."""
-    clean = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
+    clean = "".join(c if (c.isalnum() or c.isspace()) else " " for c in query).strip()
     return [t.lower() for t in clean.split() if t]
 
 
@@ -360,10 +391,16 @@ def _content_terms(query: str) -> list[str]:
     The stopwords and the library words ("saved", "my", "library") name
     no content, so they are no keyword hit. A query made of these words
     only ("library") falls back to its raw words, so it still finds the
-    item titled with it.
+    item titled with it. Symbol-bearing tokens (e.g. 'c++', 'c#') are
+    handled literally outside FTS5, and single-ASCII-letter prefixes
+    (e.g. 'z' in 'z-wave') are dropped when paired with a main word.
     """
-    terms = _query_terms(query)
-    return _content_words(terms) or terms
+    symbols, remainder = _split_symbol_tokens(query)
+    raw_terms = _query_terms(remainder)
+    content = _content_words(raw_terms)
+    if symbols and not content:
+        return []
+    return _filter_single_ascii(content or raw_terms)
 
 
 # A content word of at least this many letters matches every word that
@@ -434,18 +471,33 @@ def _escape_and_highlight(raw: str, combined: re.Pattern[str] | None) -> str:
     return "".join(pieces)
 
 
+def _symbol_boundary_re(symbol: str) -> re.Pattern[str]:
+    """Case-insensitive boundary regex for literal symbol tokens like c++, c#, f#."""
+    return re.compile(
+        r"(?<![a-zA-Z0-9])" + re.escape(symbol) + r"(?![a-zA-Z0-9+#])",
+        re.IGNORECASE,
+    )
+
+
 def highlight_query_terms(text: str, terms: list[str]) -> str:
     """Highlights all query terms, stems and inflections with <mark> tags (#97).
 
     Preserves existing <mark> tags without nesting and escapes all non-mark
     HTML. Short words (< 3 chars) match whole words only; words >= 3 chars
-    match their inflections and stems consistent with #76.
+    match their inflections and stems consistent with #76. Symbol tokens
+    (e.g. 'c++', 'c#') match literally without highlighting bare letters.
     """
     if not text:
         return ""
     patterns = []
     for t in terms or []:
-        t_clean = "".join(c for c in t.strip().lower() if c.isalnum())
+        t_stripped = t.strip().lower()
+        if not t_stripped:
+            continue
+        if _SYMBOL_TOKEN_RE.fullmatch(t_stripped):
+            patterns.append(_symbol_boundary_re(t_stripped).pattern)
+            continue
+        t_clean = "".join(c for c in t_stripped if c.isalnum())
         if not t_clean:
             continue
         if len(t_clean) < MIN_PREFIX_LEN:
@@ -473,6 +525,81 @@ def highlight_query_terms(text: str, terms: list[str]) -> str:
     return "".join(out)
 
 
+async def _literal_symbol_hits(
+    db: Database,
+    user_id: str,
+    symbol: str,
+    limit: int,
+    *,
+    tags_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Items literally matching a symbol-bearing token (e.g. 'c++', 'c#', 'f#').
+
+    Matches case-insensitively with token boundaries across items.title,
+    items.content_text, and tags.name (including leading '#' tag forms like
+    '#c++' and '#c#').
+    """
+    pattern = _symbol_boundary_re(symbol)
+    like_param = f"%{symbol}%"
+    scan_limit = max(limit * 4, 200)
+    results: list[dict[str, Any]] = []
+
+    if not tags_only:
+        item_sql = """
+            SELECT id AS item_id, title, content_text, excerpt
+            FROM items
+            WHERE user_id = ? AND deleted_at IS NULL
+              AND (LOWER(title) LIKE ? OR LOWER(content_text) LIKE ?)
+            LIMIT ?;
+        """
+        try:
+            item_rows = await db.query_all(
+                item_sql, (user_id, like_param, like_param, scan_limit)
+            )
+        except Exception as exc:
+            logger.warning("Literal symbol item search failed: %s", exc)
+            item_rows = []
+        for r in item_rows:
+            if pattern.search(r.get("title") or "") or pattern.search(
+                r.get("content_text") or ""
+            ):
+                results.append(
+                    {
+                        "item_id": r["item_id"],
+                        "rank": -50.0,
+                        "snippet": r.get("excerpt"),
+                    }
+                )
+                if len(results) >= limit:
+                    break
+
+    tag_sql = """
+        SELECT it.item_id AS item_id, t.name AS tag_name
+        FROM tags t
+        JOIN item_tags it INDEXED BY idx_item_tags_tag ON it.tag_id = t.id
+        JOIN items i ON i.id = it.item_id
+        WHERE t.user_id = ? AND i.user_id = ? AND i.deleted_at IS NULL
+          AND LOWER(t.name) LIKE ?
+        LIMIT ?;
+    """
+    try:
+        tag_rows = await db.query_all(
+            tag_sql, (user_id, user_id, like_param, scan_limit)
+        )
+    except Exception as exc:
+        logger.warning("Literal symbol tag search failed: %s", exc)
+        tag_rows = []
+    seen_tags = 0
+    for r in tag_rows:
+        if pattern.search(r.get("tag_name") or ""):
+            results.append({"item_id": r["item_id"], "rank": None, "snippet": None})
+            seen_tags += 1
+            if seen_tags >= limit:
+                break
+
+    return results
+
+
 async def search_tag_hits(
     db: Database, user_id: str, query: str, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -494,25 +621,41 @@ async def search_tag_hits(
     live items of the user first (57 ms on a 2k-item library against
     0.1 ms with the tag index).
     """
+    symbols, _ = _split_symbol_tokens(query)
     terms = _content_terms(query)
-    if not terms:
+    if not terms and not symbols:
         return []
-    match = " OR ".join(_tag_word_match(term) for term in terms)
-    sql = f"""
-        SELECT it.item_id AS item_id
-        FROM tags t
-        JOIN item_tags it INDEXED BY idx_item_tags_tag ON it.tag_id = t.id
-        JOIN items i ON i.id = it.item_id
-        WHERE t.user_id = ? AND i.user_id = ? AND i.deleted_at IS NULL
-          AND ({match})
-        LIMIT ?;
-    """
-    try:
-        rows = await db.query_all(sql, (user_id, user_id, *terms, limit))
-    except Exception as exc:
-        logger.warning("Tag keyword search failed: %s", exc)
-        return []
-    return [{"item_id": r["item_id"], "rank": -1.0} for r in rows]
+    seen_ids: list[str] = []
+    seen_set: set[str] = set()
+    if terms:
+        match = " OR ".join(_tag_word_match(term) for term in terms)
+        sql = f"""
+            SELECT it.item_id AS item_id
+            FROM tags t
+            JOIN item_tags it INDEXED BY idx_item_tags_tag ON it.tag_id = t.id
+            JOIN items i ON i.id = it.item_id
+            WHERE t.user_id = ? AND i.user_id = ? AND i.deleted_at IS NULL
+              AND ({match})
+            LIMIT ?;
+        """
+        try:
+            rows = await db.query_all(sql, (user_id, user_id, *terms, limit))
+        except Exception as exc:
+            logger.warning("Tag keyword search failed: %s", exc)
+            rows = []
+        for r in rows:
+            item_id = r["item_id"]
+            if item_id not in seen_set:
+                seen_set.add(item_id)
+                seen_ids.append(item_id)
+    for sym in symbols:
+        sym_rows = await _literal_symbol_hits(db, user_id, sym, limit, tags_only=True)
+        for r in sym_rows:
+            item_id = r["item_id"]
+            if item_id not in seen_set:
+                seen_set.add(item_id)
+                seen_ids.append(item_id)
+    return [{"item_id": item_id, "rank": -1.0} for item_id in seen_ids[:limit]]
 
 
 async def _word_hits(
@@ -603,17 +746,25 @@ async def search_fts(
             logger.warning("URL search fallback failed: %s", exc)
             url_matches = []
 
-    # Escape special FTS characters
-    clean_q = "".join(c for c in query if c.isalnum() or c.isspace()).strip()
+    # Extract literal symbol tokens (e.g. 'c++', 'c#', 'f#') before FTS
+    # tokenization so they are matched literally instead of degrading to
+    # bare single letters (#132).
+    symbols, remainder = _split_symbol_tokens(query)
+    clean_q = "".join(
+        c if (c.isalnum() or c.isspace()) else " " for c in remainder
+    ).strip()
     # Only the content words of the query are matched (#63): the library
     # words ("saved", "my") are in the text of every item of a library,
     # so they prove nothing about the item. A content word matches the
     # words that start with it, so "llm" finds "LLMs" (#76).
-    raw_terms = _query_terms(query)
+    raw_terms = _query_terms(remainder)
     content = _content_words(raw_terms)
     # A word that is named twice counts once: "rust rust" holds one word.
-    terms = list(dict.fromkeys(content or raw_terms))
-    if not terms:
+    if symbols and not content:
+        terms: list[str] = []
+    else:
+        terms = list(dict.fromkeys(_filter_single_ascii(content or raw_terms)))
+    if not terms and not symbols:
         return url_matches[:limit]
 
     # The matches of every content word, in the text, the title and the
@@ -621,9 +772,9 @@ async def search_fts(
     # holds decides its place in the results (#87).
     fallback_rows: list[dict[str, Any]] = []
     try:
-        hits = await asyncio.gather(
-            *[_word_hits(db, user_id, term, limit) for term in terms]
-        )
+        tasks = [_word_hits(db, user_id, term, limit) for term in terms]
+        tasks.extend(_literal_symbol_hits(db, user_id, sym, limit) for sym in symbols)
+        hits = await asyncio.gather(*tasks)
     except Exception:
         # Fallback to simple title/url LIKE search if FTS query syntax error
         fallback_sql = """
@@ -637,7 +788,7 @@ async def search_fts(
         fallback_rows = await db.query_all(
             fallback_sql, (user_id, like_term, like_term, limit)
         )
-        hits = [[] for _ in terms]
+        hits = [[] for _ in range(len(terms) + len(symbols))]
 
     counts: dict[str, int] = {}
     scores: dict[str, float] = {}
@@ -687,13 +838,14 @@ async def search_fts(
         except Exception as exc:
             logger.warning("Multi-term snippet fetch failed: %s", exc)
 
+    highlight_terms = [*terms, *symbols]
     for item_id, snip in list(snippets.items()):
-        snippets[item_id] = highlight_query_terms(snip, terms)
+        snippets[item_id] = highlight_query_terms(snip, highlight_terms)
 
     # Only the content words count towards a partial match: the library
     # words ("saved", "my") are in the text of every item of a library,
     # so they prove nothing (#63, #87).
-    if content:
+    if content or symbols:
         for ids in matched:
             for item_id in ids:
                 counts[item_id] = counts.get(item_id, 0) + 1
@@ -724,19 +876,28 @@ async def search_fts(
             counts.get(item_id, 0),
         )
     for r in fallback_rows:
-        _add(r, len(terms))
+        _add(r, len(terms) + len(symbols))
 
-    if not content and len(terms) > 1:
+    if not content and not symbols and len(terms) > 1:
         # The query names no content ("my saved"): it matches as a whole,
         # like before. The items that hold every word are the matches; the
         # others only when none holds them all.
         strict = set.intersection(*matched)
         if strict:
             candidates = [c for c in candidates if c[0]["item_id"] in strict]
+    elif (
+        not symbols
+        and len(terms) > 1
+        and all(_is_single_ascii_letter(t) for t in terms)
+    ):
+        # All-single-ASCII queries like "r&d" must match every letter so
+        # single-letter-only items are excluded (#132).
+        strict = set.intersection(*matched)
+        candidates = [c for c in candidates if c[0]["item_id"] in strict]
 
     # The url matches the whole query: they come first.
     combined: list[tuple[dict[str, Any], int]] = [
-        (r, len(terms)) for r in url_matches
+        (r, len(terms) + len(symbols)) for r in url_matches
     ] + candidates
 
     out: list[tuple[dict[str, Any], int]] = []
@@ -769,28 +930,34 @@ async def search_fts_whole_words(
     ("saved", "my") are in the text of every item of a library, so they
     are no proof that the item is about what the query asks for.
     """
+    symbols, _ = _split_symbol_tokens(query)
     terms = _content_terms(query)
-    if not terms:
+    if not terms and not symbols:
         return set()
-    match = " OR ".join(_keyword_match(t) for t in terms)
-    sql = """
-        SELECT item_id FROM items_fts
-        WHERE items_fts MATCH ? AND user_id = ?
-          AND EXISTS (SELECT 1 FROM items i
-                      WHERE i.id = items_fts.item_id AND i.user_id = ?
-                        AND i.deleted_at IS NULL)
-        LIMIT ?;
-    """
-    try:
-        rows = await db.query_all(sql, (match, user_id, user_id, limit))
-    except Exception as exc:
-        logger.warning("Whole-word keyword search failed: %s", exc)
-        return set()
-    ids = {r["item_id"] for r in rows}
+    ids: set[str] = set()
+    if terms:
+        match = " OR ".join(_keyword_match(t) for t in terms)
+        sql = """
+            SELECT item_id FROM items_fts
+            WHERE items_fts MATCH ? AND user_id = ?
+              AND EXISTS (SELECT 1 FROM items i
+                          WHERE i.id = items_fts.item_id AND i.user_id = ?
+                            AND i.deleted_at IS NULL)
+            LIMIT ?;
+        """
+        try:
+            rows = await db.query_all(sql, (match, user_id, user_id, limit))
+            ids.update(r["item_id"] for r in rows)
+        except Exception as exc:
+            logger.warning("Whole-word keyword search failed: %s", exc)
+            return set()
     # The tags count as a keyword hit as well (#55).
     ids.update(
         r["item_id"] for r in await search_tag_hits(db, user_id, query, limit=limit)
     )
+    for sym in symbols:
+        sym_rows = await _literal_symbol_hits(db, user_id, sym, limit)
+        ids.update(r["item_id"] for r in sym_rows)
     return ids
 
 
@@ -1143,9 +1310,15 @@ async def hybrid_search(
     for tr in tag_rows:
         item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
 
-    query_terms = list(
-        dict.fromkeys(_content_words(_query_terms(query)) or _query_terms(query))
-    )
+    symbols, remainder = _split_symbol_tokens(query)
+    rem_terms = _query_terms(remainder)
+    rem_content = _content_words(rem_terms)
+    if symbols and not rem_content:
+        query_terms = list(symbols)
+    else:
+        query_terms = list(
+            dict.fromkeys([*_filter_single_ascii(rem_content or rem_terms), *symbols])
+        )
 
     # Assemble final list in RRF order
     final_items = []
