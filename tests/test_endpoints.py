@@ -738,7 +738,7 @@ async def test_import_without_queue_runs_in_background(
     row = await db.query_first("SELECT status, title FROM items;")
     assert row is not None
     assert row["status"] == "ok"
-    assert row["title"] == "Bg Article"
+    assert row["title"] == "BG"
 
 
 @pytest.mark.asyncio
@@ -1332,3 +1332,190 @@ async def test_reader_fallback_escapes_html_in_note_and_failed_item(
     assert "&lt;b&gt;bad reason&lt;/b&gt;" in failed_html
     assert "&#x27;onload=&#x27;alert(1)" in failed_html
     assert "'onload='alert(1)" not in failed_html
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["/api/save", "/api/items"])
+async def test_api_save_and_items_preserve_and_update_custom_title(
+    client, db, auth_headers, monkeypatch, endpoint
+):
+    """POST /api/save and POST /api/items store, preserve, and update custom titles."""
+    from keepfor.auth.service import create_pat
+    from keepfor.consumer.processor import extract_and_store
+    from keepfor.models.items import get_item
+    from keepfor.search.engine import search_fts
+
+    async def fake_fetch_and_extract(url, item_id, *, env=None, tenant_id=None):
+        return (
+            {
+                "title": "Page HTML Title",
+                "byline": "",
+                "site_name": "Example",
+                "published_date": None,
+                "content_text": "Article body text about distributed systems.",
+                "clean_html": "<p>Article body text about distributed systems.</p>",
+                "excerpt": "Article body text",
+                "image_url": None,
+                "word_count": 6,
+                "is_fallback": False,
+            },
+            "<html><title>Page HTML Title</title></html>",
+        )
+
+    monkeypatch.setattr(
+        "keepfor.consumer.processor._fetch_and_extract", fake_fetch_and_extract
+    )
+
+    user = auth_headers["admin_user"]
+    pat_data = await create_pat(db, user["id"], f"Title Token {endpoint}")
+    headers = {"Authorization": f"Bearer {pat_data['token']}"}
+    target_url = f"https://example.com/custom-title{endpoint.replace('/', '-')}"
+
+    # 1. Create with custom title
+    resp = client.post(
+        endpoint,
+        json={"url": target_url, "tags": ["systems"], "title": "My Custom Title"},
+        headers=headers,
+    )
+    assert resp.status_code == 202
+    created = resp.json()
+    assert created["is_new"] is True
+    assert created["title"] == "My Custom Title"
+
+    stored = await get_item(db, user["id"], created["id"])
+    assert stored is not None
+    assert stored["title"] == "My Custom Title"
+
+    # 2. Custom title survives extract_and_store
+    await extract_and_store(
+        db,
+        MockEnv(),
+        created["id"],
+        target_url,
+        user_id=user["id"],
+    )
+    after_extract = await get_item(db, user["id"], created["id"])
+    assert after_extract is not None
+    assert after_extract["title"] == "My Custom Title"
+
+    # 3. Re-save with a new non-bare-URL title updates stored title and FTS index
+    resave = client.post(
+        endpoint,
+        json={"url": target_url, "tags": ["systems"], "title": "Renamed Quantum Guide"},
+        headers=headers,
+    )
+    assert resave.status_code == 200
+    updated = resave.json()
+    assert updated["is_new"] is False
+    assert updated["title"] == "Renamed Quantum Guide"
+
+    after_resave = await get_item(db, user["id"], created["id"])
+    assert after_resave is not None
+    assert after_resave["title"] == "Renamed Quantum Guide"
+
+    fts_hits = await search_fts(db, user["id"], "Quantum")
+    assert any(hit["item_id"] == created["id"] for hit in fts_hits)
+
+
+@pytest.mark.asyncio
+async def test_save_popup_custom_title_and_fallback(
+    client, db, auth_headers, monkeypatch
+):
+    """POST /save-popup preserves custom titles and fills empty/bare-URL titles."""
+    from keepfor.consumer.processor import extract_and_store
+    from keepfor.models.items import get_item
+
+    async def fake_fetch_and_extract(url, item_id, *, env=None, tenant_id=None):
+        return (
+            {
+                "title": "Extracted Popup Title",
+                "byline": "",
+                "site_name": "Example",
+                "published_date": None,
+                "content_text": "Popup extracted body text.",
+                "clean_html": "<p>Popup extracted body text.</p>",
+                "excerpt": "Popup extracted body text.",
+                "image_url": None,
+                "word_count": 4,
+                "is_fallback": False,
+            },
+            "<html><title>Extracted Popup Title</title></html>",
+        )
+
+    monkeypatch.setattr(
+        "keepfor.consumer.processor._fetch_and_extract", fake_fetch_and_extract
+    )
+
+    user = auth_headers["admin_user"]
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+
+    # 1. Custom title is stored and preserved across extract_and_store
+    custom_url = "https://example.com/popup-custom"
+    resp_custom = client.post(
+        "/save-popup",
+        data={"url": custom_url, "title": "Bookmarklet Custom Title", "tags": "read"},
+    )
+    assert resp_custom.status_code == 200
+    row_custom = await db.query_first(
+        "SELECT id, title FROM items WHERE user_id = ? AND url = ?;",
+        (user["id"], custom_url),
+    )
+    assert row_custom is not None
+    assert row_custom["title"] == "Bookmarklet Custom Title"
+
+    await extract_and_store(
+        db,
+        MockEnv(),
+        row_custom["id"],
+        custom_url,
+        user_id=user["id"],
+    )
+    after_custom = await get_item(db, user["id"], row_custom["id"])
+    assert after_custom is not None
+    assert after_custom["title"] == "Bookmarklet Custom Title"
+
+    # 2. Empty title populates from extraction
+    empty_url = "https://example.com/popup-empty"
+    resp_empty = client.post(
+        "/save-popup",
+        data={"url": empty_url, "title": "", "tags": ""},
+    )
+    assert resp_empty.status_code == 200
+    row_empty = await db.query_first(
+        "SELECT id, title FROM items WHERE user_id = ? AND url = ?;",
+        (user["id"], empty_url),
+    )
+    assert row_empty is not None
+    await extract_and_store(
+        db,
+        MockEnv(),
+        row_empty["id"],
+        empty_url,
+        user_id=user["id"],
+    )
+    after_empty = await get_item(db, user["id"], row_empty["id"])
+    assert after_empty is not None
+    assert after_empty["title"] == "Extracted Popup Title"
+
+    # 3. Bare-URL title populates from extraction
+    bare_url = "https://example.com/popup-bare"
+    resp_bare = client.post(
+        "/save-popup",
+        data={"url": bare_url, "title": bare_url, "tags": ""},
+    )
+    assert resp_bare.status_code == 200
+    row_bare = await db.query_first(
+        "SELECT id, title FROM items WHERE user_id = ? AND url = ?;",
+        (user["id"], bare_url),
+    )
+    assert row_bare is not None
+    await extract_and_store(
+        db,
+        MockEnv(),
+        row_bare["id"],
+        bare_url,
+        user_id=user["id"],
+    )
+    after_bare = await get_item(db, user["id"], row_bare["id"])
+    assert after_bare is not None
+    assert after_bare["title"] == "Extracted Popup Title"

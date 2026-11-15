@@ -910,7 +910,13 @@ async def save_popup_post(
         raise HTTPException(status_code=400, detail="Invalid URL")
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     await save_item(
-        db, env, user["id"], clean_url, tag_list, scope=deps.get_scope(request)
+        db,
+        env,
+        user["id"],
+        clean_url,
+        tag_list,
+        title=title,
+        scope=deps.get_scope(request),
     )
     template = jinja_env.get_template("save_popup.html")
     html = template.render(url=clean_url, title=title, success=True, source=source)
