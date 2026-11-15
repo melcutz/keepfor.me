@@ -26,6 +26,7 @@ network the site does not block.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import re
@@ -81,19 +82,21 @@ FAVICON_TIMEOUT_S = 3.0
 FAVICON_MAX_BYTES = 256 * 1024
 FAVICON_MAX_AGE = 604800  # a real icon: keep it for a week
 ICON_MAX_AGE = 30 * 86400  # a cached icon is refreshed after a month
-# The fallback is never stored: this is only how long the browser keeps it
-# before asking again (the next ask may come from a signed-in visitor).
+NEGATIVE_CACHE_MAX_AGE = 86400  # negative/fallback outcomes: 24 hours
+# Browser cache lifetime for fallback responses.
 FALLBACK_MAX_AGE = 3600
 
 # Bounded in-memory isolate cache to avoid repeated R2 reads within an isolate.
 FAVICON_MEM_CACHE_MAX = 512
 FAVICON_MEM_CACHE_TTL = 3600.0  # 1 hour
 _FAVICON_MEM_CACHE: dict[str, tuple[bytes, str, float]] = {}
+_FAVICON_INFLIGHT: dict[str, asyncio.Future[tuple[bytes, str]]] = {}
 
 
 def clear_favicon_mem_cache() -> None:
-    """Clear the in-memory isolate cache for favicons (used in tests)."""
+    """Clear the in-memory isolate cache and in-flight coalescing state."""
     _FAVICON_MEM_CACHE.clear()
+    _FAVICON_INFLIGHT.clear()
 
 
 # Cache-miss rate limit. Every miss makes the Worker fetch an arbitrary
@@ -221,15 +224,13 @@ async def _fetch_upstream(host: str, env: Any = None) -> tuple[bytes, str] | Non
             content_type = _image_type(result.body)
             if content_type is not None:
                 return result.body, content_type
-        if result.status not in REFUSED_STATUSES:
-            return None
-        # The site refused us: its icon is public, so a public icon service
-        # can still fetch it -- from a network the site does not block.
+        # /favicon.ico did not yield a valid raster image (404, HTML/SVG, or
+        # CDN refusal): ask the configured public icon service before falling back.
         base = _icon_service(env)
         if not base:
             return None
         logger.info(
-            "favicon %s refused us (%s): asking the icon service",
+            "favicon %s unavailable (%s): asking the icon service",
             host,
             result.status,
         )
@@ -250,9 +251,15 @@ def _bucket(env: Any) -> Any:
     return None
 
 
+def _mem_cache_put(key: str, body: bytes, content_type: str, ttl: float) -> None:
+    """Store a favicon or negative fallback entry in the isolate memory cache."""
+    _FAVICON_MEM_CACHE.pop(key, None)
+    if len(_FAVICON_MEM_CACHE) >= FAVICON_MEM_CACHE_MAX:
+        _FAVICON_MEM_CACHE.pop(next(iter(_FAVICON_MEM_CACHE)), None)
+    _FAVICON_MEM_CACHE[key] = (body, content_type, time.time() + ttl)
+
+
 async def _cache_get(bucket: Any, key: str) -> tuple[bytes, str] | None:
-    if bucket is None:
-        return None
     now = time.time()
     cached = _FAVICON_MEM_CACHE.get(key)
     if cached is not None:
@@ -263,48 +270,66 @@ async def _cache_get(bucket: Any, key: str) -> tuple[bytes, str] | None:
             return body, ct
         _FAVICON_MEM_CACHE.pop(key, None)
 
+    if bucket is None:
+        return None
+
     try:
         obj = await bucket.get(key)
         if obj is None:
             return None
         payload = json.loads(await obj.text())
-        if payload.get("fallback"):
-            # A fallback entry from an older release: never served, refetched.
-            return None
         age = now - float(payload.get("ts", 0))
+        if payload.get("fallback"):
+            if age > NEGATIVE_CACHE_MAX_AGE:
+                return None
+            mem_ttl = min(FAVICON_MEM_CACHE_TTL, max(0.0, NEGATIVE_CACHE_MAX_AGE - age))
+            _mem_cache_put(key, FALLBACK_ICON, "image/png", mem_ttl)
+            return FALLBACK_ICON, "image/png"
         if age > ICON_MAX_AGE:
             return None  # stale: look again
         body = base64.b64decode(payload["b64"])
         content_type = str(payload["ct"])
-        if len(_FAVICON_MEM_CACHE) >= FAVICON_MEM_CACHE_MAX:
-            _FAVICON_MEM_CACHE.pop(next(iter(_FAVICON_MEM_CACHE)), None)
-        _FAVICON_MEM_CACHE[key] = (
-            body,
-            content_type,
-            now + FAVICON_MEM_CACHE_TTL,
-        )
+        _mem_cache_put(key, body, content_type, FAVICON_MEM_CACHE_TTL)
         return body, content_type
     except Exception:
         return None
 
 
-async def _cache_put(bucket: Any, key: str, body: bytes, content_type: str) -> None:
+async def _cache_put(
+    bucket: Any,
+    key: str,
+    body: bytes,
+    content_type: str,
+    *,
+    is_fallback: bool = False,
+) -> None:
+    mem_ttl = (
+        min(FAVICON_MEM_CACHE_TTL, NEGATIVE_CACHE_MAX_AGE)
+        if is_fallback
+        else FAVICON_MEM_CACHE_TTL
+    )
+    _mem_cache_put(key, body, content_type, mem_ttl)
     if bucket is None:
         return
-    _FAVICON_MEM_CACHE.pop(key, None)
     try:
-        # Base64 in a text blob: R2's binary put differs between runtimes,
-        # its text put does not.
-        payload = json.dumps(
-            {
-                "ct": content_type,
-                "b64": base64.b64encode(body).decode("ascii"),
-                "ts": time.time(),
+        if is_fallback:
+            payload = json.dumps({"fallback": True, "ts": time.time()})
+            options: dict[str, Any] = {
+                "httpMetadata": {"contentType": "application/json"},
+                "customMetadata": {"fallback": "true"},
             }
-        )
-        await bucket.put(
-            key, payload, {"httpMetadata": {"contentType": "application/json"}}
-        )
+        else:
+            # Base64 in a text blob: R2's binary put differs between runtimes,
+            # its text put does not.
+            payload = json.dumps(
+                {
+                    "ct": content_type,
+                    "b64": base64.b64encode(body).decode("ascii"),
+                    "ts": time.time(),
+                }
+            )
+            options = {"httpMetadata": {"contentType": "application/json"}}
+        await bucket.put(key, payload, options)
     except Exception:
         logger.warning("favicon cache write failed for %s", key, exc_info=True)
 
@@ -335,6 +360,28 @@ async def _consume_miss(db: Any, headers: Any, user_id: str | None) -> bool:
         return False
     await record_hits(db, list(limits), window_seconds=FAVICON_MISS_WINDOW_SECONDS)
     return True
+
+
+async def _resolve_favicon_miss(
+    host: str,
+    key: str,
+    bucket: Any,
+    env: Any,
+    *,
+    db: Any = None,
+    headers: Any = None,
+    user_id: str | None = None,
+) -> tuple[bytes, str]:
+    """Handle a favicon cache miss: rate-limit, fetch upstream, and cache."""
+    if not await _consume_miss(db, headers, user_id):
+        return FALLBACK_ICON, "image/png"
+    fetched = await _fetch_upstream(host, env)
+    if fetched is None:
+        await _cache_put(bucket, key, FALLBACK_ICON, "image/png", is_fallback=True)
+        return FALLBACK_ICON, "image/png"
+    body, content_type = fetched
+    await _cache_put(bucket, key, body, content_type)
+    return body, content_type
 
 
 async def resolve_favicon(
@@ -369,13 +416,22 @@ async def resolve_favicon(
     cached = await _cache_get(bucket, key)
     if cached is not None:
         return cached
-    if not await _consume_miss(db, headers, user_id):
-        return FALLBACK_ICON, "image/png"
-    fetched = await _fetch_upstream(host, env)
-    if fetched is None:
-        # No icon upstream: the fallback is never cached, so the site gets
-        # another chance on the next request.
-        return FALLBACK_ICON, "image/png"
-    body, content_type = fetched
-    await _cache_put(bucket, key, body, content_type)
-    return body, content_type
+    inflight = _FAVICON_INFLIGHT.get(key)
+    if inflight is not None and not inflight.done():
+        return await asyncio.shield(inflight)
+    fut = asyncio.get_running_loop().create_future()
+    _FAVICON_INFLIGHT[key] = fut
+    try:
+        result = await _resolve_favicon_miss(
+            host, key, bucket, env, db=db, headers=headers, user_id=user_id
+        )
+        if not fut.done():
+            fut.set_result(result)
+        return result
+    except BaseException:
+        if not fut.done():
+            fut.cancel()
+        raise
+    finally:
+        if _FAVICON_INFLIGHT.get(key) is fut:
+            _FAVICON_INFLIGHT.pop(key, None)

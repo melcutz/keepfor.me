@@ -11,6 +11,7 @@ holds that domain.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import struct
 import time
@@ -25,14 +26,27 @@ from keepfor.models.items import save_item
 from keepfor.utils import rate_limit as rl
 from keepfor.utils.egress import FetchResult
 from keepfor.utils.favicon import (
+    _FAVICON_INFLIGHT,
+    _FAVICON_MEM_CACHE,
     FALLBACK_ICON,
     FAVICON_MAX_MISSES_PER_IP,
     FAVICON_MAX_MISSES_PER_USER,
     FAVICON_MISS_WINDOW_SECONDS,
+    NEGATIVE_CACHE_MAX_AGE,
+    clear_favicon_mem_cache,
     favicon_url,
     normalize_host,
+    resolve_favicon,
 )
 from tests.fakes import FakeR2Bucket
+
+
+@pytest.fixture(autouse=True)
+def _clear_favicon_cache():
+    """Keep the isolate favicon memory cache isolated between tests."""
+    clear_favicon_mem_cache()
+    yield
+    clear_favicon_mem_cache()
 
 
 def _png() -> bytes:
@@ -178,9 +192,45 @@ async def test_favicon_route_falls_back_when_the_site_has_no_icon(client, db, ca
     assert response.status_code == 200
     assert response.content == FALLBACK_ICON
     assert response.headers["content-type"].startswith("image/png")
-    # A 404 means "this site has no icon", not "we were refused": no third
-    # party is asked about it.
-    assert recorded == ["https://example.com/favicon.ico"]
+    assert recorded == [
+        "https://example.com/favicon.ico",
+        "https://icons.duckduckgo.com/ip3/example.com.ico",
+    ]
+
+
+async def test_404_and_non_raster_consult_icon_service(client, db, monkeypatch):
+    """404 or HTML/SVG on /favicon.ico falls back to the configured icon service."""
+    recorded: list[str] = []
+
+    async def fake_fetch(url, headers, policy, **kwargs):
+        recorded.append(url)
+        if url == "https://svgonly.com/favicon.ico":
+            return FetchResult(
+                text="<svg/>", status=200, url=url, headers={}, body=b"<svg/>"
+            )
+        if url.endswith("/favicon.ico"):
+            return FetchResult(text="", status=404, url=url, headers={}, body=b"")
+        return FetchResult(text="", status=200, url=url, headers={}, body=ICO)
+
+    monkeypatch.setattr("keepfor.utils.favicon.fetch_limited", fake_fetch)
+    await _sign_in(client, db)
+
+    res_404 = client.get("/favicons/notfound.com")
+    assert res_404.status_code == 200
+    assert res_404.content == ICO
+    assert res_404.headers["content-type"].startswith("image/x-icon")
+
+    res_svg = client.get("/favicons/svgonly.com")
+    assert res_svg.status_code == 200
+    assert res_svg.content == ICO
+    assert res_svg.headers["content-type"].startswith("image/x-icon")
+
+    assert recorded == [
+        "https://notfound.com/favicon.ico",
+        "https://icons.duckduckgo.com/ip3/notfound.com.ico",
+        "https://svgonly.com/favicon.ico",
+        "https://icons.duckduckgo.com/ip3/svgonly.com.ico",
+    ]
 
 
 def _refusing_site(monkeypatch, *, service_body=ICO):
@@ -327,35 +377,94 @@ async def test_signed_in_miss_fetches_and_caches_the_real_icon(r2_client, db, ca
     assert bucket.puts == ["favicons/example.com"]
 
 
-async def test_signed_in_miss_with_a_failing_fetch_never_writes(
+async def test_signed_in_miss_with_a_failing_fetch_caches_negative_fallback(
     r2_client, db, monkeypatch
 ):
-    """A failed fetch yields the fallback and writes nothing to the cache."""
+    """A failed fetch yields the fallback and caches a negative entry in mem + R2."""
     client, bucket = r2_client
+    fetch_calls = 0
 
     async def boom(url, headers, policy, **kwargs):
+        nonlocal fetch_calls
+        fetch_calls += 1
         raise RuntimeError("network down")
 
     monkeypatch.setattr("keepfor.utils.favicon.fetch_limited", boom)
     await _sign_in(client, db)
-    response = client.get("/favicons/example.com")
-    assert response.status_code == 200
-    assert response.content == FALLBACK_ICON
-    assert bucket.puts == []
+    row = await db.query_first("SELECT id FROM users;")
+    user_id = row["id"]
+
+    first = client.get("/favicons/example.com")
+    assert first.status_code == 200
+    assert first.content == FALLBACK_ICON
+    assert fetch_calls == 1
+    assert await _miss_hits(db, user_id) == 1
+    assert bucket.puts == ["favicons/example.com"]
+    assert bucket.metadata["favicons/example.com"].get("customMetadata") == {
+        "fallback": "true"
+    }
+    payload = json.loads(bucket.store["favicons/example.com"])
+    assert payload["fallback"] is True
+    assert isinstance(payload["ts"], (int, float))
+
+    # Second signed-in request within TTL: no upstream fetches or rate_limits writes
+    second = client.get("/favicons/example.com")
+    assert second.status_code == 200
+    assert second.content == FALLBACK_ICON
+    assert fetch_calls == 1
+    assert await _miss_hits(db, user_id) == 1
 
 
-async def test_a_fallback_is_never_cached(r2_client, db, calls):
-    """A site without an icon is asked again, but nothing is written to R2."""
+async def test_negative_fallback_is_cached_in_mem_and_r2(r2_client, db, calls):
+    """A 404 domain is negatively cached in both _FAVICON_MEM_CACHE and R2."""
     client, bucket = r2_client
     recorded = calls(status=404, body=b"")
     await _sign_in(client, db)
+    row = await db.query_first("SELECT id FROM users;")
+    user_id = row["id"]
+
     first = client.get("/favicons/example.com")
-    second = client.get("/favicons/example.com")
+    assert first.status_code == 200
     assert first.content == FALLBACK_ICON
+    assert len(recorded) == 2  # /favicon.ico + icon service
+    assert await _miss_hits(db, user_id) == 1
+    assert bucket.puts == ["favicons/example.com"]
+    assert "favicons/example.com" in _FAVICON_MEM_CACHE
+
+    # Second request hits _FAVICON_MEM_CACHE: zero upstream fetches, zero miss hits
+    recorded.clear()
+    second = client.get("/favicons/example.com")
     assert second.content == FALLBACK_ICON
-    assert len(recorded) == 2  # no cached fallback stops the retry
-    assert bucket.puts == []
-    assert bucket.store == {}
+    assert recorded == []
+    assert await _miss_hits(db, user_id) == 1
+
+    # New isolate (mem cache cleared) still hits R2 negative cache: no fetches
+    clear_favicon_mem_cache()
+    third = client.get("/favicons/example.com")
+    assert third.content == FALLBACK_ICON
+    assert recorded == []
+    assert await _miss_hits(db, user_id) == 1
+
+
+async def test_expired_negative_r2_entry_is_refetched(r2_client, db, calls):
+    """An expired negative R2 entry is refetched when its TTL lapses."""
+    client, bucket = r2_client
+    recorded = calls(status=404, body=b"")
+    await _sign_in(client, db)
+    assert client.get("/favicons/example.com").content == FALLBACK_ICON
+    assert len(recorded) == 2
+
+    payload = json.loads(bucket.store["favicons/example.com"])
+    payload["ts"] -= NEGATIVE_CACHE_MAX_AGE + 1
+    bucket.store["favicons/example.com"] = json.dumps(payload).encode()
+    clear_favicon_mem_cache()
+    recorded.clear()
+
+    # Now the site has an icon
+    recorded = calls(status=200, body=PNG)
+    res = client.get("/favicons/example.com")
+    assert res.content == PNG
+    assert recorded == ["https://example.com/favicon.ico"]
 
 
 async def test_a_stale_cached_icon_is_refetched(r2_client, db, calls):
@@ -367,6 +476,7 @@ async def test_a_stale_cached_icon_is_refetched(r2_client, db, calls):
     payload = json.loads(bucket.store["favicons/example.com"])
     payload["ts"] -= 31 * 86400
     bucket.store["favicons/example.com"] = json.dumps(payload).encode()
+    clear_favicon_mem_cache()
     recorded.clear()
     assert client.get("/favicons/example.com").content == PNG
     assert len(recorded) == 1
@@ -460,16 +570,64 @@ async def test_anonymous_response_is_identical_for_cached_and_uncached(
     recorded = calls()
     await _sign_in(client, db)
     assert client.get("/favicons/cached.com").content == PNG
+    recorded_404 = calls(status=404, body=b"")
+    assert client.get("/favicons/negcached.com").content == FALLBACK_ICON
+    assert len(recorded_404) == 2
     client.cookies.clear()  # anonymous from now on
     recorded.clear()
+    recorded_404.clear()
 
     cached = client.get("/favicons/cached.com")
+    negcached = client.get("/favicons/negcached.com")
     uncached = client.get("/favicons/uncached.com")
-    assert cached.status_code == uncached.status_code == 200
-    assert cached.content == uncached.content == FALLBACK_ICON
-    assert dict(cached.headers) == dict(uncached.headers)
+    assert cached.status_code == negcached.status_code == uncached.status_code == 200
+    assert cached.content == negcached.content == uncached.content == FALLBACK_ICON
+    assert dict(cached.headers) == dict(negcached.headers) == dict(uncached.headers)
     assert recorded == []
-    assert bucket.puts == ["favicons/cached.com"]
+    assert recorded_404 == []
+    assert bucket.puts == ["favicons/cached.com", "favicons/negcached.com"]
+
+
+async def test_concurrent_signed_in_misses_coalesce_via_inflight(monkeypatch):
+    """Concurrent signed-in misses for the same host coalesce into one fetch."""
+    bucket = FakeR2Bucket()
+    env = MockEnv(bucket)
+    fetch_count = 0
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_fetch(url, headers, policy, **kwargs):
+        nonlocal fetch_count
+        fetch_count += 1
+        started.set()
+        await release.wait()
+        return FetchResult(text="", status=200, url=url, headers={}, body=PNG)
+
+    monkeypatch.setattr("keepfor.utils.favicon.fetch_limited", slow_fetch)
+
+    t1 = asyncio.create_task(resolve_favicon("burst.com", env, may_fetch=True))
+    await started.wait()
+    assert "favicons/burst.com" in _FAVICON_INFLIGHT
+
+    t2 = asyncio.create_task(resolve_favicon("burst.com", env, may_fetch=True))
+    t3 = asyncio.create_task(resolve_favicon("burst.com", env, may_fetch=True))
+    await asyncio.sleep(0)
+    release.set()
+
+    results = await asyncio.gather(t1, t2, t3)
+    assert all(r == (PNG, "image/png") for r in results)
+    assert fetch_count == 1
+    assert bucket.puts == ["favicons/burst.com"]
+    assert _FAVICON_INFLIGHT == {}
+
+
+def test_clear_favicon_mem_cache_clears_cache_and_inflight():
+    """clear_favicon_mem_cache clears both _FAVICON_MEM_CACHE and _FAVICON_INFLIGHT."""
+    _FAVICON_MEM_CACHE["favicons/a.com"] = (PNG, "image/png", time.time() + 60)
+    _FAVICON_INFLIGHT["favicons/b.com"] = None  # type: ignore[assignment]
+    clear_favicon_mem_cache()
+    assert _FAVICON_MEM_CACHE == {}
+    assert _FAVICON_INFLIGHT == {}
 
 
 async def test_a_favicon_miss_keeps_the_live_auth_counter(r2_client, db, calls):
