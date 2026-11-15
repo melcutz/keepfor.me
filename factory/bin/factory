@@ -21,6 +21,7 @@ from factory.lib.pipeline import (
     run_doctor,
     run_factory,
 )
+from factory.lib.project_board import create_factory_board
 from factory.lib.state import list_jobs, load_job
 
 
@@ -45,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
     p_gate.add_argument("round", nargs="?", type=int, default=1, help="Round number (default: 1)")
 
     sub.add_parser("doctor", help="Verify git, gh, agy, config.json, checks.sh, and .gitignore")
+
+    p_board = sub.add_parser("init-board", help="Create a generic 'Factory' GitHub Project board")
+    p_board.add_argument("--owner", default="@me", help="GitHub owner login (default: @me)")
+    p_board.add_argument("--title", default="Factory", help="Project title (default: Factory)")
 
     args = parser.parse_args(argv)
     factory_dir = os.path.join(REPO_ROOT, "factory")
@@ -88,6 +93,13 @@ def main(argv: list[str] | None = None) -> int:
         for msg in messages:
             print(msg)
         return 0 if ok else 1
+
+    if args.command == "init-board":
+        res = create_factory_board(owner=args.owner, title=args.title, cwd=REPO_ROOT)
+        proj = res["project"]
+        verb = "Created" if res["created"] else "Already exists"
+        print(f"{verb}: {proj.get('title', args.title)} ({proj.get('url', '')})")
+        return 0
 
     return 1
 

@@ -24,6 +24,7 @@ from factory.lib.gate_runner import (
     run_gate,
     select_pre_merge_gate_scope,
 )
+from factory.lib.project_board import ProjectBoardSync
 from factory.lib.git_ops import (
     GitHubClient,
     _run_git,
@@ -1518,6 +1519,7 @@ def process_job(
     config: dict | None = None,
     gh: GitHubClient | None = None,
     train_coordinator: StagingTrainCoordinator | None = None,
+    board: ProjectBoardSync | None = None,
 ) -> dict:
     """Drive one GitHub issue from its current/resumed stage until paused or completed."""
     repo_root = os.path.abspath(repo_root)
@@ -1525,6 +1527,7 @@ def process_job(
     jobs_dir = os.path.join(factory_dir, "jobs")
     cfg = config or load_config(factory_dir)
     gh_client = gh or GitHubClient(repo_root)
+    board_sync = board if board is not None else ProjectBoardSync.discover(repo_root)
     labels = cfg["labels"]
     base_branch = cfg["base_branch"]
     timeout_sec = int(cfg["agent_timeout_sec"])
@@ -1540,10 +1543,13 @@ def process_job(
         max_qa_rounds=max_qa_rounds,
     )
     job_id = job["id"]
+    issue_url = job.get("issue_url") or issue_data.get("url", "")
     jdir = os.path.join(jobs_dir, job_id)
     _write_text(os.path.join(jdir, "issue.md"), issue_md)
 
     if action == "skip":
+        if board_sync:
+            board_sync.sync_stage(issue_url, job["stage"])
         try:
             gh_client.edit_labels(issue_number, remove=[labels["queue"]])
         except Exception as exc:
@@ -1562,6 +1568,8 @@ def process_job(
             job = load_job(jobs_dir, job_id)
             branch = job.get("branch") or f"factory/{job_id}"
             stage = job["stage"]
+            if board_sync:
+                board_sync.sync_stage(issue_url, stage)
             if stage in TERMINAL_OR_READY_STAGES or stage in {"needs-info", "needs-human"}:
                 return job
 
@@ -2267,6 +2275,12 @@ def process_job(
         raise
     finally:
         _set_activity(jobs_dir, job_id, None)
+        if board_sync:
+            try:
+                final_job = load_job(jobs_dir, job_id)
+                board_sync.sync_stage(final_job.get("issue_url") or issue_url, final_job["stage"])
+            except Exception:
+                pass
 
 
 def _plan_queue_batch(
@@ -2336,6 +2350,7 @@ def run_factory(
     pid_path = os.path.join(jobs_dir, ".factory.pid")
     cfg = load_config(factory_dir)
     gh = GitHubClient(repo_root)
+    board = ProjectBoardSync.discover(repo_root)
 
     explicit_nums: list[int] = []
     if issue_number is not None:
@@ -2346,7 +2361,7 @@ def run_factory(
     _write_text(pid_path, f"{os.getpid()}\n")
     try:
         if len(explicit_nums) == 1:
-            return [process_job(repo_root, explicit_nums[0], config=cfg, gh=gh)]
+            return [process_job(repo_root, explicit_nums[0], config=cfg, gh=gh, board=board)]
 
         sqa_cfg = cfg.get("staging_qa") or {}
         train_coord: StagingTrainCoordinator | None = None
@@ -2385,8 +2400,9 @@ def run_factory(
                         config=cfg,
                         gh=gh,
                         train_coordinator=train_coord,
+                        board=board,
                     )
-                return process_job(repo_root, num, config=cfg, gh=gh)
+                return process_job(repo_root, num, config=cfg, gh=gh, board=board)
             except Exception as exc:
                 print(f"[issue-{num}] error before job state could escalate: {exc}", file=sys.stderr)
                 return None
@@ -2432,6 +2448,8 @@ def run_factory(
                         waiting_on=order_deps.get(item_num),
                         pid=runner_pid,
                     )
+                    if board:
+                        board.sync_stage(item.get("url", ""), "queued")
 
                 sorter = graphlib.TopologicalSorter(order_deps)
                 sorter.prepare()
