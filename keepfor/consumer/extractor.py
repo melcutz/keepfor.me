@@ -886,8 +886,181 @@ def _is_nav_junk(text: str) -> bool:
     return nav_count / n > 0.30
 
 
-def extract_article(html: str, url: str) -> dict[str, Any]:
+_BINARY_MEDIA_PREFIXES = (
+    "image/",
+    "audio/",
+    "video/",
+    "font/",
+    "application/vnd.openxmlformats-officedocument.",
+)
+_BINARY_MEDIA_TYPES = frozenset(
+    {
+        "application/pdf",
+        "application/octet-stream",
+        "application/zip",
+        "application/gzip",
+        "application/x-gzip",
+        "application/x-tar",
+        "application/x-bzip2",
+        "application/x-xz",
+        "application/x-7z-compressed",
+        "application/x-rar-compressed",
+        "application/wasm",
+        "application/msword",
+        "application/vnd.ms-excel",
+        "application/vnd.ms-powerpoint",
+    }
+)
+_PLAIN_TEXT_MEDIA_TYPES = frozenset(
+    {
+        "text/plain",
+        "text/markdown",
+        "text/x-markdown",
+        "text/x-rst",
+        "text/restructuredtext",
+        "text/asciidoc",
+        "text/csv",
+        "text/tab-separated-values",
+    }
+)
+_HTML_STRUCTURE_RE = re.compile(
+    r"<!doctype\s+html\b|<(?:"
+    r"html|head|body|article|main|section|div|p|h[1-6]|"
+    r"ul|ol|li|table|meta|title|script|style|form|nav|header|footer|"
+    r"blockquote|pre"
+    r")(?:\s|>|/>)",
+    re.IGNORECASE,
+)
+_ATX_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)(?:\s+#+)?$")
+_RST_UNDERLINE_RE = re.compile(r'^([=\-~^*#"])\1{2,}\s*$')
+
+
+def _parse_media_type(content_type: str | None) -> str:
+    """Return lowercased media type without parameters, or empty string."""
+    if not content_type:
+        return ""
+    return content_type.split(";", 1)[0].strip().lower()
+
+
+def _detect_binary_reason(text: str, media_type: str) -> str | None:
+    """Return a rejection reason if Content-Type or bytes indicate binary data."""
+    if media_type and (
+        media_type in _BINARY_MEDIA_TYPES
+        or media_type.startswith(_BINARY_MEDIA_PREFIXES)
+    ):
+        return f"binary content ({media_type})"
+    sample = (text or "")[:8192]
+    if "\x00" in sample:
+        return "binary payload (nul bytes)"
+    if sample:
+        bad = sum(
+            1
+            for ch in sample
+            if ch == "\ufffd" or (not ch.isprintable() and ch not in "\n\r\t")
+        )
+        if bad / len(sample) > 0.10:
+            return "binary payload (non-printable bytes)"
+    return None
+
+
+def _binary_rejected_article(url: str, reason: str) -> dict[str, Any]:
+    """Build a rejected extraction result for binary payloads."""
+    return {
+        "title": url,
+        "byline": None,
+        "site_name": urlparse(url).netloc or None,
+        "published_date": None,
+        "excerpt": None,
+        "content_text": "",
+        "clean_html": "",
+        "is_fallback": 1,
+        "word_count": 0,
+        "image_url": None,
+        "language": None,
+        "blocked_reason": reason,
+        "redirect_url": None,
+    }
+
+
+def _derive_plain_text_title(text: str, url: str) -> str:
+    """Derive a title from Markdown/RST headings, first line, or URL filename."""
+    lines = (text or "").splitlines()
+    first_line: str | None = None
+    checked = 0
+    for idx, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line:
+            continue
+        checked += 1
+        if checked > 20:
+            break
+        atx = _ATX_HEADING_RE.match(line)
+        if atx:
+            return atx.group(1).strip()
+        if not _RST_UNDERLINE_RE.match(line):
+            if idx + 1 < len(lines) and _RST_UNDERLINE_RE.match(lines[idx + 1].strip()):
+                return line
+            if first_line is None:
+                first_line = line
+
+    if first_line and len(first_line) <= 140:
+        return first_line
+    filename = urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
+    if filename:
+        return filename
+    if first_line:
+        return first_line[:140]
+    return url
+
+
+def _extract_plain_text_article(text: str, url: str) -> dict[str, Any]:
+    """Extract a plain-text, Markdown, or RST document as readable prose."""
+    title = _derive_plain_text_title(text, url)
+    plain_text = _clean_plain_text(text)
+    paragraphs = [
+        f"<p>{html_module.escape(para.strip(), quote=True)}</p>"
+        for para in re.split(r"\r?\n\s*\r?\n", text or "")
+        if para.strip()
+    ]
+    clean_html = _normalize_text_nodes("".join(paragraphs))
+    word_count = len(plain_text.split())
+    collapsed = re.sub(r"\s+", " ", plain_text)
+    excerpt = collapsed[:300] if collapsed else None
+
+    return {
+        "title": title,
+        "byline": None,
+        "site_name": urlparse(url).netloc or None,
+        "published_date": None,
+        "excerpt": excerpt,
+        "content_text": plain_text,
+        "clean_html": clean_html,
+        "is_fallback": 0,
+        "word_count": word_count,
+        "image_url": None,
+        "language": None,
+        "blocked_reason": detect_blocked_page(title, plain_text, None),
+        "redirect_url": None,
+    }
+
+
+def extract_article(
+    html: str, url: str, *, content_type: str | None = None
+) -> dict[str, Any]:
     """Extract article content and reader HTML with Trafilatura and OG fallback."""
+    media_type = _parse_media_type(content_type)
+    binary_reason = _detect_binary_reason(html, media_type)
+    if binary_reason:
+        return _binary_rejected_article(url, binary_reason)
+    if media_type in _PLAIN_TEXT_MEDIA_TYPES:
+        return _extract_plain_text_article(html, url)
+    if (
+        not media_type
+        and (html or "").strip()
+        and not _HTML_STRUCTURE_RE.search((html or "")[:16384])
+    ):
+        return _extract_plain_text_article(html, url)
+
     if _is_youtube_url(url):
         return extract_youtube_article(html, url)
     if _is_github_url(url):
