@@ -19,7 +19,12 @@ from tests.fakes import FakeAI, FakeEnv, FakeQueue, FakeR2Bucket, FakeVectorize
 @pytest.fixture
 def db_path() -> str:
     """Create a temporary SQLite database for testing."""
-    fd, path = tempfile.mkstemp(suffix=".db")
+    tmpdir = (
+        "/dev/shm"
+        if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK)
+        else None
+    )
+    fd, path = tempfile.mkstemp(suffix=".db", dir=tmpdir)
     os.close(fd)
     yield path
     # Cleanup
@@ -33,6 +38,8 @@ def sqlite_conn(db_path: str) -> sqlite3.Connection:
     # Use check_same_thread=False to allow async code to use the connection
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA synchronous = OFF")
+    conn.execute("PRAGMA journal_mode = MEMORY")
 
     # Apply every migration in filename order (0001_..., 0002_...).
     # Previously this hardcoded 0001 only, so later migrations (e.g. the
