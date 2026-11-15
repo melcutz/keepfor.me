@@ -6,6 +6,7 @@ import hashlib
 import html
 import io
 import json
+import math
 import re
 import time
 import zipfile
@@ -31,12 +32,66 @@ from keepfor.models.imports import (
 from keepfor.models.items import _send_extraction_batch, save_item, save_note
 from keepfor.utils.url import canonicalize_url
 
+_NUMERIC_TS_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+_CSV_TIMESTAMP_COLUMNS = ("created", "created_at", "add_date", "time_added")
+
+
+def _parse_bookmark_timestamp(value: Any) -> str | None:
+    """Parse a Unix epoch or ISO-8601 timestamp into UTC 'YYYY-MM-DD HH:MM:SS'."""
+    if value is None or isinstance(value, bool):
+        return None
+    ts: float | None = None
+    if isinstance(value, (int, float)):
+        ts = float(value)
+    else:
+        raw = str(value).strip()
+        if not raw:
+            return None
+        if _NUMERIC_TS_RE.match(raw):
+            ts = float(raw)
+        else:
+            iso = f"{raw[:-1]}+00:00" if raw.endswith(("Z", "z")) else raw
+            try:
+                dt = datetime.fromisoformat(iso)
+            except ValueError:
+                return None
+            dt = (
+                dt.replace(tzinfo=timezone.utc)
+                if dt.tzinfo is None
+                else dt.astimezone(timezone.utc)
+            )
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    if not math.isfinite(ts) or ts < 0:
+        return None
+    try:
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def _netscape_folder_tags(anchor: Any) -> list[str]:
+    """Collect enclosing <DL> ancestor <H3> folder names outer-to-inner."""
+    folders: list[str] = []
+    for dl in reversed(anchor.find_parents("dl")):
+        header = None
+        prev = dl.find_previous_sibling(["h3", "dt"])
+        if prev is not None:
+            header = prev if prev.name == "h3" else prev.find("h3", recursive=False)
+        elif dl.parent is not None and dl.parent.name == "dt":
+            header = dl.parent.find("h3", recursive=False)
+        if header is not None:
+            folder = header.get_text().strip().lower()
+            if folder:
+                folders.append(folder)
+    return folders
+
 
 def parse_netscape_bookmarks(html_content: str) -> list[dict[str, Any]]:
     """Parse Netscape Bookmark HTML exported by Pocket, Omnivore, or browsers.
 
-    Browser exports group links under <H3> folder headers; the enclosing
-    folder name is kept as a tag so Chrome categories survive the import.
+    Browser exports group links under <H3> folder headers; enclosing ancestor
+    folder names are kept as tags so nested categories survive the import.
     """
     # Imported here, not at module scope: this module is imported by the FastAPI
     # app, and bs4 pulls lxml into every request's cold start (~0.1s measured).
@@ -57,12 +112,18 @@ def parse_netscape_bookmarks(html_content: str) -> list[dict[str, Any]]:
         tags_val = a.get("tags") or ""
         tags_raw = tags_val if isinstance(tags_val, str) else str(tags_val)
         tags = [t.strip().lower() for t in tags_raw.split(",") if t.strip()]
-        folder_header = a.find_previous("h3")
-        if folder_header:
-            folder = folder_header.get_text().strip().lower()
-            if folder and folder not in tags:
+        for folder in _netscape_folder_tags(a):
+            if folder not in tags:
                 tags.append(folder)
-        bookmarks.append({"url": href, "title": title, "tags": tags})
+        created_at = _parse_bookmark_timestamp(a.get("add_date"))
+        bookmarks.append(
+            {
+                "url": href,
+                "title": title,
+                "tags": tags,
+                "created_at": created_at,
+            }
+        )
     return bookmarks
 
 
@@ -83,7 +144,20 @@ def parse_csv_bookmarks(csv_content: str) -> list[dict[str, Any]]:
             for t in tags_raw.replace(";", ",").split(",")
             if t.strip()
         ]
-        bookmarks.append({"url": url.strip(), "title": title.strip(), "tags": tags})
+        lowered = {k.strip().lower(): v for k, v in row.items() if k}
+        raw_ts = next(
+            (lowered[col] for col in _CSV_TIMESTAMP_COLUMNS if lowered.get(col)),
+            None,
+        )
+        created_at = _parse_bookmark_timestamp(raw_ts)
+        bookmarks.append(
+            {
+                "url": url.strip(),
+                "title": title.strip(),
+                "tags": tags,
+                "created_at": created_at,
+            }
+        )
     return bookmarks
 
 
@@ -108,6 +182,8 @@ async def import_bookmarks(
                 user_id=user_id,
                 url=b["url"],
                 tags=b.get("tags", []),
+                title=b.get("title"),
+                created_at=b.get("created_at"),
                 scope=scope,
                 queue_messages=queue_messages,
                 check_entitlement=(scope is None),

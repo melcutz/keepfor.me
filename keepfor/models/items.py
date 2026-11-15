@@ -55,6 +55,8 @@ async def save_item(
     tags: list[str] | None = None,
     *,
     scope: TenantScope | None = None,
+    title: str | None = None,
+    created_at: str | None = None,
     agent_summary: str | None = None,
     why_saved: str | None = None,
     source_context: str | None = None,
@@ -119,23 +121,35 @@ async def save_item(
 
     # Create new item
     item_id = str(uuid.uuid4())
+    initial_title = (title or "").strip() or None
+    initial_created_at = (created_at or "").strip() or None
     await db.execute(
         """
-        INSERT INTO items (id, user_id, url, canonical_url, status,
-            agent_summary, why_saved, source_context, saved_by)
-        VALUES (?, ?, ?, ?, 'queued', ?, ?, ?, ?);
+        INSERT INTO items (id, user_id, url, canonical_url, title, status,
+            created_at, agent_summary, why_saved, source_context, saved_by)
+        VALUES (?, ?, ?, ?, ?, 'queued', COALESCE(?, CURRENT_TIMESTAMP),
+            ?, ?, ?, ?);
         """,
         (
             item_id,
             user_id,
             url.strip(),
             clean_url,
+            initial_title,
+            initial_created_at,
             agent_summary,
             why_saved,
             source_context,
             saved_by,
         ),
     )
+
+    if initial_title:
+        await db.execute(
+            "INSERT INTO items_fts (item_id, user_id, title, content_text)"
+            " VALUES (?, ?, ?, '');",
+            (item_id, user_id, initial_title),
+        )
 
     if check_entitlement:
         try:
