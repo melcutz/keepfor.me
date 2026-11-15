@@ -1584,7 +1584,12 @@ async def add_suggestions(
     from keepfor.utils.tagger import normalize_tag
 
     stmts: list[tuple[str, tuple[Any, ...]]] = []
-    for raw_phrase, score in phrases[:limit]:
+    for entry in phrases[:limit]:
+        try:
+            raw_phrase, score = entry
+            numeric_score = float(score)
+        except (TypeError, ValueError):
+            continue
         phrase = normalize_tag(raw_phrase or "")
         if len(phrase) < 3:
             continue
@@ -1592,7 +1597,7 @@ async def add_suggestions(
             (
                 "INSERT OR IGNORE INTO suggested_tags"
                 " (id, item_id, user_id, phrase, score) VALUES (?, ?, ?, ?, ?);",
-                (str(uuid.uuid4()), item_id, user_id, phrase, float(score)),
+                (str(uuid.uuid4()), item_id, user_id, phrase, numeric_score),
             )
         )
     if not stmts:

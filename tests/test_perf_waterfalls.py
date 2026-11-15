@@ -482,3 +482,13 @@ async def test_add_suggestions_batches_via_execute_batch(db: Database):
     empty_count = await add_suggestions(counting_db, "u1", note["id"], [("a", 0.5)])
     assert empty_count == 0
     assert len(counting_db.batches) == 0
+
+    # Invalid/non-numeric entries are skipped without raising ValueError.
+    invalid_count = await add_suggestions(
+        counting_db,
+        "u1",
+        note["id"],
+        [{"phrase": "foo", "score": 0.5}, ("delta", "bad"), ("epsilon", 0.5)],  # type: ignore[list-item]
+    )
+    assert invalid_count == 1
+    assert len(counting_db.batches) == 1
