@@ -978,3 +978,32 @@ def test_sanitize_clean_html_large_pre_code_no_stray_end_tag():
     assert "<pre>foo</pre>" in clean
     assert "foo</code>" not in clean
     assert "<p>inline <code>bar</code> text</p>" in clean
+
+
+def test_load_parsers_and_extract_article_without_trafilatura(monkeypatch):
+    """_load_parsers() and extract_article() fall back without trafilatura."""
+    import sys
+
+    from keepfor.consumer import extractor
+
+    monkeypatch.setitem(sys.modules, "trafilatura", None)
+    monkeypatch.setattr(extractor, "_parsers_loaded", False)
+    monkeypatch.setattr(extractor, "_soup_cls", None)
+    monkeypatch.setattr(extractor, "_trafilatura", None)
+
+    soup_cls, traf = extractor._load_parsers()
+    assert soup_cls is not None
+    assert traf is None
+
+    html = (
+        "<html><head>"
+        "<title>Fallback Title</title>"
+        '<meta property="og:description" content="Short fallback description.">'
+        "</head><body><p>Brief body.</p></body></html>"
+    )
+    out = extract_article(html, "https://example.com/fallback")
+    assert out["is_fallback"] == 1
+    assert out["title"] == "Fallback Title"
+    assert "Short fallback description." in out["content_text"]
+    assert "Short fallback description." in out["clean_html"]
+    assert "Visit original link" in out["clean_html"]

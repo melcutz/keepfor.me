@@ -91,3 +91,62 @@ def test_version_match():
     assert pyproject_version == keepfor.__version__
     assert keepfor.__version__ == "1.1.2"
     assert keepfor.CORE_API_VERSION == 1
+
+
+def test_trafilatura_is_optional_extract_extra():
+    """trafilatura lives in [extract] and [dev] extras, not base dependencies."""
+    import tomllib
+
+    repo_root = Path(__file__).resolve().parent.parent
+    with open(repo_root / "pyproject.toml", "rb") as f:
+        data = tomllib.load(f)
+
+    deps = data["project"]["dependencies"]
+    opt_deps = data["project"]["optional-dependencies"]
+
+    assert not any(d.startswith("trafilatura") for d in deps)
+    assert any(d.startswith("beautifulsoup4") for d in deps)
+    assert any(d.startswith("defusedxml") for d in deps)
+
+    assert "trafilatura>=1.12.0" in opt_deps["extract"]
+    assert "trafilatura>=1.12.0" in opt_deps["dev"]
+
+
+def test_app_and_worker_import_and_routes_without_trafilatura():
+    """keepfor.app, keepfor.worker, and web routes work when trafilatura is absent."""
+    import sys
+
+    repo_root = Path(__file__).resolve().parent.parent
+    script = """
+import importlib.abc
+import sys
+
+class BlockTrafilatura(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "trafilatura" or fullname.startswith("trafilatura."):
+            raise ModuleNotFoundError(f"No module named {fullname!r}")
+        return None
+
+sys.meta_path.insert(0, BlockTrafilatura())
+
+from fastapi.testclient import TestClient
+import keepfor.app
+import keepfor.worker
+
+assert keepfor.app.app is not None
+assert callable(keepfor.worker.on_fetch)
+assert callable(keepfor.worker.on_queue)
+
+client = TestClient(keepfor.app.app)
+resp = client.get("/manifest.webmanifest")
+assert resp.status_code == 200, resp.text
+assert "trafilatura" not in sys.modules
+"""
+    res = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, f"Subprocess failed:\n{res.stderr}\n{res.stdout}"

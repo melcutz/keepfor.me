@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -346,16 +347,20 @@ async def extract_and_store(
         except TypeError:
             extracted, raw_html = await _fetch_and_extract(url, item_id)
 
-        # 2. Store raw snapshot in R2 (skipped for proxied markdown)
+        # 2. Store raw and clean snapshots in R2 concurrently
+        # (raw skipped for proxied markdown)
         blobs = scope.blobs(env)
+        put_tasks = [
+            blobs.put_html(
+                blobs.key("items", item_id, "clean.html"),
+                extracted["clean_html"],
+            )
+        ]
         if raw_html is not None:
-            await blobs.put_html(blobs.key("items", item_id, "raw.html"), raw_html)
-
-        # 3. Store clean reader HTML in R2
-        await blobs.put_html(
-            blobs.key("items", item_id, "clean.html"),
-            extracted["clean_html"],
-        )
+            put_tasks.append(
+                blobs.put_html(blobs.key("items", item_id, "raw.html"), raw_html)
+            )
+        await asyncio.gather(*put_tasks)
 
         # 4. Triage summary via Workers AI (fail-open, bounded).
         summary = None

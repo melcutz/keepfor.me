@@ -61,8 +61,8 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertTrue(res["created"])
         self.assertEqual(res["project"]["number"], 7)
 
-        # Verify description, generic Status options (Needs Human, no personal/product
-        # names), and Priority
+        # Verify description, generic Status options (Needs Human, no
+        # personal/product names), and Priority
         graphql_calls = [c for c in calls if c[:2] == ["api", "graphql"]]
         self.assertEqual(len(graphql_calls), 2)
         self.assertIn(f"desc={DEFAULT_BOARD_DESCRIPTION}", graphql_calls[0])
