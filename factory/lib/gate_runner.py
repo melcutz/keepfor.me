@@ -36,11 +36,16 @@ _FULL_PRE_MERGE_INFRA_EXACT: frozenset[str] = frozenset(
         "pyproject.toml",
         "uv.lock",
         "tests/conftest.py",
+        "worker.py",
         "src/keepfor_cloud/app.py",
         "src/keepfor_cloud/config.py",
         "src/keepfor_cloud/providers.py",
         "keepfor/app.py",
         "keepfor/config.py",
+        "keepfor/spi.py",
+        "keepfor/deps.py",
+        "keepfor/worker.py",
+        "keepfor/runtime.py",
         "keepfor/models/db.py",
     }
 )
@@ -80,8 +85,7 @@ def select_pre_merge_gate_scope(
             continue
         if (
             norm in _FULL_PRE_MERGE_INFRA_EXACT
-            or norm.startswith("vendor/")
-            or norm.startswith("control_migrations/")
+            or norm.startswith(("vendor/", "control_migrations/", "migrations/"))
             or norm.endswith("/conftest.py")
         ):
             return "full"
@@ -179,11 +183,15 @@ def auto_polish_worktree(
     ]
 
     build_tw = os.path.join(worktree, "scripts", "build_tailwind.py")
-    static_dir = os.path.join(worktree, "src", "keepfor_cloud", "static")
-    existing_tw = glob.glob(os.path.join(static_dir, "tailwind-*.css")) if os.path.isdir(static_dir) else []
-    tw_trigger = len(existing_tw) > 1 or any(
-        p.startswith("templates/")
-        or p.startswith("src/keepfor_cloud/")
+    existing_tw: list[str] = []
+    for pattern in (
+        "src/*/static/tailwind-*.css",
+        "*/static/tailwind-*.css",
+        "static/tailwind-*.css",
+    ):
+        existing_tw.extend(glob.glob(os.path.join(worktree, pattern)))
+    tw_trigger = len(set(existing_tw)) > 1 or any(
+        p.startswith(("templates/", "src/", "keepfor/"))
         or p in {"tailwind.config.js", "tailwind-input.css"}
         for p in changed
     )

@@ -142,9 +142,11 @@ def abort_merge(worktree: str) -> None:
 
 
 def is_generated_tailwind_path(relpath: str) -> bool:
-    """Return True if relpath is a content-hashed Keepfor Tailwind CSS bundle."""
+    """Return True if relpath is a content-hashed Tailwind CSS bundle under a static/ dir."""
     norm = (relpath or "").strip().replace("\\", "/").lstrip("./")
-    return fnmatch.fnmatch(norm, "src/keepfor_cloud/static/tailwind-*.css")
+    return fnmatch.fnmatch(norm, "*/static/tailwind-*.css") or fnmatch.fnmatch(
+        norm, "static/tailwind-*.css"
+    )
 
 
 def try_resolve_generated_asset_conflicts(worktree: str) -> bool:
@@ -158,23 +160,21 @@ def try_resolve_generated_asset_conflicts(worktree: str) -> bool:
     if not os.path.isfile(build_script):
         return False
 
-    static_rel = "src/keepfor_cloud/static"
-    static_abs = os.path.join(worktree, static_rel)
-    candidates = sorted(
-        set(conflicts)
-        | {
-            os.path.relpath(p, worktree)
-            for p in glob.glob(os.path.join(static_abs, "tailwind-*.css"))
-        }
-    )
+    static_dirs = sorted({os.path.dirname(p) for p in conflicts})
+    candidates: set[str] = set(conflicts)
+    for srel in static_dirs:
+        sabs = os.path.join(worktree, srel)
+        for p in glob.glob(os.path.join(sabs, "tailwind-*.css")):
+            candidates.add(os.path.relpath(p, worktree))
     if candidates:
-        _run_git(worktree, "rm", "-f", "--ignore-unmatch", "--", *candidates, check=False)
-    for abs_css in glob.glob(os.path.join(static_abs, "tailwind-*.css")):
-        try:
-            os.unlink(abs_css)
-        except OSError:
-            pass
-    os.makedirs(static_abs, exist_ok=True)
+        _run_git(worktree, "rm", "-f", "--ignore-unmatch", "--", *sorted(candidates), check=False)
+    for srel in static_dirs:
+        for abs_css in glob.glob(os.path.join(worktree, srel, "tailwind-*.css")):
+            try:
+                os.unlink(abs_css)
+            except OSError:
+                pass
+        os.makedirs(os.path.join(worktree, srel), exist_ok=True)
 
     proc = subprocess.run(
         ["python3", "scripts/build_tailwind.py"],
@@ -187,7 +187,8 @@ def try_resolve_generated_asset_conflicts(worktree: str) -> bool:
     if proc.returncode != 0:
         return False
 
-    _run_git(worktree, "add", "-A", static_rel, check=False)
+    for srel in static_dirs:
+        _run_git(worktree, "add", "-A", srel, check=False)
     if conflicted_files(worktree):
         return False
     commit_res = _run_git(worktree, "commit", "--no-edit", check=False)

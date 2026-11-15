@@ -243,6 +243,7 @@ class TrainTicket:
     branch: str
     issue_md: str
     initial_stage: str
+    solo: bool = False
     pre_train_head_sha: str = ""
     merged_sha: str = ""
     pre_merge_sha: str = ""
@@ -270,6 +271,14 @@ class StagingTrainCoordinator:
         self._pending: list[TrainTicket] = []
         self._leader_active = False
 
+    def _safe_has_near_merge_peers(self, queued_ids: set[str]) -> bool:
+        if self._has_near_merge_peers is None:
+            return False
+        try:
+            return bool(self._has_near_merge_peers(queued_ids))
+        except Exception:
+            return False
+
     def run_ticket(
         self,
         ticket: TrainTicket,
@@ -281,54 +290,89 @@ class StagingTrainCoordinator:
             self._cond.notify_all()
 
         while not ticket.done_event.is_set():
-            with self._cond:
-                while not ticket.done_event.is_set() and (
-                    self._leader_active
-                    or (self._pending and self._pending[0] is not ticket)
+            batch: list[TrainTicket] = []
+            became_leader = False
+            try:
+                with self._cond:
+                    while not ticket.done_event.is_set() and (
+                        self._leader_active
+                        or (self._pending and self._pending[0] is not ticket)
+                    ):
+                        self._cond.wait()
+
+                    if ticket.done_event.is_set():
+                        break
+
+                    self._leader_active = True
+                    became_leader = True
+
+                if (
+                    not ticket.solo
+                    and self.max_batch_size > 1
+                    and self.coalesce_window_sec > 0
                 ):
-                    self._cond.wait()
-
-                if ticket.done_event.is_set():
-                    break
-
-                self._leader_active = True
-                if self.max_batch_size > 1 and self.coalesce_window_sec > 0:
                     deadline = time.monotonic() + self.coalesce_window_sec
-                    while len(self._pending) < self.max_batch_size:
+                    while True:
                         remaining = deadline - time.monotonic()
                         if remaining <= 0:
                             break
-                        if self._has_near_merge_peers is not None:
-                            queued_ids = {t.job_id for t in self._pending}
-                            if not self._has_near_merge_peers(queued_ids):
+                        with self._cond:
+                            if (
+                                len(self._pending) >= self.max_batch_size
+                                or any(p.solo for p in self._pending[: self.max_batch_size])
+                            ):
                                 break
-                            self._cond.wait(timeout=min(0.2, remaining))
+                            queued_ids = {t.job_id for t in self._pending}
+
+                        if self._has_near_merge_peers is not None:
+                            if not self._safe_has_near_merge_peers(queued_ids):
+                                break
+                            wait_sec = min(0.2, max(0.0, deadline - time.monotonic()))
                         else:
-                            self._cond.wait(timeout=remaining)
+                            wait_sec = max(0.0, deadline - time.monotonic())
 
-                batch = self._pending[: self.max_batch_size]
-                del self._pending[: len(batch)]
+                        if wait_sec <= 0:
+                            break
+                        with self._cond:
+                            if len(self._pending) < self.max_batch_size and not any(
+                                p.solo for p in self._pending[: self.max_batch_size]
+                            ):
+                                self._cond.wait(timeout=wait_sec)
 
-            try:
+                with self._cond:
+                    if self._pending and self._pending[0].solo:
+                        batch = [self._pending.pop(0)]
+                    else:
+                        take: list[TrainTicket] = []
+                        for pending_t in self._pending:
+                            if pending_t.solo or len(take) >= self.max_batch_size:
+                                break
+                            take.append(pending_t)
+                        batch = take
+                        del self._pending[: len(batch)]
+
                 execute_batch_fn(batch)
             except BaseException as exc:
-                for item in batch:
+                for item in batch or [ticket]:
                     if not item.done_event.is_set():
                         item.outcome = TrainOutcome(action="return", error=exc)
                         item.done_event.set()
             finally:
-                for item in batch:
-                    if not item.done_event.is_set():
-                        item.outcome = TrainOutcome(
-                            action="return",
-                            error=RuntimeError(
-                                f"Train batch completed without outcome for {item.job_id}"
-                            ),
-                        )
-                        item.done_event.set()
-                with self._cond:
-                    self._leader_active = False
-                    self._cond.notify_all()
+                if became_leader:
+                    for item in batch:
+                        if not item.done_event.is_set():
+                            item.outcome = TrainOutcome(
+                                action="return",
+                                error=RuntimeError(
+                                    f"Train batch completed without outcome for {item.job_id}"
+                                ),
+                            )
+                            item.done_event.set()
+                    with self._cond:
+                        if ticket in self._pending and ticket.done_event.is_set():
+                            self._pending.remove(ticket)
+                        self._leader_active = False
+                        self._cond.notify_all()
 
         assert ticket.outcome is not None
         if ticket.outcome.error is not None:
@@ -337,24 +381,18 @@ class StagingTrainCoordinator:
 
 
 def _is_non_runtime_path(path: str) -> bool:
-    if path in {"pyproject.toml", "uv.lock"} or path.startswith("tailwind"):
+    norm = path.strip().replace("\\", "/").lstrip("./")
+    if not norm or norm in {"pyproject.toml", "uv.lock"} or norm.startswith("tailwind"):
         return False
-    if path.startswith(
-        (
-            "src/",
-            "apps/",
-            "templates/",
-            "control_migrations/",
-            "scripts/",
-            "vendor/",
-        )
+    if norm.startswith("docs/legal/"):
+        return False
+    if norm.startswith(("docs/", "tests/", "factory/", ".github/", ".agents/")):
+        return True
+    if "/" not in norm and (
+        norm.endswith(".md") or norm in {"LICENSE", "NOTICE", ".gitignore"}
     ):
-        return False
-    return (
-        path.startswith(("docs/", "tests/"))
-        or path.endswith(".md")
-        or path in {"LICENSE", ".gitignore"}
-    )
+        return True
+    return False
 
 
 def plan_staging_deploy(changed_files: list[str]) -> DeployPlan:
@@ -388,7 +426,7 @@ def plan_staging_deploy(changed_files: list[str]) -> DeployPlan:
         for p in paths
     )
     needs_migrations = any(
-        p.startswith(("control_migrations/", "vendor/"))
+        p.startswith(("control_migrations/", "migrations/", "vendor/"))
         or p == "scripts/deploy_staging.sh"
         for p in paths
     )
@@ -476,6 +514,7 @@ def _restore_pr_branch_after_revert(
     revert_sha: str,
     pre_train_head_sha: str = "",
 ) -> str:
+    del pre_train_head_sha
     with repo_lock(repo_root):
         _run_git(worktree, "fetch", "origin", base_branch)
         _run_git(worktree, "checkout", "--", ".", check=False)
@@ -484,15 +523,14 @@ def _restore_pr_branch_after_revert(
         rev = _run_git(worktree, "revert", "--no-edit", revert_sha, check=False)
         if rev.returncode != 0:
             _run_git(worktree, "revert", "--abort", check=False)
-            if not pre_train_head_sha:
-                raise subprocess.CalledProcessError(
-                    rev.returncode,
-                    rev.args,
-                    output=rev.stdout,
-                    stderr=rev.stderr,
-                )
-            _run_git(worktree, "checkout", "-B", new_branch, pre_train_head_sha)
-            _run_git(worktree, "merge", "--no-edit", f"origin/{base_branch}")
+            _run_git(worktree, "reset", "--hard", f"origin/{base_branch}", check=False)
+            _run_git(worktree, "clean", "-fd", check=False)
+            raise subprocess.CalledProcessError(
+                rev.returncode,
+                rev.args,
+                output=rev.stdout,
+                stderr=rev.stderr,
+            )
     return new_branch
 
 
