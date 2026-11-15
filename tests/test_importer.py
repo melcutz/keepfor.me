@@ -86,6 +86,130 @@ def test_parse_chrome_folders_become_tags():
     assert bookmarks[2]["tags"] == ["recipes"]
 
 
+def test_parse_netscape_top_level_links_after_closed_subfolder():
+    """Top-level links after a closed <DL> subfolder must not inherit its tag."""
+    html = """
+    <!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <DL><p>
+        <DT><A HREF="https://example.com/before">Before</A>
+        <DT><H3>News</H3>
+        <DL><p>
+            <DT><A HREF="https://example.com/inside">Inside</A>
+        </DL><p>
+        <DT><A HREF="https://example.com/after">After</A>
+        <DT><A HREF="https://example.com/after-tagged" TAGS="bookmark">After Tagged</A>
+    </DL><p>
+    """
+    bookmarks = parse_netscape_bookmarks(html)
+    assert len(bookmarks) == 4
+    assert bookmarks[0]["tags"] == []
+    assert bookmarks[1]["tags"] == ["news"]
+    assert bookmarks[2]["tags"] == []
+    assert bookmarks[3]["tags"] == ["bookmark"]
+
+
+def test_parse_netscape_nested_folders_accumulate_ancestor_tags():
+    """Nested <DL> folders accumulate ancestor tags outer-to-inner and deduplicate."""
+    html = """
+    <!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <DL><p>
+        <DT><H3>Tech</H3>
+        <DL><p>
+            <DT><A HREF="https://example.com/tech">Tech Root</A>
+            <DT><H3>Python</H3>
+            <DL><p>
+                <DT><A HREF="https://example.com/py" TAGS="web,python">Python Web</A>
+                <DT><H3>FastAPI</H3>
+                <DL><p>
+                    <DT><A HREF="https://example.com/fa">FastAPI Docs</A>
+                </DL><p>
+            </DL><p>
+            <DT><A HREF="https://example.com/after-py">Back in Tech</A>
+        </DL><p>
+        <DT><H3>ClosedDT</H3></DT>
+        <DL><p>
+            <DT><A HREF="https://example.com/closed-dt">Closed DT Link</A></DT>
+        </DL>
+        <DT><A HREF="https://example.com/top-end">Top End</A>
+    </DL><p>
+    """
+    bookmarks = parse_netscape_bookmarks(html)
+    assert [b["tags"] for b in bookmarks] == [
+        ["tech"],
+        ["web", "python", "tech"],
+        ["tech", "python", "fastapi"],
+        ["tech"],
+        ["closeddt"],
+        [],
+    ]
+
+
+def test_parse_netscape_add_date():
+    """ADD_DATE Unix epoch is parsed to UTC 'YYYY-MM-DD HH:MM:SS' or None."""
+    html = """
+    <!DOCTYPE NETSCAPE-Bookmark-file-1>
+    <DL><p>
+        <DT><A HREF="https://example.com/valid" ADD_DATE="1700000000">Valid</A>
+        <DT><A HREF="https://example.com/missing">Missing</A>
+        <DT><A HREF="https://example.com/invalid" ADD_DATE="not-a-date">Invalid</A>
+        <DT><A HREF="https://example.com/empty" ADD_DATE="">Empty</A>
+        <DT><A HREF="https://example.com/negative" ADD_DATE="-5">Negative</A>
+    </DL><p>
+    """
+    bookmarks = parse_netscape_bookmarks(html)
+    assert [b["created_at"] for b in bookmarks] == [
+        "2023-11-14 22:13:20",
+        None,
+        None,
+        None,
+        None,
+    ]
+
+
+def test_parse_csv_timestamp_columns():
+    """CSV importer parses created, created_at, add_date, and time_added columns."""
+    csv_created = """url,title,created
+https://example.com/1,One,2024-03-01T12:30:00Z
+https://example.com/2,Two,2024-03-01T14:30:00+02:00
+https://example.com/3,Three,invalid
+"""
+    assert [b["created_at"] for b in parse_csv_bookmarks(csv_created)] == [
+        "2024-03-01 12:30:00",
+        "2024-03-01 12:30:00",
+        None,
+    ]
+
+    csv_created_at = """url,title,created_at
+https://example.com/4,Four,2024-03-01
+https://example.com/5,Five,2024-03-01 08:15:30
+"""
+    assert [b["created_at"] for b in parse_csv_bookmarks(csv_created_at)] == [
+        "2024-03-01 00:00:00",
+        "2024-03-01 08:15:30",
+    ]
+
+    csv_add_date = """url,title,ADD_DATE
+https://example.com/6,Six,1700000000
+https://example.com/7,Seven,
+"""
+    assert [b["created_at"] for b in parse_csv_bookmarks(csv_add_date)] == [
+        "2023-11-14 22:13:20",
+        None,
+    ]
+
+    csv_time_added = """url,title,time_added
+https://example.com/8,Eight,1700000001
+"""
+    assert [b["created_at"] for b in parse_csv_bookmarks(csv_time_added)] == [
+        "2023-11-14 22:13:21",
+    ]
+
+    csv_no_ts = """url,title
+https://example.com/9,Nine
+"""
+    assert [b["created_at"] for b in parse_csv_bookmarks(csv_no_ts)] == [None]
+
+
 @pytest.mark.asyncio
 async def test_export_library_json_includes_metadata_and_batches_tags(db):
     user = await register_user(db, "exporter@test.local", "password123")
