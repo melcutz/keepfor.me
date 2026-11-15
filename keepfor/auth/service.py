@@ -15,6 +15,7 @@ from keepfor.auth.crypto import (
 )
 from keepfor.models.db import Database
 from keepfor.spi import SCOPE_ALL, SCOPE_VALUES
+from keepfor.utils.favicon import invalidate_favicon_session
 from keepfor.utils.logging import logger
 
 
@@ -133,6 +134,7 @@ async def validate_session(db: Database, session_id: str) -> dict[str, Any] | No
 async def logout_session(db: Database, session_id: str) -> None:
     if session_id:
         await db.execute("DELETE FROM sessions WHERE id = ?;", (session_id,))
+        invalidate_favicon_session(session_id)
 
 
 def _scope_text(scopes: Iterable[str] | None) -> str | None:

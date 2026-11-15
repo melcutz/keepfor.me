@@ -20,7 +20,7 @@ You were dispatched as an autonomous headless subagent to execute one specific f
 """
 
 _SUBPROCESS_TIMEOUT_GRACE_SEC = 30
-_DEFAULT_IDLE_BG_GRACE_SEC = 45.0
+_DEFAULT_IDLE_BG_GRACE_SEC = 600.0
 _IDLE_BG_RE = re.compile(r"root agent idle;\s*waiting up to .* background task", re.IGNORECASE)
 _ORIG_SUBPROCESS_RUN = subprocess.run
 
@@ -91,46 +91,103 @@ def _extract_json_envelope(stdout: str) -> dict:
     raise ValueError(f"Could not parse JSON envelope from agy stdout: {text[:300]!r}")
 
 
-def _terminate_process_group(proc: subprocess.Popen[str]) -> None:
-    """Terminate an entire POSIX process group cleanly (SIGTERM -> 5s -> SIGKILL)."""
-    pgid = proc.pid
+def _live_child_pids(pid: int) -> set[int] | None:
+    """Return live (non-zombie) direct child PIDs of `pid` via /proc, or None."""
+    if not os.path.isdir("/proc"):
+        return None
+    task_dir = f"/proc/{pid}/task"
+    children: set[int] = set()
     try:
-        os.killpg(pgid, signal.SIGTERM)
+        tids = os.listdir(task_dir)
+    except OSError:
+        return children
+    for tid in tids:
+        try:
+            with open(f"{task_dir}/{tid}/children", encoding="utf-8") as f:
+                tokens = f.read().split()
+        except OSError:
+            continue
+        for tok in tokens:
+            try:
+                cpid = int(tok)
+                with open(f"/proc/{cpid}/stat", encoding="utf-8") as sf:
+                    stat_text = sf.read()
+            except (OSError, ValueError):
+                continue
+            rparen = stat_text.rfind(")")
+            if rparen != -1 and stat_text[rparen + 2 : rparen + 3] == "Z":
+                continue
+            children.add(cpid)
+    return children
+
+
+def _signal_pgid(pgid: int, sig: signal.Signals) -> None:
+    """Send `sig` to process group `pgid`, falling back to PID `pgid`."""
+    try:
+        os.killpg(pgid, sig)
     except ProcessLookupError:
         return
     except OSError:
-        proc.terminate()
+        try:
+            os.kill(pgid, sig)
+        except OSError:
+            pass
 
+
+def _terminate_process_group(
+    proc: subprocess.Popen[str],
+    extra_pgids: set[int] | None = None,
+) -> None:
+    """Terminate proc's process group and any setsid direct children cleanly."""
+    pgid = proc.pid
+    child_pgids = set(extra_pgids or ())
+    live_now = _live_child_pids(pgid)
+    if live_now:
+        child_pgids.update(live_now)
+    child_pgids.discard(pgid)
+
+    try:
+        os.killpg(pgid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        proc.terminate()
+    for cpgid in child_pgids:
+        _signal_pgid(cpgid, signal.SIGTERM)
+
+    all_pgids = {pgid, *child_pgids}
     deadline = time.monotonic() + 5.0
     while time.monotonic() < deadline:
-        try:
-            os.killpg(pgid, 0)
-        except ProcessLookupError:
+        any_alive = False
+        for target in all_pgids:
+            try:
+                os.killpg(target, 0)
+                any_alive = True
+            except ProcessLookupError:
+                continue
+            except OSError:
+                if target == pgid and proc.poll() is None:
+                    any_alive = True
+        if not any_alive:
             break
-        except OSError:
-            if proc.poll() is not None:
-                break
         if proc.poll() is not None:
             # Parent exited; kill any surviving background children immediately.
-            try:
-                os.killpg(pgid, signal.SIGKILL)
-            except OSError:
-                pass
+            for target in all_pgids:
+                _signal_pgid(target, signal.SIGKILL)
             break
         time.sleep(0.05)
     else:
-        try:
-            os.killpg(pgid, signal.SIGKILL)
-        except OSError:
+        for target in all_pgids:
+            _signal_pgid(target, signal.SIGKILL)
+        if proc.poll() is None:
             proc.kill()
 
     try:
         proc.wait(timeout=2.0)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(pgid, signal.SIGKILL)
-        except OSError:
-            proc.kill()
+        for target in all_pgids:
+            _signal_pgid(target, signal.SIGKILL)
+        proc.kill()
         proc.wait(timeout=2.0)
 
 
@@ -175,26 +232,40 @@ def _invoke_agy_process(
     stderr_chunks: list[str] = []
     state_lock = threading.Lock()
     idle_since: float | None = None
+    idle_children: set[int] | None = None
+    active_children: set[int] = set()
 
     def _read_stdout() -> None:
+        nonlocal idle_since, idle_children
         assert proc.stdout is not None
         for line in proc.stdout:
             stdout_chunks.append(line)
+            with state_lock:
+                idle_since = None
+                idle_children = None
 
     def _read_stderr() -> None:
-        nonlocal idle_since
+        nonlocal idle_since, idle_children, active_children
         assert proc.stderr is not None
         for line in proc.stderr:
             stderr_chunks.append(line)
             stripped = line.strip()
             if not stripped:
                 continue
-            with state_lock:
-                if _IDLE_BG_RE.search(stripped):
+            if _IDLE_BG_RE.search(stripped):
+                snap = _live_child_pids(proc.pid)
+                with state_lock:
+                    if snap is not None:
+                        active_children = set(snap)
                     if idle_since is None:
                         idle_since = time.monotonic()
-                else:
+                        idle_children = snap
+                    elif not idle_children and snap:
+                        idle_children = snap
+            else:
+                with state_lock:
                     idle_since = None
+                    idle_children = None
 
     t_out = threading.Thread(target=_read_stdout, daemon=True)
     t_err = threading.Thread(target=_read_stderr, daemon=True)
@@ -210,32 +281,45 @@ def _invoke_agy_process(
         while proc.poll() is None:
             now = time.monotonic()
             if now >= hard_deadline:
+                with state_lock:
+                    extra = set(active_children)
                 killed_reason = f"agy timed out after {hard_timeout_sec:.1f}s"
-                _terminate_process_group(proc)
+                _terminate_process_group(proc, extra)
                 break
+            live = _live_child_pids(proc.pid)
             with state_lock:
+                if live is not None:
+                    active_children = set(live)
                 cur_idle = idle_since
+                tracked = idle_children
+                if cur_idle is not None and live is not None:
+                    if not live or (tracked and not (live & tracked)):
+                        idle_since = None
+                        idle_children = None
+                        cur_idle = None
+                extra = set(active_children)
             if cur_idle is not None and (now - cur_idle) >= grace:
                 killed_reason = (
-                    f"agy hung waiting on background task(s) for {grace:.1f}s after root agent went idle"
+                    f"agy hung waiting on background task(s) for {grace:.1f}s"
+                    " after root agent went idle"
                 )
-                _terminate_process_group(proc)
+                _terminate_process_group(proc, extra)
                 break
             time.sleep(0.05)
     finally:
+        with state_lock:
+            extra = set(active_children)
         if proc.poll() is None:
-            _terminate_process_group(proc)
+            _terminate_process_group(proc, extra)
         else:
-            # Reap any orphaned background tools left in the session's process group.
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
+            # Reap any orphaned background tools in session or setsid child groups.
+            for target in {proc.pid, *extra}:
+                _signal_pgid(target, signal.SIGKILL)
         t_out.join(timeout=2.0)
         t_err.join(timeout=2.0)
-        if proc.stdout is not None:
+        if proc.stdout is not None and not t_out.is_alive():
             proc.stdout.close()
-        if proc.stderr is not None:
+        if proc.stderr is not None and not t_err.is_alive():
             proc.stderr.close()
 
     returncode = proc.returncode if proc.returncode is not None else -9

@@ -31,7 +31,7 @@ DEFAULT_CONFIG: dict = {
     "auto_merge": "low",
     "auto_polish": True,
     "auto_approve_clean": True,
-    "idle_bg_grace_sec": 45,
+    "idle_bg_grace_sec": 600,
     "labels": {
         "queue": "factory",
         "needs_info": "factory:needs-info",

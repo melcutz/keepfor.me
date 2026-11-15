@@ -4,7 +4,7 @@
   "max_slice_retries": 2,
   "agent_timeout_sec": 1800,
   "gate_timeout_sec": 900,
-  "idle_bg_grace_sec": 45,
+  "idle_bg_grace_sec": 600,
   "auto_polish": true,
   "auto_approve_clean": true,
   "base_branch": "main",
