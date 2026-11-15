@@ -4,6 +4,7 @@
 import html as html_module
 import json
 import re
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -71,13 +72,12 @@ def _load_parsers() -> tuple[Any, Any]:
     return _soup_cls, _trafilatura
 
 
-def sanitize_clean_html(html_str: str) -> str:
-    """Ensures extracted HTML contains only safe tags and attributes."""
-    if not html_str:
-        return ""
-    soup_cls, _ = _load_parsers()
-    soup = soup_cls(html_str, "html.parser")
-    allowed_tags = {
+_LARGE_HTML_THRESHOLD = 512_000
+_HEAD_SCAN_LIMIT = 65_536
+_HEAD_CLOSE_RE = re.compile(r"</head\s*>", re.IGNORECASE)
+
+_ALLOWED_TAGS = frozenset(
+    {
         "p",
         "h1",
         "h2",
@@ -106,11 +106,13 @@ def sanitize_clean_html(html_str: str) -> str:
         "hr",
         "br",
     }
-    # Tags whose *text* is not prose. Unwrapping these keeps their contents
-    # as visible text: a <script> unwrap leaks "alert('xss')" and a <style>
-    # unwrap leaks CSS into the article body (both observed in prod). Drop the
-    # whole subtree instead.
-    dropped_tags = {
+)
+# Tags whose *text* is not prose. Unwrapping these keeps their contents
+# as visible text: a <script> unwrap leaks "alert('xss')" and a <style>
+# unwrap leaks CSS into the article body (both observed in prod). Drop the
+# whole subtree instead.
+_DROPPED_TAGS = frozenset(
+    {
         "script",
         "style",
         "noscript",
@@ -132,13 +134,273 @@ def sanitize_clean_html(html_str: str) -> str:
         "footer",
         "figcaption",
     }
+)
+_VOID_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+_BLOCK_TEXT_TAGS = frozenset(
+    {
+        "p",
+        "div",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "li",
+        "tr",
+        "blockquote",
+        "pre",
+        "dd",
+        "dt",
+        "section",
+        "figcaption",
+        "caption",
+        "br",
+        "hr",
+    }
+)
+
+
+def _head_slice(html: str, limit: int = _HEAD_SCAN_LIMIT) -> str:
+    """Return at most `limit` leading chars, stopping at </head> when present."""
+    if not html:
+        return ""
+    window = html[:limit]
+    match = _HEAD_CLOSE_RE.search(window)
+    return window[: match.end()] if match else window
+
+
+class _StreamingHTMLSanitizer(HTMLParser):
+    """Single-pass streaming HTML sanitizer and metadata/text extractor."""
+
+    def __init__(
+        self, *, skip_head: bool = False, extract_metadata: bool = False
+    ) -> None:
+        super().__init__(convert_charrefs=True)
+        self.skip_head = skip_head
+        self.extract_metadata = extract_metadata
+        self.in_head = False
+        self.in_title = False
+        self.title_parts: list[str] = []
+        self.dropped_stack: list[str] = []
+        self.pre_depth = 0
+        self.code_depth = 0
+        self.html_chunks: list[str] = []
+        self.text_chunks: list[str] = []
+
+        self.og_title: str | None = None
+        self.doc_title: str | None = None
+        self.excerpt: str | None = None
+        self.site_name: str | None = None
+        self.byline: str | None = None
+        self.published_date: str | None = None
+        self.image_url: str | None = None
+
+    @staticmethod
+    def _attrs_dict(attrs: list[tuple[str, str | None]]) -> dict[str, str]:
+        return {k: v for k, v in attrs if v is not None}
+
+    def _record_meta(self, attrs: list[tuple[str, str | None]]) -> None:
+        attr_map = self._attrs_dict(attrs)
+        content = (attr_map.get("content") or "").strip()
+        if not content:
+            return
+        prop = (attr_map.get("property") or "").lower()
+        name = (attr_map.get("name") or "").lower()
+        if prop == "og:title" and not self.og_title:
+            self.og_title = content
+        elif prop == "og:description" and not self.excerpt:
+            self.excerpt = content
+        elif name == "description" and not self.excerpt:
+            self.excerpt = content
+        elif prop == "og:site_name" and not self.site_name:
+            self.site_name = content
+        elif name == "author" or prop == "article:author":
+            if not self.byline:
+                self.byline = content
+        elif prop == "article:published_time" or name == "date":
+            if not self.published_date:
+                self.published_date = normalize_published_date(content)
+        elif prop == "og:image" or name == "twitter:image":
+            if not self.image_url:
+                self.image_url = content
+
+    def _format_a_start(self, attrs: list[tuple[str, str | None]]) -> str:
+        attr_map = self._attrs_dict(attrs)
+        href = attr_map.get("href", "")
+        if href.startswith(("http://", "https://", "mailto:", "#")):
+            safe_href = html_module.escape(href, quote=True)
+            return f'<a href="{safe_href}" target="_blank" rel="noopener noreferrer">'
+        return "<a>"
+
+    def _format_img(self, attrs: list[tuple[str, str | None]]) -> str:
+        attr_map = self._attrs_dict(attrs)
+        src = attr_map.get("src", "")
+        if src.startswith(("http://", "https://", "data:image/")):
+            safe_src = html_module.escape(src, quote=True)
+            alt = attr_map.get("alt")
+            if alt is not None:
+                safe_alt = html_module.escape(alt, quote=True)
+                return f'<img src="{safe_src}" alt="{safe_alt}">'
+            return f'<img src="{safe_src}">'
+        return "<img>"
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self.extract_metadata:
+            if tag == "title" and not self.doc_title:
+                self.in_title = True
+            elif tag == "meta":
+                self._record_meta(attrs)
+
+        if self.skip_head:
+            if tag == "head":
+                self.in_head = True
+                return
+            if tag == "body":
+                self.in_head = False
+            if self.in_head:
+                return
+
+        if self.dropped_stack:
+            if tag in _DROPPED_TAGS and tag not in _VOID_TAGS:
+                self.dropped_stack.append(tag)
+            return
+
+        if tag in _DROPPED_TAGS:
+            if tag not in _VOID_TAGS:
+                self.dropped_stack.append(tag)
+            return
+
+        if self.extract_metadata:
+            if tag in _BLOCK_TEXT_TAGS:
+                self.text_chunks.append("\n")
+            elif tag in ("td", "th"):
+                self.text_chunks.append(" ")
+
+        if tag not in _ALLOWED_TAGS:
+            return
+
+        if tag == "pre":
+            if self.pre_depth == 0:
+                self.html_chunks.append("<pre>")
+            self.pre_depth += 1
+            return
+
+        if tag == "code":
+            if self.pre_depth == 0 and self.code_depth == 0:
+                self.html_chunks.append("<code>")
+            self.code_depth += 1
+            return
+
+        if tag == "a":
+            self.html_chunks.append(self._format_a_start(attrs))
+        elif tag == "img":
+            self.html_chunks.append(self._format_img(attrs))
+        else:
+            self.html_chunks.append(f"<{tag}>")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        if tag not in _VOID_TAGS:
+            self.handle_endtag(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.extract_metadata and tag == "title" and self.in_title:
+            self.in_title = False
+            if not self.doc_title:
+                self.doc_title = "".join(self.title_parts).strip() or None
+
+        if self.skip_head:
+            if tag == "head":
+                self.in_head = False
+                return
+            if self.in_head:
+                return
+
+        if tag in _VOID_TAGS:
+            return
+
+        if self.dropped_stack:
+            if tag in self.dropped_stack:
+                while self.dropped_stack:
+                    popped = self.dropped_stack.pop()
+                    if popped == tag:
+                        break
+            return
+
+        if self.extract_metadata:
+            if tag in _BLOCK_TEXT_TAGS:
+                self.text_chunks.append("\n")
+            elif tag in ("td", "th"):
+                self.text_chunks.append(" ")
+
+        if tag not in _ALLOWED_TAGS:
+            return
+
+        if tag == "pre":
+            if self.pre_depth > 0:
+                self.pre_depth -= 1
+                if self.pre_depth == 0:
+                    self.html_chunks.append("</pre>")
+            return
+
+        if tag == "code":
+            if self.code_depth > 0:
+                self.code_depth -= 1
+                if self.code_depth == 0:
+                    self.html_chunks.append("</code>")
+            return
+
+        self.html_chunks.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        if self.in_title:
+            self.title_parts.append(data)
+        if self.skip_head and self.in_head:
+            return
+        if self.dropped_stack:
+            return
+        self.html_chunks.append(html_module.escape(data, quote=False))
+        if self.extract_metadata:
+            self.text_chunks.append(data)
+
+
+def sanitize_clean_html(html_str: str) -> str:
+    """Ensures extracted HTML contains only safe tags and attributes."""
+    if not html_str:
+        return ""
+    if len(html_str) > _LARGE_HTML_THRESHOLD:
+        parser = _StreamingHTMLSanitizer(skip_head=False, extract_metadata=False)
+        parser.feed(html_str)
+        parser.close()
+        return _normalize_text_nodes("".join(parser.html_chunks))
+
+    soup_cls, _ = _load_parsers()
+    soup = soup_cls(html_str, "html.parser")
     for tag in soup.find_all(True):
         # A parent may have been decomposed above, detaching this child.
         if getattr(tag, "decomposed", False) or tag.parent is None:
             continue
-        if tag.name in dropped_tags:
+        if tag.name in _DROPPED_TAGS:
             tag.decompose()
-        elif tag.name not in allowed_tags:
+        elif tag.name not in _ALLOWED_TAGS:
             tag.unwrap()
         else:
             # Filter attributes
@@ -205,6 +467,12 @@ def _fold_title(text: str | None) -> str:
     return _TITLE_SPACE_RE.sub(" ", folded).strip()
 
 
+_LEADING_H1_OPEN_RE = re.compile(r"^\s*<h1(?:\s|>)", re.IGNORECASE)
+_LEADING_H1_BLOCK_RE = re.compile(
+    r"^\s*<h1(?:\s[^>]*)?>(.*?)</h1>\s*", re.IGNORECASE | re.DOTALL
+)
+
+
 def _drop_duplicate_leading_h1(html_str: str, title: str | None) -> str:
     """Remove a leading <h1> that repeats the article title.
 
@@ -212,6 +480,19 @@ def _drop_duplicate_leading_h1(html_str: str, title: str | None) -> str:
     """
     if not html_str or not title:
         return html_str or ""
+    prefix = html_str[:256].lstrip()
+    if not prefix.startswith("<!--"):
+        if not _LEADING_H1_OPEN_RE.match(prefix):
+            return html_str
+        match = _LEADING_H1_BLOCK_RE.match(html_str[:8192])
+        if match and "<h1" not in match.group(1).lower():
+            h1_text = _HTML_TAG_RE.sub("", match.group(1))
+            if _fold_title(h1_text) == _fold_title(title):
+                return html_str[match.end() :].strip()
+            return html_str
+    if len(html_str) > _LARGE_HTML_THRESHOLD:
+        return html_str
+
     soup_cls, _ = _load_parsers()
     soup = soup_cls(html_str, "html.parser")
     first = next(
@@ -236,9 +517,12 @@ def extract_image_url(html: str, metadata: Any = None) -> str | None:
         img = getattr(metadata, "image", None)
         if img and isinstance(img, str) and img.strip():
             return img.strip()
+    head_html = _head_slice(html)
+    if not head_html:
+        return None
     try:
         soup_cls, _ = _load_parsers()
-        soup = soup_cls(html or "", "html.parser")
+        soup = soup_cls(head_html, "html.parser")
         og_img = soup.find("meta", property="og:image") or soup.find(
             "meta", attrs={"name": "twitter:image"}
         )
@@ -370,7 +654,7 @@ def detect_redirect_url(html: str, url: str) -> str | None:
     if not html:
         return None
     soup_cls, _ = _load_parsers()
-    soup = soup_cls(html, "html.parser")
+    soup = soup_cls(html[:_HEAD_SCAN_LIMIT], "html.parser")
 
     candidates: list[str] = []
     meta = soup.find("meta", attrs={"http-equiv": re.compile("refresh", re.I)})
@@ -1044,6 +1328,42 @@ def _extract_plain_text_article(text: str, url: str) -> dict[str, Any]:
     }
 
 
+def _extract_large_html(html: str, url: str) -> dict[str, Any]:
+    """Single-pass streaming extraction for large HTML documents (>512 KB)."""
+    parser = _StreamingHTMLSanitizer(skip_head=True, extract_metadata=True)
+    parser.feed(html)
+    parser.close()
+
+    title = parser.og_title or parser.doc_title or url
+    clean_html = _normalize_text_nodes("".join(parser.html_chunks))
+    clean_html = _drop_duplicate_leading_h1(clean_html, title)
+    plain_text = _clean_plain_text("".join(parser.text_chunks))
+    word_count = len(plain_text.split())
+    is_fallback = word_count < 50 or _is_nav_junk(plain_text)
+
+    collapsed = re.sub(r"\s+", " ", plain_text)
+    excerpt = parser.excerpt or (collapsed[:300] if collapsed else None)
+    image_url = parser.image_url or extract_image_url(html)
+    blocked_reason = detect_blocked_page(title, plain_text, html[:_HEAD_SCAN_LIMIT])
+    redirect_url = detect_redirect_url(html, url)
+
+    return {
+        "title": title,
+        "byline": parser.byline,
+        "site_name": parser.site_name,
+        "published_date": parser.published_date,
+        "excerpt": excerpt,
+        "content_text": plain_text,
+        "clean_html": clean_html,
+        "is_fallback": 1 if is_fallback else 0,
+        "word_count": word_count,
+        "image_url": image_url,
+        "language": detect_html_language(html),
+        "blocked_reason": blocked_reason,
+        "redirect_url": redirect_url,
+    }
+
+
 def extract_article(
     html: str, url: str, *, content_type: str | None = None
 ) -> dict[str, Any]:
@@ -1067,6 +1387,8 @@ def extract_article(
         return extract_github_article(html, url)
     if _is_wikipedia_url(url):
         return extract_wikipedia_article(html, url)
+    if len(html) > _LARGE_HTML_THRESHOLD:
+        return _extract_large_html(html, url)
 
     title = None
     byline = None

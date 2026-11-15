@@ -785,3 +785,183 @@ async def test_fetch_and_extract_rejects_binary_with_blocked_page_error(monkeypa
 
     with pytest.raises(processor.BlockedPageError):
         await processor._fetch_and_extract("https://example.com/spec.pdf", "item-2")
+
+
+def _synthetic_rfc_html(target_bytes: int = 1_600_000) -> str:
+    """Build a synthetic multi-thousand-node RFC-like HTML specification."""
+    head = (
+        "<!DOCTYPE html><html><head>"
+        "<title>RFC 9110: HTTP Semantics</title>"
+        '<meta property="og:title" content="RFC 9110: HTTP Semantics">'
+        '<meta name="description" content="HTTP Semantics specification.">'
+        '<meta property="og:image" content="https://example.com/rfc-cover.png">'
+        "<style>body { font-family: monospace; }</style>"
+        "<script>console.log('head-script');</script>"
+        "</head><body>"
+        "<nav><a href='https://example.com/toc'>Table of Contents</a></nav>"
+        "<article>"
+        "<h1>RFC 9110: HTTP Semantics</h1>"
+    )
+    section = (
+        "<section>"
+        "<h2>Section: Message Framing and Semantics</h2>"
+        "<p>The Hypertext Transfer Protocol (HTTP) is a stateless "
+        "application-level protocol for distributed, collaborative, "
+        "hypertext information systems. "
+        '<a href="https://example.com/spec" onclick="steal()">Reference</a> '
+        '<a href="javascript:alert(1)">BadLink</a> '
+        '<img src="https://example.com/diagram.png" alt="Diagram" '
+        'onerror="evil()">'
+        "</p>"
+        "<pre><pre><code>GET /index.html HTTP/1.1\nHost: example.com</code></pre></pre>"
+        "<script>alert('body-xss')</script>"
+        "</section>"
+    )
+    tail = "</article><footer>Copyright IETF</footer></body></html>"
+    repeat = max(1, (target_bytes - len(head) - len(tail)) // len(section) + 1)
+    return head + (section * repeat) + tail
+
+
+def test_extract_image_url_bounds_head_scanning(monkeypatch):
+    """extract_image_url only passes a <=65_536 char <head> window to BeautifulSoup."""
+    from keepfor.consumer import extractor
+
+    seen_lengths: list[int] = []
+    real_load = extractor._load_parsers
+
+    def spy_load_parsers():
+        soup_cls, tf = real_load()
+
+        def wrapped_soup(markup, *args, **kwargs):
+            seen_lengths.append(len(markup))
+            return soup_cls(markup, *args, **kwargs)
+
+        return wrapped_soup, tf
+
+    monkeypatch.setattr(extractor, "_load_parsers", spy_load_parsers)
+
+    padding = "<p>body filler text</p>" * 80_000  # > 1.7 MB
+    html_in_head = (
+        "<html><head>"
+        '<meta property="og:image" content="https://example.com/cover.png">'
+        f"</head><body>{padding}"
+        '<meta property="og:image" content="https://example.com/late.png">'
+        "</body></html>"
+    )
+    assert len(html_in_head) > 1_500_000
+    assert extractor.extract_image_url(html_in_head) == "https://example.com/cover.png"
+    assert seen_lengths and all(n <= 65_536 for n in seen_lengths)
+
+    seen_lengths.clear()
+    html_late_only = (
+        f"<html><head><title>No Image</title></head><body>{padding}"
+        '<meta property="og:image" content="https://example.com/late.png">'
+        "</body></html>"
+    )
+    assert extractor.extract_image_url(html_late_only) is None
+    assert seen_lengths and all(n <= 65_536 for n in seen_lengths)
+
+
+def test_detect_redirect_url_bounds_scanning(monkeypatch):
+    """detect_redirect_url only passes a <=65_536 char prefix to BeautifulSoup."""
+    from keepfor.consumer import extractor
+
+    seen_lengths: list[int] = []
+    real_load = extractor._load_parsers
+
+    def spy_load_parsers():
+        soup_cls, tf = real_load()
+
+        def wrapped_soup(markup, *args, **kwargs):
+            seen_lengths.append(len(markup))
+            return soup_cls(markup, *args, **kwargs)
+
+        return wrapped_soup, tf
+
+    monkeypatch.setattr(extractor, "_load_parsers", spy_load_parsers)
+
+    padding = "<p>body filler text</p>" * 80_000  # > 1.7 MB
+    html = (
+        "<html><head>"
+        '<meta http-equiv="refresh" content="0;url=https://example.com/target">'
+        f"</head><body>{padding}</body></html>"
+    )
+    assert len(html) > 1_500_000
+    assert (
+        extractor.detect_redirect_url(html, "https://example.com/start")
+        == "https://example.com/target"
+    )
+    assert seen_lengths and all(n <= 65_536 for n in seen_lengths)
+
+
+def test_sanitize_clean_html_large_document_streaming(monkeypatch):
+    """sanitize_clean_html uses streaming HTMLParser above 512 KB without BS4."""
+    from keepfor.consumer import extractor
+
+    def fail_load_parsers():
+        raise AssertionError("BeautifulSoup/trafilatura must not run on large HTML")
+
+    monkeypatch.setattr(extractor, "_load_parsers", fail_load_parsers)
+
+    large_html = _synthetic_rfc_html(1_100_000)
+    assert len(large_html) > 1_000_000
+    clean = sanitize_clean_html(large_html)
+    assert "<script>" not in clean
+    assert "body-xss" not in clean
+    assert "<nav>" not in clean
+    assert "Table of Contents" not in clean
+    assert "onclick" not in clean
+    assert "onerror" not in clean
+    assert "javascript:" not in clean
+    assert "<pre><pre>" not in clean
+    assert "<pre><code>" not in clean
+    assert "<pre>GET /index.html HTTP/1.1" in clean
+    assert 'href="https://example.com/spec"' in clean
+    assert 'src="https://example.com/diagram.png"' in clean
+
+
+def test_extract_article_large_rfc_html_streaming_and_fast(monkeypatch):
+    """extract_article handles >=1.5 MB HTML via streaming HTMLParser within budget."""
+    import time
+
+    from keepfor.consumer import extractor
+
+    real_load = extractor._load_parsers
+
+    def guarded_load_parsers():
+        soup_cls, _ = real_load()
+
+        def bounded_soup(markup, *args, **kwargs):
+            assert len(markup) <= 65_536, (
+                f"BeautifulSoup called on {len(markup)} chars (>65_536)"
+            )
+            return soup_cls(markup, *args, **kwargs)
+
+        class NoTrafilatura:
+            def __getattr__(self, name):
+                raise AssertionError(f"trafilatura.{name} must not run on large HTML")
+
+        return bounded_soup, NoTrafilatura()
+
+    monkeypatch.setattr(extractor, "_load_parsers", guarded_load_parsers)
+
+    large_rfc = _synthetic_rfc_html(1_600_000)
+    assert len(large_rfc) >= 1_500_000
+
+    t0 = time.monotonic()
+    out = extract_article(large_rfc, "https://www.rfc-editor.org/rfc/rfc9110.html")
+    elapsed = time.monotonic() - t0
+
+    assert elapsed < 3.0, f"Large HTML extraction took {elapsed:.2f}s"
+    assert out["is_fallback"] == 0
+    assert out["title"] == "RFC 9110: HTTP Semantics"
+    assert out["excerpt"] == "HTTP Semantics specification."
+    assert out["image_url"] == "https://example.com/rfc-cover.png"
+    assert out["word_count"] > 10_000
+    assert "stateless application-level protocol" in out["content_text"]
+    assert "<script>" not in out["clean_html"]
+    assert "body-xss" not in out["clean_html"]
+    assert "Table of Contents" not in out["clean_html"]
+    assert "<pre><pre>" not in out["clean_html"]
+    assert "<h1" not in out["clean_html"]
+    assert out["blocked_reason"] is None
