@@ -1417,3 +1417,195 @@ async def test_reader_fallback_escapes_html_in_note_and_failed_item(
     assert "&lt;b&gt;bad reason&lt;/b&gt;" in failed_html
     assert "&#x27;onload=&#x27;alert(1)" in failed_html
     assert "'onload='alert(1)" not in failed_html
+
+
+def _guard_d1_param_limit(db, monkeypatch, max_params: int = 100) -> None:
+    """Wrap db query methods to enforce Cloudflare D1's 100-param ceiling."""
+    orig_query_all = db.query_all
+    orig_query_first = db.query_first
+    orig_execute = db.execute
+
+    async def checked_query_all(sql: str, params=()):
+        assert len(params) <= max_params, (
+            f"SQL query bound {len(params)} params (> {max_params}): {sql[:120]}"
+        )
+        return await orig_query_all(sql, params)
+
+    async def checked_query_first(sql: str, params=()):
+        assert len(params) <= max_params, (
+            f"SQL query bound {len(params)} params (> {max_params}): {sql[:120]}"
+        )
+        return await orig_query_first(sql, params)
+
+    async def checked_execute(sql: str, params=()):
+        assert len(params) <= max_params, (
+            f"SQL query bound {len(params)} params (> {max_params}): {sql[:120]}"
+        )
+        return await orig_execute(sql, params)
+
+    monkeypatch.setattr(db, "query_all", checked_query_all)
+    monkeypatch.setattr(db, "query_first", checked_query_first)
+    monkeypatch.setattr(db, "execute", checked_execute)
+
+
+async def _seed_tagged_items(
+    db, user_id: str, count: int = 105
+) -> dict[str, list[str]]:
+    """Seed `count` tagged items with FTS and chunk rows for D1 chunking tests."""
+    import uuid
+
+    shared_tag_id = str(uuid.uuid4())
+    await db.execute(
+        "INSERT INTO tags (id, user_id, name) VALUES (?, ?, ?);",
+        (shared_tag_id, user_id, "shared-tag"),
+    )
+
+    expected_tags: dict[str, list[str]] = {}
+    statements = []
+    for idx in range(count):
+        item_id = f"item-{idx:03d}"
+        url = f"https://example.com/article-{idx:03d}"
+        title = f"Alpha Beta Article {idx:03d}"
+        item_tag_name = f"tag-{idx:03d}"
+        item_tag_id = str(uuid.uuid4())
+        created_at = f"2026-01-01T00:{idx // 60:02d}:{idx % 60:02d}Z"
+
+        statements.append(
+            (
+                "INSERT INTO items (id, user_id, url, canonical_url, title, status, "
+                "created_at) VALUES (?, ?, ?, ?, ?, 'ok', ?);",
+                (item_id, user_id, url, url, title, created_at),
+            )
+        )
+        statements.append(
+            (
+                "INSERT INTO tags (id, user_id, name) VALUES (?, ?, ?);",
+                (item_tag_id, user_id, item_tag_name),
+            )
+        )
+        statements.append(
+            (
+                "INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?);",
+                (item_id, shared_tag_id),
+            )
+        )
+        statements.append(
+            (
+                "INSERT INTO item_tags (item_id, tag_id) VALUES (?, ?);",
+                (item_id, item_tag_id),
+            )
+        )
+        statements.append(
+            (
+                "INSERT INTO items_fts (item_id, user_id, title, content_text) "
+                "VALUES (?, ?, ?, ?);",
+                (
+                    item_id,
+                    user_id,
+                    title,
+                    f"Alpha topic and beta topic in document {idx:03d}.",
+                ),
+            )
+        )
+        statements.append(
+            (
+                "INSERT INTO chunks (id, item_id, user_id, chunk_index, token_count) "
+                "VALUES (?, ?, ?, 0, 12);",
+                (str(uuid.uuid4()), item_id, user_id),
+            )
+        )
+        expected_tags[item_id] = sorted(["shared-tag", item_tag_name])
+
+    await db.execute_batch(statements)
+    return expected_tags
+
+
+@pytest.mark.asyncio
+async def test_api_list_items_limit_100_chunks_d1_params(
+    client, db, auth_headers, monkeypatch
+):
+    """GET /api/items?limit=100 returns 200 with all tags and <= 100 SQL params."""
+    user = auth_headers["admin_user"]
+    expected_tags = await _seed_tagged_items(db, user["id"], count=105)
+    _guard_d1_param_limit(db, monkeypatch, max_params=100)
+
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/api/items?limit=100")
+    assert response.status_code == 200
+    items = response.json()
+    assert isinstance(items, list)
+    assert len(items) == 100
+    for item in items:
+        assert sorted(item["tags"]) == expected_tags[item["id"]]
+
+
+@pytest.mark.asyncio
+async def test_search_engine_hydrations_chunk_d1_params(db, auth_headers, monkeypatch):
+    """Search engine hydration helpers chunk >= 100 IDs under 100 SQL params."""
+    from keepfor.search.engine import (
+        _attach_tags,
+        get_recent_items,
+        reading_history,
+        related_items,
+        search_chunks,
+        search_fts,
+    )
+
+    user = auth_headers["admin_user"]
+    expected_tags = await _seed_tagged_items(db, user["id"], count=105)
+    _guard_d1_param_limit(db, monkeypatch, max_params=100)
+
+    recent = await get_recent_items(db, user["id"], limit=105)
+    assert len(recent) == 105
+    attached = await _attach_tags(
+        db, user["id"], [{"id": item["id"]} for item in recent]
+    )
+    assert len(attached) == 105
+    for rec_item, att_item in zip(recent, attached, strict=True):
+        assert sorted(rec_item["tags"]) == expected_tags[rec_item["id"]]
+        assert att_item["tags"] == expected_tags[att_item["id"]]
+
+    history, total = await reading_history(db, user["id"], limit=105)
+    assert total == 105
+    assert len(history) == 105
+    for hist_item in history:
+        assert sorted(hist_item["tags"]) == expected_tags[hist_item["id"]]
+
+    fts_hits = await search_fts(db, user["id"], "alpha beta", limit=105)
+    assert len(fts_hits) == 105
+
+    passages, chunk_total = await search_chunks(
+        db, MockEnv(), user["id"], "alpha beta", limit=105, max_chars=50000
+    )
+    assert chunk_total > 0
+    assert len(passages) > 0
+
+    class _FakeAI:
+        async def run(self, model, inputs):
+            return {"data": [[0.1, 0.2]]}
+
+    class _FakeVectorize:
+        async def query(self, vector, options):
+            return {
+                "matches": [
+                    {
+                        "id": f"item_{idx:03d}_chunk_0",
+                        "score": 0.9 - idx * 0.001,
+                        "metadata": {
+                            "user_id": user["id"],
+                            "item_id": f"item-{idx:03d}",
+                        },
+                    }
+                    for idx in range(1, 105)
+                ]
+            }
+
+    vec_env = MockEnv()
+    vec_env.AI = _FakeAI()
+    vec_env.VECTORIZE = _FakeVectorize()
+    related = await related_items(
+        db, vec_env, user["id"], item_id="item-000", limit=104
+    )
+    assert len(related) == 104
+    for rel_item in related:
+        assert sorted(rel_item["tags"]) == expected_tags[rel_item["id"]]
