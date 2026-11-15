@@ -1,6 +1,33 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Claudiu Branzan
 
+function isSkippableUrl(url) {
+  return /^(chrome|edge|about|chrome-extension|moz-extension|brave|opera|file|view-source|data|javascript|blob):/i.test(
+    url || ""
+  );
+}
+
+function parseApiError(status, text) {
+  let detail = "";
+  const raw = (text || "").trim();
+  if (raw) {
+    try {
+      const data = JSON.parse(raw);
+      if (typeof data?.detail === "string") {
+        detail = data.detail;
+      } else if (Array.isArray(data?.detail)) {
+        detail = data.detail
+          .map((d) => (typeof d?.msg === "string" ? d.msg : JSON.stringify(d)))
+          .filter(Boolean)
+          .join("; ");
+      }
+    } catch {
+      detail = raw.slice(0, 200);
+    }
+  }
+  return detail ? `Error ${status}: ${detail}` : `Error ${status}`;
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   const mainView = document.getElementById("main-view");
   const configView = document.getElementById("config-view");
@@ -21,8 +48,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Load active tab info
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     if (tabs && tabs[0]) {
-      urlInput.value = tabs[0].url || "";
+      const tabUrl = tabs[0].url || "";
+      urlInput.value = tabUrl;
       titleInput.value = tabs[0].title || "";
+      if (isSkippableUrl(tabUrl)) {
+        saveBtn.disabled = true;
+        statusDiv.textContent = "Cannot save this browser page";
+        statusDiv.className = "status error";
+      }
     }
   });
 
@@ -51,26 +84,70 @@ document.addEventListener("DOMContentLoaded", async () => {
   closeConfig.addEventListener("click", (e) => { e.preventDefault(); showMain(); });
 
   saveConfigBtn.addEventListener("click", async () => {
-    const workerUrl = workerUrlInput.value.trim().replace(/\/+$/, "");
+    const rawUrl = workerUrlInput.value.trim().replace(/\/+$/, "");
     const patToken = patTokenInput.value.trim();
-    if (!workerUrl || !patToken) {
+    if (!rawUrl || !patToken) {
       configStatus.textContent = "Enter both Worker URL and PAT.";
       configStatus.className = "status error";
       return;
     }
+
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(rawUrl);
+    } catch {
+      configStatus.textContent = "Enter a valid http(s) Worker URL.";
+      configStatus.className = "status error";
+      return;
+    }
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      configStatus.textContent = "Enter a valid http(s) Worker URL.";
+      configStatus.className = "status error";
+      return;
+    }
+    const workerUrl = rawUrl;
+
+    if (chrome.permissions?.request) {
+      const granted = await chrome.permissions.request({ origins: [`${parsedUrl.origin}/*`] });
+      if (granted === false) {
+        configStatus.textContent = "Permission denied for this host.";
+        configStatus.className = "status error";
+        return;
+      }
+    }
+
     configStatus.textContent = "Checking connection…";
     configStatus.className = "status";
+    let isReadOnly = false;
     try {
       const r = await fetch(`${workerUrl}/api/items?limit=1`, {
         headers: { Authorization: `Bearer ${patToken}` },
       });
-      if (!r.ok) throw new Error(`Error ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      if (!r.ok) throw new Error(parseApiError(r.status, await r.text()));
+
+      const probe = await fetch(`${workerUrl}/api/save`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${patToken}`,
+        },
+        body: JSON.stringify({ url: "" }),
+      });
+      if (probe.status === 403) {
+        isReadOnly = true;
+      }
     } catch (e) {
       configStatus.textContent = `Connection failed: ${e.message}`;
       configStatus.className = "status error";
       return;
     }
     chrome.storage.sync.set({ workerUrl, patToken }, () => {
+      if (isReadOnly) {
+        configStatus.textContent =
+          "Settings saved, but this PAT is read-only (saving disabled, search works).";
+        configStatus.className = "status error";
+        return;
+      }
       configStatus.textContent = "Settings saved! ✓";
       configStatus.className = "status success";
       setTimeout(showMain, 800);
@@ -110,8 +187,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
 
         if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(`Error ${response.status}: ${errText}`);
+          throw new Error(parseApiError(response.status, await response.text()));
         }
 
         const data = await response.json();
@@ -125,6 +201,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       } catch (err) {
         statusDiv.textContent = err.message;
         statusDiv.className = "status error";
+      } finally {
         saveBtn.disabled = false;
       }
     });

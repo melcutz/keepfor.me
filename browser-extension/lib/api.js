@@ -4,6 +4,27 @@
 // Shared fetch helpers. workerUrl normalized (no trailing slash). All calls use Bearer PAT.
 export function normBase(u) { return (u || "").trim().replace(/\/+$/, ""); }
 
+export function parseApiError(status, text) {
+  let detail = "";
+  const raw = (text || "").trim();
+  if (raw) {
+    try {
+      const data = JSON.parse(raw);
+      if (typeof data?.detail === "string") {
+        detail = data.detail;
+      } else if (Array.isArray(data?.detail)) {
+        detail = data.detail
+          .map((d) => (typeof d?.msg === "string" ? d.msg : JSON.stringify(d)))
+          .filter(Boolean)
+          .join("; ");
+      }
+    } catch {
+      detail = raw.slice(0, 200);
+    }
+  }
+  return detail ? `Error ${status}: ${detail}` : `Error ${status}`;
+}
+
 async function req(base, path, { method = "GET", body, pat } = {}) {
   const res = await fetch(`${base}${path}`, {
     method,
@@ -13,7 +34,7 @@ async function req(base, path, { method = "GET", body, pat } = {}) {
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  if (!res.ok) throw new Error(`Error ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(parseApiError(res.status, await res.text()));
   const ct = res.headers.get("content-type") || "";
   return ct.includes("json") ? res.json() : res.text();
 }
@@ -53,7 +74,7 @@ export const searchLib = (base, pat, query, limit = 20) => {
 };
 
 export function isSkippableUrl(url) {
-  return /^(chrome|edge|about|chrome-extension|brave|opera|file|view-source|data|javascript|blob):/i.test(
+  return /^(chrome|edge|about|chrome-extension|moz-extension|brave|opera|file|view-source|data|javascript|blob):/i.test(
     url || ""
   );
 }
