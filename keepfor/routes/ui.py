@@ -8,7 +8,7 @@ import datetime
 import json
 import sys
 from typing import TYPE_CHECKING
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 from fastapi import (
     APIRouter,
@@ -1620,10 +1620,14 @@ async def retry_import_item_route(request: Request, import_id: str, row_id: str)
         status_code = 200 if res.get("ok") else 502
         return JSONResponse(content=res, status_code=status_code)
 
-    return RedirectResponse(
-        url=f"/imports/{import_id}?retry={res['status']}",
-        status_code=303,
+    dest = _safe_next(
+        "/imports/"
+        + quote(str(record["id"]), safe="")
+        + "?retry="
+        + quote(str(res["status"]), safe=""),
+        default="/settings",
     )
+    return RedirectResponse(url=dest, status_code=303)
 
 
 @router.post("/imports/{import_id}/retry")
@@ -1655,7 +1659,11 @@ async def retry_import_all_route(request: Request, import_id: str):
         )
         return JSONResponse(content=res, status_code=status_code)
 
-    return RedirectResponse(
-        url=f"/imports/{import_id}?retry={res['status']}",
-        status_code=303,
+    dest = _safe_next(
+        "/imports/"
+        + quote(str(record["id"]), safe="")
+        + "?retry="
+        + quote(str(res["status"]), safe=""),
+        default="/settings",
     )
+    return RedirectResponse(url=dest, status_code=303)

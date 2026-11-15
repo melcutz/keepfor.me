@@ -1112,3 +1112,64 @@ async def test_keep_regression_fixture_reimport_stability_and_500_cap(db, sqlite
         r["reason"] == LinkSkipReason.IMPORT_LIMIT.value for r in d_cap["skipped_links"]
     )
     assert await list_import_items(db, cap_user_id, imp_cap)
+
+
+async def test_retry_import_routes_sanitize_redirect_location(
+    db, sqlite_conn, monkeypatch
+):
+    from fastapi.testclient import TestClient
+
+    from keepfor.app import create_app
+    from keepfor.routes._shared import _is_safe_path
+
+    env = StatusEnv(sqlite_conn)
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    client = TestClient(create_app())
+
+    user = await register_user(db, "redir@test.local", "password123")
+    user_id = user["id"]
+    _, session_id = await login_user(db, "redir@test.local", "password123")
+    client.cookies.set("kfm_session", session_id)
+
+    tricky_id = "imp#frag"
+    orig_id = await create_import(db, user_id, source="keep", filename="k.zip")
+    await db.execute(
+        "UPDATE import_status SET id = ? WHERE id = ? AND user_id = ?;",
+        (tricky_id, orig_id, user_id),
+    )
+    row_ids = await record_import_items(
+        db,
+        user_id,
+        tricky_id,
+        [
+            {
+                "kind": "link",
+                "state": "skipped",
+                "url": "https://example.com/r1",
+                "reason": LinkSkipReason.QUEUE_FAILED.value,
+            },
+            {
+                "kind": "link",
+                "state": "skipped",
+                "url": "https://example.com/r2",
+                "reason": LinkSkipReason.QUEUE_FAILED.value,
+            },
+        ],
+    )
+
+    r_item = client.post(
+        f"/imports/imp%23frag/items/{row_ids[0]}/retry",
+        follow_redirects=False,
+    )
+    assert r_item.status_code == 303
+    assert _is_safe_path(r_item.headers["location"])
+    assert r_item.headers["location"] == "/imports/imp%23frag?retry=ok"
+
+    r_all = client.post(
+        "/imports/imp%23frag/retry",
+        follow_redirects=False,
+    )
+    assert r_all.status_code == 303
+    assert _is_safe_path(r_all.headers["location"])
+    assert r_all.headers["location"] == "/imports/imp%23frag?retry=ok"

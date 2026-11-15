@@ -341,7 +341,19 @@ LIBRARY_META_WORDS = frozenset(
 )
 
 
-_SYMBOL_TOKEN_RE = re.compile(r"[a-zA-Z0-9]+[+#][a-zA-Z0-9+#]*")
+def _is_symbol_token_char(ch: str) -> bool:
+    return (ch.isascii() and ch.isalnum()) or ch in "+#"
+
+
+def _is_symbol_token(token: str) -> bool:
+    """True for an ASCII alnum-leading token containing '+' or '#' (c++, c#)."""
+    return (
+        bool(token)
+        and token[0].isascii()
+        and token[0].isalnum()
+        and ("+" in token or "#" in token)
+        and all(_is_symbol_token_char(c) for c in token)
+    )
 
 
 def _split_symbol_tokens(query: str) -> tuple[list[str], str]:
@@ -349,16 +361,37 @@ def _split_symbol_tokens(query: str) -> tuple[list[str], str]:
 
     Returns (lowercased unique symbol tokens, query with those tokens replaced
     by spaces) so they are matched literally instead of degrading to bare
-    single-letter FTS5 tokens.
+    single-letter FTS5 tokens. Runs in linear time without regex backtracking.
     """
+    if "+" not in query and "#" not in query:
+        return [], query
     symbols: list[str] = []
-
-    def _collect(match: re.Match[str]) -> str:
-        symbols.append(match.group(0).lower())
-        return " "
-
-    remainder = _SYMBOL_TOKEN_RE.sub(_collect, query)
-    return list(dict.fromkeys(symbols)), remainder
+    out: list[str] = []
+    n = len(query)
+    i = 0
+    while i < n:
+        if not _is_symbol_token_char(query[i]):
+            start = i
+            i += 1
+            while i < n and not _is_symbol_token_char(query[i]):
+                i += 1
+            out.append(query[start:i])
+            continue
+        lead_start = i
+        while i < n and query[i] in "+#":
+            i += 1
+        if i > lead_start:
+            out.append(query[lead_start:i])
+        tok_start = i
+        while i < n and _is_symbol_token_char(query[i]):
+            i += 1
+        tok = query[tok_start:i]
+        if tok and ("+" in tok or "#" in tok):
+            symbols.append(tok.lower())
+            out.append(" ")
+        elif tok:
+            out.append(tok)
+    return list(dict.fromkeys(symbols)), "".join(out)
 
 
 def _is_single_ascii_letter(term: str) -> bool:
@@ -494,7 +527,7 @@ def highlight_query_terms(text: str, terms: list[str]) -> str:
         t_stripped = t.strip().lower()
         if not t_stripped:
             continue
-        if _SYMBOL_TOKEN_RE.fullmatch(t_stripped):
+        if _is_symbol_token(t_stripped):
             patterns.append(_symbol_boundary_re(t_stripped).pattern)
             continue
         t_clean = "".join(c for c in t_stripped if c.isalnum())

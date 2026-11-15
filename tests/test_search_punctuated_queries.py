@@ -3,6 +3,7 @@
 
 """Tests for punctuated, symbol-bearing, and single-letter search queries (#132)."""
 
+import time
 import uuid
 
 import pytest
@@ -11,6 +12,7 @@ from keepfor.auth.service import login_user, register_user
 from keepfor.search.engine import (
     _content_terms,
     _query_terms,
+    _split_symbol_tokens,
     highlight_query_terms,
     hybrid_search,
     search_fts,
@@ -360,3 +362,21 @@ async def test_single_compound_token_excludes_partial_subterm_matches(library):
     result_ids = {item["id"] for item in items}
     assert ids["self_hosted"] in result_ids
     assert ids["hosted_only"] not in result_ids
+
+
+def test_split_symbol_tokens_linear_time_and_edge_cases():
+    assert _split_symbol_tokens("#c++") == (["c++"], "# ")
+    assert _split_symbol_tokens("++c") == ([], "++c")
+    assert _split_symbol_tokens("++c#") == (["c#"], "++ ")
+    assert _split_symbol_tokens("c++d#e") == (["c++d#e"], " ")
+    assert _split_symbol_tokens("猫c++") == (["c++"], "猫 ")
+    assert _split_symbol_tokens("café+") == ([], "café+")
+    assert _split_symbol_tokens("c++ C++ f#") == (["c++", "f#"], "     ")
+
+    adversarial = "+ " + ("0" * 25_000)
+    t0 = time.perf_counter()
+    symbols, remainder = _split_symbol_tokens(adversarial)
+    elapsed = time.perf_counter() - t0
+    assert symbols == []
+    assert remainder == adversarial
+    assert elapsed < 0.2, f"Expected linear-time scan, took {elapsed:.3f}s"
