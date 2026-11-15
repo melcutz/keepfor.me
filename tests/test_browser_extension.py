@@ -32,6 +32,7 @@ settings UI, so the account is left as it was found.
 import json
 import os
 import re
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -529,3 +530,565 @@ def test_popup_surfaces_auth_and_validation_errors():
         finally:
             revoke_pat_via_ui(page, pat_id)
             browser.close()
+
+
+# ------------------------------------------- offline Node + static checks ---
+
+
+def _run_node(script: str, *, module: bool = False) -> subprocess.CompletedProcess:
+    cmd = ["node"]
+    if module:
+        cmd.append("--input-type=module")
+    cmd.extend(["-e", script])
+    return subprocess.run(
+        cmd,
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+
+
+def test_extension_js_syntax_slice1():
+    for rel in [
+        "browser-extension/lib/api.js",
+        "browser-extension/popup.js",
+        "browser-extension/background.js",
+    ]:
+        res = subprocess.run(
+            ["node", "--check", str(REPO / rel)],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert res.returncode == 0, f"{rel} syntax error: {res.stderr}"
+
+
+def test_manifest_custom_host_and_optional_permissions():
+    data = json.loads(MANIFEST.read_text())
+    assert "https://*.keepfor.me/*" in data["host_permissions"]
+    assert data.get("optional_host_permissions") == ["https://*/*", "http://*/*"]
+
+
+def test_popup_html_pat_is_masked():
+    html = POPUP_HTML.read_text()
+    assert re.search(
+        r'<input[^>]*id="pat-token"[^>]*type="password"|<input[^>]*type="password"[^>]*id="pat-token"',
+        html,
+    ), 'popup.html #pat-token must use type="password"'
+
+
+def test_background_js_restricts_context_menus_and_parses_errors():
+    bg_js = (EXT_DIR / "background.js").read_text()
+    assert "documentUrlPatterns" in bg_js
+    assert "targetUrlPatterns" in bg_js
+    assert "http://*/*" in bg_js and "https://*/*" in bg_js
+    assert "parseApiError" in bg_js
+    assert 'ok ? "✓" : "!"' in bg_js
+
+
+def test_api_js_parse_api_error_and_skippable_url_unit():
+    api_url = (EXT_DIR / "lib/api.js").as_uri()
+    script = f"""
+import assert from "node:assert/strict";
+import {{ parseApiError, isSkippableUrl }} from {json.dumps(api_url)};
+
+assert.equal(typeof parseApiError, "function");
+assert.equal(
+  parseApiError(403, JSON.stringify({{ detail: "This token is read-only." }})),
+  "Error 403: This token is read-only."
+);
+assert.equal(
+  parseApiError(422, JSON.stringify({{ detail: [{{ msg: "Invalid URL" }}] }})),
+  "Error 422: Invalid URL"
+);
+assert.equal(
+  parseApiError(500, "Internal Server Error"),
+  "Error 500: Internal Server Error"
+);
+assert.equal(parseApiError(502, ""), "Error 502");
+
+assert.equal(isSkippableUrl("chrome://settings"), true);
+assert.equal(isSkippableUrl("edge://settings"), true);
+assert.equal(isSkippableUrl("about:blank"), true);
+assert.equal(isSkippableUrl("moz-extension://uuid/popup.html"), true);
+assert.equal(isSkippableUrl("file:///tmp/a.html"), true);
+assert.equal(isSkippableUrl("https://example.com"), false);
+assert.equal(isSkippableUrl("http://localhost:8787"), false);
+assert.equal(isSkippableUrl("not-a-valid-url"), false);
+"""
+    res = _run_node(script, module=True)
+    assert res.returncode == 0, f"Node unit test failed:\n{res.stderr}\n{res.stdout}"
+
+
+def test_popup_js_permissions_readonly_guard_and_finally_mocked():
+    popup_js_path = json.dumps(str(EXT_DIR / "popup.js"))
+    script = f"""
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import vm from "node:vm";
+
+const popupCode = fs.readFileSync({popup_js_path}, "utf8");
+
+function makeHarness({{
+  tabUrl = "https://example.com/article",
+  tabTitle = "Article",
+  storage = {{}},
+  fetchImpl,
+}}) {{
+  const elements = new Map();
+  const docListeners = {{}};
+  function makeEl(id) {{
+    const listeners = {{}};
+    const classes = new Set();
+    const el = {{
+      id,
+      value: "",
+      textContent: "",
+      disabled: false,
+      className: "",
+      type: id === "pat-token" ? "password" : "text",
+      classList: {{
+        add: (...c) => c.forEach((x) => classes.add(x)),
+        remove: (...c) => c.forEach((x) => classes.delete(x)),
+        contains: (c) => classes.has(c),
+      }},
+      addEventListener: (ev, fn) => {{
+        (listeners[ev] ||= []).push(fn);
+      }},
+      dispatch: async (ev) => {{
+        for (const fn of listeners[ev] || []) {{
+          await fn({{ preventDefault: () => {{}} }});
+        }}
+      }},
+    }};
+    elements.set(id, el);
+    return el;
+  }}
+
+  for (const id of [
+    "main-view", "config-view", "toggle-config", "close-config",
+    "url-input", "title-input", "tags-input", "save-btn", "status",
+    "worker-url", "pat-token", "save-config-btn", "config-status",
+    "open-library", "open-panel", "dupe",
+  ]) {{
+    makeEl(id);
+  }}
+
+  const permCalls = [];
+  const fetchCalls = [];
+  const store = {{ ...storage }};
+  let closed = false;
+
+  const sandbox = {{
+    console,
+    URL,
+    Date,
+    setTimeout: () => 0,
+    clearTimeout: () => {{}},
+    window: {{ close: () => {{ closed = true; }} }},
+    document: {{
+      getElementById: (id) => elements.get(id) || null,
+      addEventListener: (ev, fn) => {{ (docListeners[ev] ||= []).push(fn); }},
+    }},
+    fetch: async (url, init) => {{
+      fetchCalls.push({{
+        url: String(url),
+        method: init?.method || "GET",
+        body: init?.body,
+      }});
+      return fetchImpl(String(url), init);
+    }},
+    chrome: {{
+      tabs: {{
+        query: (_q, cb) => cb([{{ url: tabUrl, title: tabTitle }}]),
+        create: () => {{}},
+      }},
+      permissions: {{
+        request: async (req) => {{
+          permCalls.push(req);
+          return true;
+        }},
+      }},
+      storage: {{
+        sync: {{
+          get: (keys, cb) => {{
+            const out = {{}};
+            for (const k of keys) out[k] = store[k];
+            cb(out);
+          }},
+          set: (obj, cb) => {{ Object.assign(store, obj); if (cb) cb(); }},
+        }},
+        local: {{
+          get: (_keys, cb) => cb({{}}),
+        }},
+      }},
+      windows: {{ WINDOW_ID_CURRENT: -2 }},
+      sidePanel: {{ open: async () => {{}} }},
+      runtime: {{ sendMessage: () => {{}} }},
+    }},
+  }};
+
+  vm.runInNewContext(popupCode, sandbox);
+  return {{
+    elements,
+    permCalls,
+    fetchCalls,
+    store,
+    wasClosed: () => closed,
+    ready: async () => {{
+      for (const fn of docListeners["DOMContentLoaded"] || []) await fn();
+    }},
+  }};
+}}
+
+// 1. Save Settings requests host permission and warns on 403 read-only PAT
+{{
+  const h = makeHarness({{
+    fetchImpl: async (url) => {{
+      if (url.endsWith("/api/items?limit=1")) {{
+        return {{ ok: true, status: 200, text: async () => "[]" }};
+      }}
+      if (url.endsWith("/api/save")) {{
+        return {{
+          ok: false,
+          status: 403,
+          text: async () => JSON.stringify({{ detail: "This token is read-only." }}),
+        }};
+      }}
+      throw new Error("Unexpected fetch: " + url);
+    }},
+  }});
+  await h.ready();
+  h.elements.get("worker-url").value = "https://custom.example.com/";
+  h.elements.get("pat-token").value = "kfm_live_ro123";
+  await h.elements.get("save-config-btn").dispatch("click");
+
+  assert.equal(
+    JSON.stringify(h.permCalls),
+    JSON.stringify([{{ origins: ["https://custom.example.com/*"] }}])
+  );
+  assert.equal(h.fetchCalls[0].url, "https://custom.example.com/api/items?limit=1");
+  assert.equal(h.fetchCalls[1].url, "https://custom.example.com/api/save");
+  assert.equal(h.fetchCalls[1].method, "POST");
+  assert.equal(h.store.workerUrl, "https://custom.example.com");
+  assert.equal(h.store.patToken, "kfm_live_ro123");
+  assert.match(h.elements.get("config-status").textContent, /read-only/i);
+  assert.equal(h.elements.get("config-view").classList.contains("active"), true);
+}}
+
+// 2. Non-HTTP internal tab disables #save-btn with "Cannot save this browser page"
+{{
+  const h = makeHarness({{
+    tabUrl: "chrome://settings",
+    tabTitle: "Settings",
+    storage: {{ workerUrl: "https://app.keepfor.me", patToken: "kfm_live_abc" }},
+    fetchImpl: async () => {{ throw new Error("should not fetch"); }},
+  }});
+  await h.ready();
+  assert.equal(h.elements.get("save-btn").disabled, true);
+  assert.equal(h.elements.get("status").textContent, "Cannot save this browser page");
+  assert.equal(h.elements.get("status").className, "status error");
+}}
+
+// 3. Save error parses JSON detail and re-enables #save-btn in finally
+{{
+  const h = makeHarness({{
+    tabUrl: "https://example.com/post",
+    tabTitle: "Post",
+    storage: {{ workerUrl: "https://app.keepfor.me", patToken: "kfm_live_ro" }},
+    fetchImpl: async () => ({{
+      ok: false,
+      status: 403,
+      text: async () => JSON.stringify({{ detail: "This token is read-only." }}),
+    }}),
+  }});
+  await h.ready();
+  await h.elements.get("save-btn").dispatch("click");
+  await new Promise((r) => setImmediate(r));
+  assert.equal(
+    h.elements.get("status").textContent,
+    "Error 403: This token is read-only."
+  );
+  assert.equal(h.elements.get("status").className, "status error");
+  assert.equal(h.elements.get("save-btn").disabled, false);
+}}
+
+// 4. Successful save also re-enables #save-btn in finally
+{{
+  const h = makeHarness({{
+    tabUrl: "https://example.com/post",
+    tabTitle: "Post",
+    storage: {{ workerUrl: "https://app.keepfor.me", patToken: "kfm_live_rw" }},
+    fetchImpl: async () => ({{
+      ok: true,
+      status: 200,
+      json: async () => ({{ is_new: true }}),
+    }}),
+  }});
+  await h.ready();
+  await h.elements.get("save-btn").dispatch("click");
+  await new Promise((r) => setImmediate(r));
+  assert.equal(h.elements.get("status").textContent, "Saved & Queued!");
+  assert.equal(h.elements.get("save-btn").disabled, false);
+}}
+"""
+    res = _run_node(script, module=True)
+    assert res.returncode == 0, f"Popup Node test failed:\n{res.stderr}\n{res.stdout}"
+
+
+def test_background_js_context_menu_and_error_badge_mocked():
+    bg_js_path = json.dumps(str(EXT_DIR / "background.js"))
+    script = f"""
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import vm from "node:vm";
+
+const bgCode = fs.readFileSync({bg_js_path}, "utf8");
+const createdMenus = [];
+const badgeTexts = [];
+const badgeColors = [];
+const localWrites = [];
+let onClickedFn = null;
+let onInstalledFn = null;
+
+const sandbox = {{
+  console,
+  Date,
+  setTimeout: () => 1,
+  clearTimeout: () => {{}},
+  fetch: async () => ({{
+    ok: false,
+    status: 403,
+    text: async () => JSON.stringify({{ detail: "This token is read-only." }}),
+  }}),
+  chrome: {{
+    runtime: {{
+      onInstalled: {{ addListener: (fn) => {{ onInstalledFn = fn; }} }},
+      onMessage: {{ addListener: () => {{}} }},
+    }},
+    contextMenus: {{
+      create: (opts) => createdMenus.push(opts),
+      onClicked: {{ addListener: (fn) => {{ onClickedFn = fn; }} }},
+    }},
+    action: {{
+      setBadgeText: (v) => badgeTexts.push(v.text),
+      setBadgeBackgroundColor: (v) => badgeColors.push(v.color),
+    }},
+    storage: {{
+      sync: {{
+        get: async () => ({{
+          workerUrl: "https://app.keepfor.me",
+          patToken: "kfm_live_ro",
+        }}),
+      }},
+      local: {{
+        set: async (obj) => localWrites.push(obj),
+      }},
+    }},
+  }},
+}};
+
+vm.runInNewContext(bgCode, sandbox);
+onInstalledFn();
+
+const pageMenu = createdMenus.find((m) => m.id === "kfm-save-page");
+const linkMenu = createdMenus.find((m) => m.id === "kfm-save-link");
+assert.equal(
+  JSON.stringify(pageMenu.documentUrlPatterns),
+  JSON.stringify(["http://*/*", "https://*/*"])
+);
+assert.equal(
+  JSON.stringify(linkMenu.targetUrlPatterns),
+  JSON.stringify(["http://*/*", "https://*/*"])
+);
+
+// Non-http(s) URL is ignored without calling fetch or setting badge
+await onClickedFn({{ menuItemId: "kfm-save-page" }}, {{ url: "chrome://settings" }});
+assert.equal(badgeTexts.length, 0);
+
+// HTTP URL failure sets "!" badge and parsed detail error
+await onClickedFn({{ menuItemId: "kfm-save-page" }}, {{ url: "https://example.com" }});
+assert.equal(badgeTexts.at(-1), "!");
+assert.equal(badgeColors.at(-1), "#dc2626");
+assert.equal(localWrites.at(-1).kfmLast.ok, false);
+assert.equal(localWrites.at(-1).kfmLast.error, "Error 403: This token is read-only.");
+"""
+    res = _run_node(script, module=True)
+    assert res.returncode == 0, (
+        f"Background Node test failed:\n{res.stderr}\n{res.stdout}"
+    )
+
+
+def test_extension_js_syntax_slice2():
+    res = subprocess.run(
+        ["node", "--check", str(EXT_DIR / "sidepanel.js")],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert res.returncode == 0, f"sidepanel.js syntax error: {res.stderr}"
+
+
+def test_sidepanel_html_no_dead_ask_tab():
+    html = (EXT_DIR / "sidepanel.html").read_text()
+    assert 'data-tab="chat"' not in html
+    assert 'id="tab-chat"' not in html
+    assert "Ask is not yet implemented" not in html
+    for tab in ("tabs", "history", "search"):
+        assert f'data-tab="{tab}"' in html
+        assert f'id="tab-{tab}"' in html
+
+
+def test_sidepanel_js_notes_and_tab_refresh_mocked():
+    sidepanel_url = (EXT_DIR / "sidepanel.js").as_uri()
+    script = f"""
+import assert from "node:assert/strict";
+
+const elements = new Map();
+function makeEl(id) {{
+  const listeners = {{}};
+  const classes = new Set();
+  const el = {{
+    id,
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    disabled: false,
+    style: {{}},
+    dataset: {{}},
+    classList: {{
+      add: (...c) => c.forEach((x) => classes.add(x)),
+      remove: (...c) => c.forEach((x) => classes.delete(x)),
+      contains: (c) => classes.has(c),
+    }},
+    addEventListener: (ev, fn) => {{
+      (listeners[ev] ||= []).push(fn);
+    }},
+    dispatch: async (ev, extra = {{}}) => {{
+      for (const fn of listeners[ev] || []) {{
+        await fn({{ preventDefault: () => {{}}, ...extra }});
+      }}
+    }},
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    appendChild: () => {{}},
+  }};
+  elements.set(id, el);
+  return el;
+}}
+
+for (const id of [
+  "tabs-list", "tabs-count", "tabs-filter", "tabs-all", "tabs-none",
+  "tabs-save", "tabs-prog", "tabs-err", "tabs-tags",
+  "scope-win", "scope-all",
+  "hist-list", "hist-save", "hist-prog", "hist-err", "hist-tags",
+  "hist-range", "hist-max", "hist-q", "hist-go",
+  "s-q", "s-go", "s-list",
+  "tab-tabs", "tab-history", "tab-search",
+]) {{
+  makeEl(id);
+}}
+
+const tabListeners = {{ onCreated: [], onRemoved: [], onUpdated: [] }};
+let tabsList = [
+  {{ url: "https://example.com/one", title: "One Tab", favIconUrl: "" }},
+  {{ url: "https://example.com/two", title: "Two Tab", favIconUrl: "" }},
+];
+let queryCount = 0;
+
+globalThis.window = {{}};
+globalThis.document = {{
+  getElementById: (id) => elements.get(id) || null,
+  querySelectorAll: () => [],
+  createElement: () => ({{ style: {{}} }}),
+}};
+
+globalThis.chrome = {{
+  tabs: {{
+    query: async () => {{
+      queryCount += 1;
+      return tabsList;
+    }},
+    onCreated: {{ addListener: (fn) => tabListeners.onCreated.push(fn) }},
+    onRemoved: {{ addListener: (fn) => tabListeners.onRemoved.push(fn) }},
+    onUpdated: {{ addListener: (fn) => tabListeners.onUpdated.push(fn) }},
+  }},
+  storage: {{
+    sync: {{
+      get: async () => ({{
+        workerUrl: "https://app.keepfor.me/",
+        patToken: "kfm_live_test",
+      }}),
+    }},
+  }},
+  history: {{ search: async () => [] }},
+}};
+
+const searchResults = [
+  {{ id: "note 1", item_type: "note", url: "urn:note:note 1", title: "My Note" }},
+  {{ id: "note-2", url: "urn:note:note-2", title: "" }},
+  {{
+    id: "link-1",
+    item_type: "link",
+    url: "https://example.com/post",
+    title: "Web Post",
+  }},
+];
+
+globalThis.fetch = async () => ({{
+  ok: true,
+  status: 200,
+  headers: {{ get: () => "application/json" }},
+  json: async () => searchResults,
+}});
+
+await import({json.dumps(sidepanel_url)});
+await new Promise((r) => setTimeout(r, 20));
+
+// 1. Note search results link to /items/<encoded-id> with "Personal note" subtitle
+elements.get("s-q").value = "note";
+await elements.get("s-go").dispatch("click");
+const sHtml = elements.get("s-list").innerHTML;
+assert.match(sHtml, /href="https:\\/\\/app\\.keepfor\\.me\\/items\\/note%201"/);
+assert.match(sHtml, />My Note<\\/a>/);
+assert.match(sHtml, /href="https:\\/\\/app\\.keepfor\\.me\\/items\\/note-2"/);
+assert.match(sHtml, />Untitled note<\\/a>/);
+assert.match(sHtml, />Personal note<\\/span>/);
+assert.match(sHtml, /href="https:\\/\\/example\\.com\\/post"/);
+
+// 2. chrome.tabs listeners registered, debounced, and preserve #tabs-filter
+assert.equal(tabListeners.onCreated.length, 1);
+assert.equal(tabListeners.onRemoved.length, 1);
+assert.equal(tabListeners.onUpdated.length, 1);
+
+const beforeQueries = queryCount;
+elements.get("tabs-filter").value = "Two";
+tabsList = [
+  {{ url: "https://example.com/one", title: "One Tab", favIconUrl: "" }},
+  {{ url: "https://example.com/two", title: "Two Tab", favIconUrl: "" }},
+  {{ url: "https://example.com/two-b", title: "Two B Tab", favIconUrl: "" }},
+];
+
+// Burst of events should debounce into a single refresh
+tabListeners.onCreated[0]();
+tabListeners.onUpdated[0]();
+tabListeners.onRemoved[0]();
+await new Promise((r) => setTimeout(r, 220));
+
+assert.equal(queryCount, beforeQueries + 1);
+assert.equal(elements.get("tabs-filter").value, "Two");
+assert.equal(elements.get("tabs-count").textContent, "2 tabs");
+
+// 3. Missing chrome.tabs event emitters do not throw
+globalThis.chrome.tabs = {{
+  query: async () => [],
+}};
+await import({json.dumps(sidepanel_url)} + "?no_events=1");
+"""
+    res = _run_node(script, module=True)
+    assert res.returncode == 0, (
+        f"Sidepanel Node test failed:\n{res.stderr}\n{res.stdout}"
+    )
