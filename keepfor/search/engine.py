@@ -48,6 +48,8 @@ SEMANTIC_ONLY_STRONG_SIMILARITY = 0.80
 # How close to the top vector score a candidate must be to count as
 # "near the top".
 NEAR_TOP_WINDOW = 0.05
+# Max item IDs per IN (...) query to stay below D1's 100-parameter limit.
+_D1_ID_CHUNK_SIZE = 80
 
 # UI status groups: the items table stores raw statuses ('queued', 'fetching',
 # 'ok', 'failed'); the library pills group them for humans. 'fetching' is
@@ -865,21 +867,25 @@ async def search_fts(
     if len(terms) > 1 and scores:
         match_all = " OR ".join(_keyword_match(t) for t in terms)
         item_ids_list = list(scores.keys())
-        placeholders = ",".join("?" for _ in item_ids_list)
-        multi_sql = f"""
-            SELECT item_id,
-                   snippet(items_fts, 3, '<mark>', '</mark>', '...', 25) as snippet
-            FROM items_fts
-            WHERE items_fts MATCH ? AND user_id = ?
-              AND item_id IN ({placeholders});
-        """
         try:
-            multi_rows = await db.query_all(
-                multi_sql, (match_all, user_id, *item_ids_list)
-            )
-            for mr in multi_rows:
-                if mr.get("snippet"):
-                    snippets[mr["item_id"]] = mr["snippet"]
+            for start in range(0, len(item_ids_list), _D1_ID_CHUNK_SIZE):
+                chunk_ids = item_ids_list[start : start + _D1_ID_CHUNK_SIZE]
+                placeholders = ",".join("?" for _ in chunk_ids)
+                multi_sql = f"""
+                    SELECT item_id,
+                           snippet(
+                               items_fts, 3, '<mark>', '</mark>', '...', 25
+                           ) as snippet
+                    FROM items_fts
+                    WHERE items_fts MATCH ? AND user_id = ?
+                      AND item_id IN ({placeholders});
+                """
+                multi_rows = await db.query_all(
+                    multi_sql, (match_all, user_id, *chunk_ids)
+                )
+                for mr in multi_rows:
+                    if mr.get("snippet"):
+                        snippets[mr["item_id"]] = mr["snippet"]
         except Exception as exc:
             logger.warning("Multi-term snippet fetch failed: %s", exc)
 
@@ -1308,7 +1314,7 @@ async def hybrid_search(
         or quick
         or read_state
     )
-    id_chunk_size = 80
+    id_chunk_size = _D1_ID_CHUNK_SIZE
     rows: list[dict[str, Any]] = []
     tag_rows: list[dict[str, Any]] = []
 
@@ -1485,18 +1491,7 @@ async def get_recent_items(
         return []
 
     item_ids = [r["id"] for r in rows]
-    placeholders = ",".join("?" for _ in item_ids)
-    tag_sql = f"""
-        SELECT it.item_id, t.name as tag_name
-        FROM item_tags it
-        JOIN items i ON i.id = it.item_id AND i.user_id = ?
-        JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
-        WHERE it.item_id IN ({placeholders});
-    """
-    tag_rows = await db.query_all(tag_sql, (user_id, *item_ids))
-    item_tags_map: dict[str, list[str]] = {}
-    for tr in tag_rows:
-        item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
+    item_tags_map = await _fetch_item_tags_map(db, user_id, item_ids)
 
     result = []
     for r in rows:
@@ -1640,24 +1635,35 @@ async def resolve_item(
     return None
 
 
+async def _fetch_item_tags_map(
+    db: Database, user_id: str, item_ids: list[str]
+) -> dict[str, list[str]]:
+    """Fetch tag names per item_id, chunked under D1's 100-parameter limit."""
+    item_tags_map: dict[str, list[str]] = {}
+    for start in range(0, len(item_ids), _D1_ID_CHUNK_SIZE):
+        chunk_ids = item_ids[start : start + _D1_ID_CHUNK_SIZE]
+        placeholders = ",".join("?" for _ in chunk_ids)
+        tag_sql = f"""
+            SELECT it.item_id, t.name as tag_name
+            FROM item_tags it
+            JOIN items i ON i.id = it.item_id AND i.user_id = ?
+            JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
+            WHERE it.item_id IN ({placeholders});
+        """
+        tag_rows = await db.query_all(tag_sql, (user_id, *chunk_ids))
+        for tr in tag_rows:
+            item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
+    return item_tags_map
+
+
 async def _attach_tags(
     db: Database, user_id: str, items: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """Adds the tag list to each item (one extra query for the whole page)."""
+    """Adds the tag list to each item, chunked under D1's parameter limit."""
     if not items:
         return items
     ids = [it["id"] for it in items]
-    placeholders = ",".join("?" for _ in ids)
-    rows = await db.query_all(
-        "SELECT it.item_id, t.name AS tag_name FROM item_tags it"
-        " JOIN items i ON i.id = it.item_id AND i.user_id = ?"
-        " JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id"
-        f" WHERE it.item_id IN ({placeholders});",
-        (user_id, *ids),
-    )
-    tags_map: dict[str, list[str]] = {}
-    for r in rows:
-        tags_map.setdefault(r["item_id"], []).append(r["tag_name"])
+    tags_map = await _fetch_item_tags_map(db, user_id, ids)
     for it in items:
         it["tags"] = sorted(tags_map.get(it["id"], []))
     return items
@@ -1953,14 +1959,17 @@ async def search_chunks(
     item_ids = [item["id"] for item in items]
 
     # Fetch chunks for these items from D1
-    placeholders = ",".join("?" for _ in item_ids)
-    chunk_sql = f"""
-        SELECT c.id as chunk_id, c.item_id, c.chunk_index, c.token_count
-        FROM chunks c
-        WHERE c.user_id = ? AND c.item_id IN ({placeholders})
-        ORDER BY c.chunk_index ASC;
-    """
-    chunk_rows = await db.query_all(chunk_sql, (user_id, *item_ids))
+    chunk_rows: list[dict[str, Any]] = []
+    for start in range(0, len(item_ids), _D1_ID_CHUNK_SIZE):
+        chunk_ids = item_ids[start : start + _D1_ID_CHUNK_SIZE]
+        placeholders = ",".join("?" for _ in chunk_ids)
+        chunk_sql = f"""
+            SELECT c.id as chunk_id, c.item_id, c.chunk_index, c.token_count
+            FROM chunks c
+            WHERE c.user_id = ? AND c.item_id IN ({placeholders})
+            ORDER BY c.chunk_index ASC;
+        """
+        chunk_rows.extend(await db.query_all(chunk_sql, (user_id, *chunk_ids)))
 
     if not chunk_rows:
         return [], total
@@ -2336,21 +2345,9 @@ async def reading_history(
 
     # Get tags for items
     item_ids = [r["id"] for r in rows] if rows else []
-    if item_ids:
-        placeholders = ",".join("?" for _ in item_ids)
-        tag_sql = f"""
-            SELECT it.item_id, t.name as tag_name
-            FROM item_tags it
-            JOIN items i ON i.id = it.item_id AND i.user_id = ?
-            JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
-            WHERE it.item_id IN ({placeholders});
-        """
-        tag_rows = await db.query_all(tag_sql, (user_id, *item_ids))
-        item_tags_map: dict[str, list[str]] = {}
-        for tr in tag_rows:
-            item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
-    else:
-        item_tags_map = {}
+    item_tags_map = (
+        await _fetch_item_tags_map(db, user_id, item_ids) if item_ids else {}
+    )
 
     results = []
     for r in rows:
@@ -2475,31 +2472,22 @@ async def related_items(
     top_item_ids = [item_id for item_id, _ in sorted_items[:limit]]
 
     # Fetch full item details
-    placeholders = ",".join("?" for _ in top_item_ids)
-    sql = f"""
-        SELECT {RECENT_COLUMNS}
-        FROM items i
-        WHERE i.id IN ({placeholders}) AND i.user_id = ? AND i.deleted_at IS NULL;
-    """
-    rows = await db.query_all(sql, (*top_item_ids, user_id))
+    rows: list[dict[str, Any]] = []
+    for start in range(0, len(top_item_ids), _D1_ID_CHUNK_SIZE):
+        chunk_ids = top_item_ids[start : start + _D1_ID_CHUNK_SIZE]
+        placeholders = ",".join("?" for _ in chunk_ids)
+        sql = f"""
+            SELECT {RECENT_COLUMNS}
+            FROM items i
+            WHERE i.id IN ({placeholders}) AND i.user_id = ? AND i.deleted_at IS NULL;
+        """
+        rows.extend(await db.query_all(sql, (*chunk_ids, user_id)))
     item_map = {row["id"]: row for row in rows}
 
     # Get tags for items
-    if top_item_ids:
-        placeholders = ",".join("?" for _ in top_item_ids)
-        tag_sql = f"""
-            SELECT it.item_id, t.name as tag_name
-            FROM item_tags it
-            JOIN items i ON i.id = it.item_id AND i.user_id = ?
-            JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
-            WHERE it.item_id IN ({placeholders});
-        """
-        tag_rows = await db.query_all(tag_sql, (user_id, *top_item_ids))
-        item_tags_map: dict[str, list[str]] = {}
-        for tr in tag_rows:
-            item_tags_map.setdefault(tr["item_id"], []).append(tr["tag_name"])
-    else:
-        item_tags_map = {}
+    item_tags_map = (
+        await _fetch_item_tags_map(db, user_id, top_item_ids) if top_item_ids else {}
+    )
 
     # Get source item tags for reason generation
     source_tags = set()
