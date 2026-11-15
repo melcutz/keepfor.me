@@ -155,7 +155,10 @@ async def favicon_proxy(request: Request, domain: str):
         return Response(
             content=FALLBACK_ICON,
             media_type="image/png",
-            headers={"Cache-Control": f"public, max-age={FALLBACK_MAX_AGE}"},
+            headers={
+                "Cache-Control": f"public, max-age={FALLBACK_MAX_AGE}",
+                "Vary": "Cookie",
+            },
         )
     user = await resolve_favicon_user(request, lambda: deps.get_current_user(request))
     db = None
@@ -173,10 +176,14 @@ async def favicon_proxy(request: Request, domain: str):
         user_id=(user or {}).get("id"),
     )
     max_age = FALLBACK_MAX_AGE if body == FALLBACK_ICON else FAVICON_MAX_AGE
+    cache_scope = "private" if user is None else "public"
     return Response(
         content=body,
         media_type=content_type,
-        headers={"Cache-Control": f"public, max-age={max_age}"},
+        headers={
+            "Cache-Control": f"{cache_scope}, max-age={max_age}",
+            "Vary": "Cookie",
+        },
     )
 
 

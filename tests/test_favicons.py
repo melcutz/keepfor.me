@@ -832,3 +832,68 @@ async def test_logout_session_invalidates_cached_favicon_session(r2_client, db, 
     res = client.get("/favicons/example.com")
     assert res.status_code == 200
     assert res.content == FALLBACK_ICON
+
+
+async def test_resolve_favicon_user_kfc_session_cache_and_coalescing():
+    """resolve_favicon_user caches and coalesces kfc_session cookies."""
+    from types import SimpleNamespace
+
+    from keepfor.utils.favicon import (
+        _FAVICON_SESSION_CACHE,
+        _FAVICON_SESSION_INFLIGHT,
+        resolve_favicon_user,
+    )
+
+    auth_calls = 0
+    started = asyncio.Event()
+    release = asyncio.Event()
+    expected_user = {"id": "user-kfc", "email": "cloud@example.com"}
+
+    async def slow_auth():
+        nonlocal auth_calls
+        auth_calls += 1
+        started.set()
+        await release.wait()
+        return expected_user
+
+    req = SimpleNamespace(headers={}, cookies={"kfc_session": "kfc-tok-123"})
+
+    t1 = asyncio.create_task(resolve_favicon_user(req, slow_auth))
+    t2 = asyncio.create_task(resolve_favicon_user(req, slow_auth))
+    await started.wait()
+    assert "kfc-tok-123" in _FAVICON_SESSION_INFLIGHT
+    release.set()
+    u1, u2 = await asyncio.gather(t1, t2)
+
+    assert u1 == expected_user
+    assert u2 == expected_user
+    assert auth_calls == 1
+    assert "kfc-tok-123" in _FAVICON_SESSION_CACHE
+
+    # Subsequent call hits _FAVICON_SESSION_CACHE with zero auth_fn calls
+    u3 = await resolve_favicon_user(req, slow_auth)
+    assert u3 == expected_user
+    assert auth_calls == 1
+
+
+async def test_favicon_route_vary_cookie_and_cache_control(client, db, calls):
+    """/favicons/{domain} sets Vary: Cookie and private Cache-Control when anon."""
+    calls()
+
+    anon_res = client.get("/favicons/example.com")
+    assert anon_res.status_code == 200
+    assert anon_res.content == FALLBACK_ICON
+    assert anon_res.headers.get("vary") == "Cookie"
+    assert anon_res.headers.get("cache-control", "").startswith("private, max-age=")
+
+    invalid_res = client.get("/favicons/localhost")
+    assert invalid_res.status_code == 200
+    assert invalid_res.content == FALLBACK_ICON
+    assert invalid_res.headers.get("vary") == "Cookie"
+
+    await _sign_in(client, db)
+    auth_res = client.get("/favicons/example.com")
+    assert auth_res.status_code == 200
+    assert auth_res.content == PNG
+    assert auth_res.headers.get("vary") == "Cookie"
+    assert auth_res.headers.get("cache-control", "").startswith("public, max-age=")

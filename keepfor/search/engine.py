@@ -727,25 +727,6 @@ async def search_fts(
     first; the items that hold only some of them follow them, the ones
     that hold more of them first (#87).
     """
-    url_matches: list[dict[str, Any]] = []
-    if "." in query or "/" in query or ":" in query:
-        url_sql = """
-            SELECT id as item_id, -100.0 as rank, excerpt as snippet
-            FROM items
-            WHERE user_id = ? AND deleted_at IS NULL
-              AND (canonical_url LIKE ? OR url LIKE ?)
-            LIMIT ?;
-        """
-        clean_domain = query.strip()
-        like_term = f"%{clean_domain}%"
-        try:
-            url_matches = await db.query_all(
-                url_sql, (user_id, like_term, like_term, limit)
-            )
-        except Exception as exc:
-            logger.warning("URL search fallback failed: %s", exc)
-            url_matches = []
-
     # Extract literal symbol tokens (e.g. 'c++', 'c#', 'f#') before FTS
     # tokenization so they are matched literally instead of degrading to
     # bare single letters (#132).
@@ -764,31 +745,62 @@ async def search_fts(
         terms: list[str] = []
     else:
         terms = list(dict.fromkeys(_filter_single_ascii(content or raw_terms)))
+
+    has_url_query = "." in query or "/" in query or ":" in query
+
+    async def _fetch_url_matches() -> list[dict[str, Any]]:
+        if not has_url_query:
+            return []
+        url_sql = """
+            SELECT id as item_id, -100.0 as rank, excerpt as snippet
+            FROM items
+            WHERE user_id = ? AND deleted_at IS NULL
+              AND (canonical_url LIKE ? OR url LIKE ?)
+            LIMIT ?;
+        """
+        clean_domain = query.strip()
+        like_term = f"%{clean_domain}%"
+        try:
+            return await db.query_all(url_sql, (user_id, like_term, like_term, limit))
+        except Exception as exc:
+            logger.warning("URL search fallback failed: %s", exc)
+            return []
+
     if not terms and not symbols:
+        url_matches = await _fetch_url_matches()
         return url_matches[:limit]
 
     # The matches of every content word, in the text, the title and the
     # tags. The words are matched one by one: the number of words an item
     # holds decides its place in the results (#87).
-    fallback_rows: list[dict[str, Any]] = []
-    try:
-        tasks = [_word_hits(db, user_id, term, limit) for term in terms]
-        tasks.extend(_literal_symbol_hits(db, user_id, sym, limit) for sym in symbols)
-        hits = await asyncio.gather(*tasks)
-    except Exception:
-        # Fallback to simple title/url LIKE search if FTS query syntax error
-        fallback_sql = """
-            SELECT id as item_id, 0.0 as rank, excerpt as snippet
-            FROM items
-            WHERE user_id = ? AND deleted_at IS NULL
-              AND (title LIKE ? OR url LIKE ?)
-            LIMIT ?;
-        """
-        like_term = f"%{clean_q}%"
-        fallback_rows = await db.query_all(
-            fallback_sql, (user_id, like_term, like_term, limit)
-        )
-        hits = [[] for _ in range(len(terms) + len(symbols))]
+    async def _fetch_fts_hits() -> tuple[
+        list[list[dict[str, Any]]], list[dict[str, Any]]
+    ]:
+        try:
+            tasks = [_word_hits(db, user_id, term, limit) for term in terms]
+            tasks.extend(
+                _literal_symbol_hits(db, user_id, sym, limit) for sym in symbols
+            )
+            return await asyncio.gather(*tasks), []
+        except Exception:
+            # Fallback to simple title/url LIKE search if FTS query syntax error
+            fallback_sql = """
+                SELECT id as item_id, 0.0 as rank, excerpt as snippet
+                FROM items
+                WHERE user_id = ? AND deleted_at IS NULL
+                  AND (title LIKE ? OR url LIKE ?)
+                LIMIT ?;
+            """
+            like_term = f"%{clean_q}%"
+            fb_rows = await db.query_all(
+                fallback_sql, (user_id, like_term, like_term, limit)
+            )
+            return [[] for _ in range(len(terms) + len(symbols))], fb_rows
+
+    url_matches, (hits, fallback_rows) = await asyncio.gather(
+        _fetch_url_matches(),
+        _fetch_fts_hits(),
+    )
 
     counts: dict[str, int] = {}
     scores: dict[str, float] = {}
@@ -1046,24 +1058,6 @@ async def search_vectorize(
         return []
 
 
-async def _drop_trashed(db: Database, user_id: str, item_ids: list[str]) -> list[str]:
-    """Keeps only the ids of items that are not in the Trash.
-
-    Trashed items keep their vectors, so a vector query still finds them;
-    they must not reach the results.
-    """
-    if not item_ids:
-        return []
-    placeholders = ",".join("?" for _ in item_ids)
-    rows = await db.query_all(
-        f"SELECT id FROM items WHERE user_id = ? AND deleted_at IS NULL"
-        f" AND id IN ({placeholders});",
-        (user_id, *item_ids),
-    )
-    live = {r["id"] for r in rows}
-    return [i for i in item_ids if i in live]
-
-
 def _keep_vector_hit(
     score: float,
     *,
@@ -1198,14 +1192,6 @@ async def hybrid_search(
     elif want_vec:
         vec_results = await search_vectorize(env, user_id, query, limit=50, scope=scope)
 
-    # Trashed items keep their vectors: drop them before they take a slot
-    # in the fused ranking.
-    if vec_results:
-        live = set(
-            await _drop_trashed(db, user_id, [r["item_id"] for r in vec_results])
-        )
-        vec_results = [r for r in vec_results if r["item_id"] in live]
-
     # Relevance filter on the vector scores only (the FTS/RRF scores are
     # untouched): a candidate that is neither a keyword hit nor a strong
     # near-top hit is noise, not a match. Without it a nonsense query
@@ -1266,7 +1252,6 @@ async def hybrid_search(
         item_id
         for item_id, _ in sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
     ]
-    top_ids = sorted_item_ids  # Full ranked window; sliced per page below
 
     # Fetch full item details from D1 in chunks under the 100-param limit
     status_values = _status_values(status)
@@ -1279,34 +1264,63 @@ async def hybrid_search(
     quick_clause = " AND i.word_count < 1000" if quick else ""
     read_params = (read_state,) if read_state else ()
     read_clause = " AND i.read_state = ?" if read_state else ""
+    has_filters = bool(
+        tag_list
+        or all_sets
+        or any_names
+        or none_names
+        or untagged
+        or status_values
+        or category
+        or quick
+        or read_state
+    )
     id_chunk_size = 80
     rows: list[dict[str, Any]] = []
     tag_rows: list[dict[str, Any]] = []
-    for start in range(0, len(top_ids), id_chunk_size):
-        chunk_ids = top_ids[start : start + id_chunk_size]
-        placeholders = ",".join("?" for _ in chunk_ids)
-        sql = f"""
-            SELECT {RECENT_COLUMNS}
-            FROM items i
-            WHERE i.id IN ({placeholders})
-              AND i.user_id = ? AND i.deleted_at IS NULL
-              {status_clause}{cat_clause}{quick_clause}{read_clause};
-        """
-        tag_sql = f"""
-            SELECT it.item_id, t.name as tag_name
-            FROM item_tags it
-            JOIN items i ON i.id = it.item_id AND i.user_id = ?
-            JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
-            WHERE it.item_id IN ({placeholders});
-        """
-        chunk_rows, chunk_tag_rows = await asyncio.gather(
-            db.query_all(
-                sql, (*chunk_ids, user_id, *status_params, *cat_params, *read_params)
-            ),
-            db.query_all(tag_sql, (user_id, *chunk_ids)),
-        )
-        rows.extend(chunk_rows)
-        tag_rows.extend(chunk_tag_rows)
+
+    async def _hydrate(ids_to_fetch: list[str]) -> None:
+        for start in range(0, len(ids_to_fetch), id_chunk_size):
+            chunk_ids = ids_to_fetch[start : start + id_chunk_size]
+            placeholders = ",".join("?" for _ in chunk_ids)
+            sql = f"""
+                SELECT {RECENT_COLUMNS}
+                FROM items i
+                WHERE i.id IN ({placeholders})
+                  AND i.user_id = ? AND i.deleted_at IS NULL
+                  {status_clause}{cat_clause}{quick_clause}{read_clause};
+            """
+            tag_sql = f"""
+                SELECT it.item_id, t.name as tag_name
+                FROM item_tags it
+                JOIN items i ON i.id = it.item_id AND i.user_id = ?
+                JOIN tags t ON t.id = it.tag_id AND t.user_id = i.user_id
+                WHERE it.item_id IN ({placeholders});
+            """
+            chunk_rows, chunk_tag_rows = await asyncio.gather(
+                db.query_all(
+                    sql,
+                    (*chunk_ids, user_id, *status_params, *cat_params, *read_params),
+                ),
+                db.query_all(tag_sql, (user_id, *chunk_ids)),
+            )
+            rows.extend(chunk_rows)
+            tag_rows.extend(chunk_tag_rows)
+
+    page_only = False
+    if not has_filters:
+        page_ids = sorted_item_ids[offset : offset + limit]
+        await _hydrate(page_ids)
+        if len(rows) == len(page_ids):
+            page_only = True
+        else:
+            fetched = set(page_ids)
+            remaining = [i for i in sorted_item_ids if i not in fetched]
+            if remaining:
+                await _hydrate(remaining)
+    else:
+        await _hydrate(sorted_item_ids)
+
     item_map = {row["id"]: row for row in rows}
     item_tags_map: dict[str, list[str]] = {}
     for tr in tag_rows:
@@ -1323,8 +1337,11 @@ async def hybrid_search(
         )
 
     # Assemble final list in RRF order
+    target_ids = (
+        sorted_item_ids[offset : offset + limit] if page_only else sorted_item_ids
+    )
     final_items = []
-    for item_id in sorted_item_ids:
+    for item_id in target_ids:
         if item_id in item_map:
             item = dict(item_map[item_id])
             item_tags = item_tags_map.get(item_id, [])
@@ -1349,6 +1366,8 @@ async def hybrid_search(
             )
             final_items.append(item)
 
+    if page_only:
+        return final_items, len(sorted_item_ids)
     return final_items[offset : offset + limit], len(final_items)
 
 
