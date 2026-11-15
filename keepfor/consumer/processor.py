@@ -109,6 +109,28 @@ class BlockedPageError(RuntimeError):
     """
 
 
+class _FetchedPage(str):
+    """Fetched response text carrying its Content-Type header."""
+
+    content_type: str | None = None
+
+    def __new__(cls, text: str, content_type: str | None = None) -> _FetchedPage:
+        obj = super().__new__(cls, text)
+        obj.content_type = content_type
+        return obj
+
+
+def _extract_content_type(headers: dict[str, str] | None) -> str | None:
+    """Return Content-Type header value case-insensitively, or None."""
+    if not headers:
+        return None
+    for key, value in headers.items():
+        if key.lower() == "content-type":
+            cleaned = (value or "").strip()
+            return cleaned or None
+    return None
+
+
 async def fetch_page_html(
     url: str,
     headers: dict | None = None,
@@ -146,7 +168,7 @@ async def fetch_page_html(
         )
     if res.status >= 400:
         raise OriginHttpError(res.status, res.url or url)
-    return res.text
+    return _FetchedPage(res.text, content_type=_extract_content_type(res.headers))
 
 
 async def fetch_jina_reader(
@@ -213,7 +235,10 @@ async def _fetch_and_extract(
                 )
             except TypeError:
                 raw_html = await fetch_page_html(current_url)
-            extracted = extract_article(raw_html, current_url)
+            content_type = getattr(raw_html, "content_type", None)
+            extracted = extract_article(
+                raw_html, current_url, content_type=content_type
+            )
         except OriginHttpError as direct_err:
             reader_proxy_base = get_reader_proxy_base(env)
             if (

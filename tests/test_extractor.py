@@ -642,3 +642,339 @@ def test_extractor_escapes_html_in_youtube_github_and_fallback(force_bs4_fallbac
     assert "<img" not in fb_out["clean_html"]
     assert '<a href="https://evil.example/p"' not in fb_out["clean_html"]
     assert "&lt;a " in fb_out["clean_html"]
+
+
+def test_extract_plain_text_and_rfc_document():
+    """text/plain and .txt RFC documents extract full text with is_fallback=0."""
+    rfc_text = (
+        "RFC 9110: HTTP Semantics\n\n"
+        "Abstract\n\n"
+        "The Hypertext Transfer Protocol (HTTP) is a stateless application-level\n"
+        "protocol for distributed, collaborative, hypertext information systems.\n"
+        "Angle brackets like <https://example.com> must be escaped.\n"
+    )
+    out = extract_article(
+        rfc_text,
+        "https://www.rfc-editor.org/rfc/rfc9110.txt",
+        content_type="text/plain; charset=utf-8",
+    )
+    assert out["is_fallback"] == 0
+    assert out["title"] == "RFC 9110: HTTP Semantics"
+    assert "stateless application-level" in out["content_text"]
+    assert out["word_count"] >= 25
+    assert "<p>" in out["clean_html"]
+    assert "&lt;https://example.com&gt;" in out["clean_html"]
+    assert out["blocked_reason"] is None
+
+
+def test_extract_markdown_and_rst_documents():
+    """Markdown and RST documents derive titles and extract with is_fallback=0."""
+    md = (
+        "# Designing Distributed Systems\n\n"
+        "Distributed systems require careful handling of partial failures "
+        "and network partitions across nodes.\n"
+    )
+    md_out = extract_article(
+        md, "https://example.com/notes.md", content_type="text/markdown"
+    )
+    assert md_out["is_fallback"] == 0
+    assert md_out["title"] == "Designing Distributed Systems"
+    assert "partial failures" in md_out["content_text"]
+    assert md_out["blocked_reason"] is None
+
+    rst = (
+        "Python Packaging Guide\n"
+        "======================\n\n"
+        "Use pyproject.toml to declare build-system dependencies and metadata "
+        "for modern Python packages.\n"
+    )
+    rst_out = extract_article(
+        rst, "https://example.com/guide.rst", content_type="text/x-rst"
+    )
+    assert rst_out["is_fallback"] == 0
+    assert rst_out["title"] == "Python Packaging Guide"
+    assert "pyproject.toml" in rst_out["content_text"]
+    assert rst_out["blocked_reason"] is None
+
+
+def test_extract_plain_text_sniffs_when_content_type_is_none():
+    """Non-HTML plain text without content_type is sniffed and extracted cleanly."""
+    text = (
+        "# Local Notes\n\n"
+        "When content_type is omitted, plain text without HTML structural tags "
+        "should still extract as readable prose instead of a 1-word fallback.\n"
+    )
+    out = extract_article(text, "https://example.com/raw/readme.txt")
+    assert out["is_fallback"] == 0
+    assert out["title"] == "Local Notes"
+    assert "readable prose" in out["content_text"]
+    assert out["word_count"] >= 20
+
+
+@pytest.mark.parametrize(
+    ("payload", "content_type"),
+    [
+        ("%PDF-1.7 binary stub", "application/pdf"),
+        ("PNG binary data", "image/png"),
+        ("ZIP archive", "application/zip"),
+        ("Octet stream", "application/octet-stream"),
+        ("hello\x00world\x00binary", "text/plain"),
+        ("hello\x00world\x00binary", None),
+        ("abc" + ("\ufffd" * 20), "text/plain"),
+        ("abc" + ("\x01\x02\x03\x04" * 5), None),
+    ],
+)
+def test_extract_rejects_binary_payloads(payload: str, content_type: str | None):
+    """Binary Content-Types and binary byte payloads are rejected cleanly."""
+    out = extract_article(
+        payload, "https://example.com/file.bin", content_type=content_type
+    )
+    assert out["is_fallback"] == 1
+    assert out["word_count"] == 0
+    assert out["content_text"] == ""
+    assert out["clean_html"] == ""
+    assert out["blocked_reason"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_page_html_preserves_content_type_and_extracts(monkeypatch):
+    """fetch_page_html keeps Content-Type and _fetch_and_extract passes it."""
+    from keepfor.consumer import processor
+    from keepfor.utils.egress import FetchResult
+
+    async def fake_fetch_limited(url, **_kwargs):
+        return FetchResult(
+            text=(
+                "# Plain Title\n\nThis is plain markdown served with mixed-case header."
+            ),
+            status=200,
+            url=url,
+            headers={"cOnTeNt-TyPe": "text/markdown; charset=utf-8"},
+        )
+
+    monkeypatch.setattr(processor, "fetch_limited", fake_fetch_limited)
+
+    page = await processor.fetch_page_html("https://example.com/doc.md")
+    assert isinstance(page, str)
+    assert page.content_type == "text/markdown; charset=utf-8"
+
+    extracted, raw_html = await processor._fetch_and_extract(
+        "https://example.com/doc.md", "item-1"
+    )
+    assert raw_html == page
+    assert extracted["is_fallback"] == 0
+    assert extracted["title"] == "Plain Title"
+    assert "mixed-case header" in extracted["content_text"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_and_extract_rejects_binary_with_blocked_page_error(monkeypatch):
+    """Binary payloads from fetch_limited raise BlockedPageError."""
+    from keepfor.consumer import processor
+    from keepfor.utils.egress import FetchResult
+
+    async def fake_fetch_limited(url, **_kwargs):
+        return FetchResult(
+            text="%PDF-1.4 ...",
+            status=200,
+            url=url,
+            headers={"Content-Type": "application/pdf"},
+        )
+
+    monkeypatch.setattr(processor, "fetch_limited", fake_fetch_limited)
+
+    with pytest.raises(processor.BlockedPageError):
+        await processor._fetch_and_extract("https://example.com/spec.pdf", "item-2")
+
+
+def _synthetic_rfc_html(target_bytes: int = 1_600_000) -> str:
+    """Build a synthetic multi-thousand-node RFC-like HTML specification."""
+    head = (
+        "<!DOCTYPE html><html><head>"
+        "<title>RFC 9110: HTTP Semantics</title>"
+        '<meta property="og:title" content="RFC 9110: HTTP Semantics">'
+        '<meta name="description" content="HTTP Semantics specification.">'
+        '<meta property="og:image" content="https://example.com/rfc-cover.png">'
+        "<style>body { font-family: monospace; }</style>"
+        "<script>console.log('head-script');</script>"
+        "</head><body>"
+        "<nav><a href='https://example.com/toc'>Table of Contents</a></nav>"
+        "<article>"
+        "<h1>RFC 9110: HTTP Semantics</h1>"
+    )
+    section = (
+        "<section>"
+        "<h2>Section: Message Framing and Semantics</h2>"
+        "<p>The Hypertext Transfer Protocol (HTTP) is a stateless "
+        "application-level protocol for distributed, collaborative, "
+        "hypertext information systems. "
+        '<a href="https://example.com/spec" onclick="steal()">Reference</a> '
+        '<a href="javascript:alert(1)">BadLink</a> '
+        '<img src="https://example.com/diagram.png" alt="Diagram" '
+        'onerror="evil()">'
+        "</p>"
+        "<pre><pre><code>GET /index.html HTTP/1.1\nHost: example.com</code></pre></pre>"
+        "<script>alert('body-xss')</script>"
+        "</section>"
+    )
+    tail = "</article><footer>Copyright IETF</footer></body></html>"
+    repeat = max(1, (target_bytes - len(head) - len(tail)) // len(section) + 1)
+    return head + (section * repeat) + tail
+
+
+def test_extract_image_url_bounds_head_scanning(monkeypatch):
+    """extract_image_url only passes a <=65_536 char <head> window to BeautifulSoup."""
+    from keepfor.consumer import extractor
+
+    seen_lengths: list[int] = []
+    real_load = extractor._load_parsers
+
+    def spy_load_parsers():
+        soup_cls, tf = real_load()
+
+        def wrapped_soup(markup, *args, **kwargs):
+            seen_lengths.append(len(markup))
+            return soup_cls(markup, *args, **kwargs)
+
+        return wrapped_soup, tf
+
+    monkeypatch.setattr(extractor, "_load_parsers", spy_load_parsers)
+
+    padding = "<p>body filler text</p>" * 80_000  # > 1.7 MB
+    html_in_head = (
+        "<html><head>"
+        '<meta property="og:image" content="https://example.com/cover.png">'
+        f"</head><body>{padding}"
+        '<meta property="og:image" content="https://example.com/late.png">'
+        "</body></html>"
+    )
+    assert len(html_in_head) > 1_500_000
+    assert extractor.extract_image_url(html_in_head) == "https://example.com/cover.png"
+    assert seen_lengths and all(n <= 65_536 for n in seen_lengths)
+
+    seen_lengths.clear()
+    html_late_only = (
+        f"<html><head><title>No Image</title></head><body>{padding}"
+        '<meta property="og:image" content="https://example.com/late.png">'
+        "</body></html>"
+    )
+    assert extractor.extract_image_url(html_late_only) is None
+    assert seen_lengths and all(n <= 65_536 for n in seen_lengths)
+
+
+def test_detect_redirect_url_bounds_scanning(monkeypatch):
+    """detect_redirect_url only passes a <=65_536 char prefix to BeautifulSoup."""
+    from keepfor.consumer import extractor
+
+    seen_lengths: list[int] = []
+    real_load = extractor._load_parsers
+
+    def spy_load_parsers():
+        soup_cls, tf = real_load()
+
+        def wrapped_soup(markup, *args, **kwargs):
+            seen_lengths.append(len(markup))
+            return soup_cls(markup, *args, **kwargs)
+
+        return wrapped_soup, tf
+
+    monkeypatch.setattr(extractor, "_load_parsers", spy_load_parsers)
+
+    padding = "<p>body filler text</p>" * 80_000  # > 1.7 MB
+    html = (
+        "<html><head>"
+        '<meta http-equiv="refresh" content="0;url=https://example.com/target">'
+        f"</head><body>{padding}</body></html>"
+    )
+    assert len(html) > 1_500_000
+    assert (
+        extractor.detect_redirect_url(html, "https://example.com/start")
+        == "https://example.com/target"
+    )
+    assert seen_lengths and all(n <= 65_536 for n in seen_lengths)
+
+
+def test_sanitize_clean_html_large_document_streaming(monkeypatch):
+    """sanitize_clean_html uses streaming HTMLParser above 512 KB without BS4."""
+    from keepfor.consumer import extractor
+
+    def fail_load_parsers():
+        raise AssertionError("BeautifulSoup/trafilatura must not run on large HTML")
+
+    monkeypatch.setattr(extractor, "_load_parsers", fail_load_parsers)
+
+    large_html = _synthetic_rfc_html(1_100_000)
+    assert len(large_html) > 1_000_000
+    clean = sanitize_clean_html(large_html)
+    assert "<script>" not in clean
+    assert "body-xss" not in clean
+    assert "<nav>" not in clean
+    assert "Table of Contents" not in clean
+    assert "onclick" not in clean
+    assert "onerror" not in clean
+    assert "javascript:" not in clean
+    assert "<pre><pre>" not in clean
+    assert "<pre><code>" not in clean
+    assert "<pre>GET /index.html HTTP/1.1" in clean
+    assert 'href="https://example.com/spec"' in clean
+    assert 'src="https://example.com/diagram.png"' in clean
+
+
+def test_extract_article_large_rfc_html_streaming_and_fast(monkeypatch):
+    """extract_article handles >=1.5 MB HTML via streaming HTMLParser within budget."""
+    import time
+
+    from keepfor.consumer import extractor
+
+    real_load = extractor._load_parsers
+
+    def guarded_load_parsers():
+        soup_cls, _ = real_load()
+
+        def bounded_soup(markup, *args, **kwargs):
+            assert len(markup) <= 65_536, (
+                f"BeautifulSoup called on {len(markup)} chars (>65_536)"
+            )
+            return soup_cls(markup, *args, **kwargs)
+
+        class NoTrafilatura:
+            def __getattr__(self, name):
+                raise AssertionError(f"trafilatura.{name} must not run on large HTML")
+
+        return bounded_soup, NoTrafilatura()
+
+    monkeypatch.setattr(extractor, "_load_parsers", guarded_load_parsers)
+
+    large_rfc = _synthetic_rfc_html(1_600_000)
+    assert len(large_rfc) >= 1_500_000
+
+    t0 = time.monotonic()
+    out = extract_article(large_rfc, "https://www.rfc-editor.org/rfc/rfc9110.html")
+    elapsed = time.monotonic() - t0
+
+    assert elapsed < 3.0, f"Large HTML extraction took {elapsed:.2f}s"
+    assert out["is_fallback"] == 0
+    assert out["title"] == "RFC 9110: HTTP Semantics"
+    assert out["excerpt"] == "HTTP Semantics specification."
+    assert out["image_url"] == "https://example.com/rfc-cover.png"
+    assert out["word_count"] > 10_000
+    assert "stateless application-level protocol" in out["content_text"]
+    assert "<script>" not in out["clean_html"]
+    assert "body-xss" not in out["clean_html"]
+    assert "Table of Contents" not in out["clean_html"]
+    assert "<pre><pre>" not in out["clean_html"]
+    assert "<h1" not in out["clean_html"]
+    assert out["blocked_reason"] is None
+
+
+def test_sanitize_clean_html_large_pre_code_no_stray_end_tag():
+    """Closing </code> inside <pre> must not emit a stray </code> end tag."""
+    padding = "<p>padding</p>" * 40_000  # > 512 KB to trigger streaming path
+    html = (
+        f"<div>{padding}<pre><code>foo</code></pre>"
+        "<p>inline <code>bar</code> text</p></div>"
+    )
+    clean = sanitize_clean_html(html)
+    assert "<pre>foo</pre>" in clean
+    assert "foo</code>" not in clean
+    assert "<p>inline <code>bar</code> text</p>" in clean
