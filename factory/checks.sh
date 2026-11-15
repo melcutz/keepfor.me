@@ -44,7 +44,7 @@ if uv run --extra dev python3 -c "import xdist" >/dev/null 2>&1; then
 fi
 full_xdist_args=()
 if [[ "${has_xdist}" -eq 1 ]]; then
-  full_xdist_args=(-n "${PYTEST_WORKERS:-8}" --dist worksteal)
+  full_xdist_args=(-n "${PYTEST_WORKERS:-8}" --dist loadfile)
 fi
 
 if [[ "${FACTORY_GATE_SCOPE:-full}" == "slice" ]]; then
@@ -93,7 +93,7 @@ for t in sorted(targets):
   if [[ ${#scoped_tests[@]} -gt 0 ]]; then
     slice_xdist_args=()
     if [[ "${has_xdist}" -eq 1 && ${#scoped_tests[@]} -gt 4 ]]; then
-      slice_xdist_args=(-n "${PYTEST_WORKERS:-4}" --dist worksteal)
+      slice_xdist_args=(-n "${PYTEST_WORKERS:-4}" --dist loadfile)
     fi
     echo "    (slice scope: running ${#scoped_tests[@]} targeted test file(s): ${scoped_tests[*]})"
     uv run --extra dev pytest -q -o addopts="" "${slice_xdist_args[@]}" "${scoped_tests[@]}"
