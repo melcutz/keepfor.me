@@ -117,6 +117,12 @@ LIBRARY = (
         (),
     ),
     (
+        "hosted_only",
+        "Hosted Cloud Services",
+        "Managed cloud hosting platform",
+        (),
+    ),
+    (
         "tcp_ip",
         "TCP/IP Illustrated",
         "Packet routing across TCP/IP networks",
@@ -343,3 +349,14 @@ async def test_single_cjk_character_query_matches(library):
     items, _ = await hybrid_search(db, None, user_id, "猫", mode="keyword")
     result_ids = {item["id"] for item in items}
     assert ids["cjk_cat"] in result_ids
+
+
+async def test_single_compound_token_excludes_partial_subterm_matches(library):
+    db = library["db"]
+    user_id = library["user"]["id"]
+    ids = library["ids"]
+
+    items, _ = await hybrid_search(db, None, user_id, "self-hosted", mode="keyword")
+    result_ids = {item["id"] for item in items}
+    assert ids["self_hosted"] in result_ids
+    assert ids["hosted_only"] not in result_ids

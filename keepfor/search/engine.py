@@ -888,10 +888,12 @@ async def search_fts(
     elif (
         not symbols
         and len(terms) > 1
-        and all(_is_single_ascii_letter(t) for t in terms)
+        and (all(_is_single_ascii_letter(t) for t in terms) or len(query.split()) == 1)
     ):
-        # All-single-ASCII queries like "r&d" must match every letter so
-        # single-letter-only items are excluded (#132).
+        # All-single-ASCII queries like "r&d" and single punctuated
+        # compound tokens like "self-hosted", "tcp/ip", or "node.js" must
+        # match all of their split sub-terms so unrelated partial
+        # single-sub-term hits are excluded (#132).
         strict = set.intersection(*matched)
         candidates = [c for c in candidates if c[0]["item_id"] in strict]
 
