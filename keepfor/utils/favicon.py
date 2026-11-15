@@ -150,9 +150,10 @@ async def resolve_favicon_user(
     """Resolve the current user for /favicons/{domain} with short-TTL caching.
 
     Bearer Authorization requests and cookie-less requests delegate directly
-    to `auth_fn`. Session-cookie requests (`kfm_session` / `rk_session`) reuse
-    `_FAVICON_SESSION_CACHE` (60s TTL, max 256 entries) and coalesce concurrent
-    validations for the same session cookie via `_FAVICON_SESSION_INFLIGHT`.
+    to `auth_fn`. Session-cookie requests (`kfm_session` / `rk_session` /
+    `kfc_session`) reuse `_FAVICON_SESSION_CACHE` (60s TTL, max 256 entries)
+    and coalesce concurrent validations for the same session cookie via
+    `_FAVICON_SESSION_INFLIGHT`.
     """
     headers = getattr(request, "headers", None)
     if headers is not None and headers.get("Authorization"):
@@ -160,7 +161,11 @@ async def resolve_favicon_user(
 
     cookies = getattr(request, "cookies", None)
     session_id = (
-        (cookies.get("kfm_session") or cookies.get("rk_session"))
+        (
+            cookies.get("kfm_session")
+            or cookies.get("rk_session")
+            or cookies.get("kfc_session")
+        )
         if cookies is not None
         else None
     )
