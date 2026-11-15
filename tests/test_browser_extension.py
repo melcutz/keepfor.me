@@ -919,3 +919,176 @@ assert.equal(localWrites.at(-1).kfmLast.error, "Error 403: This token is read-on
     assert res.returncode == 0, (
         f"Background Node test failed:\n{res.stderr}\n{res.stdout}"
     )
+
+
+def test_extension_js_syntax_slice2():
+    res = subprocess.run(
+        ["node", "--check", str(EXT_DIR / "sidepanel.js")],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert res.returncode == 0, f"sidepanel.js syntax error: {res.stderr}"
+
+
+def test_sidepanel_html_no_dead_ask_tab():
+    html = (EXT_DIR / "sidepanel.html").read_text()
+    assert 'data-tab="chat"' not in html
+    assert 'id="tab-chat"' not in html
+    assert "Ask is not yet implemented" not in html
+    for tab in ("tabs", "history", "search"):
+        assert f'data-tab="{tab}"' in html
+        assert f'id="tab-{tab}"' in html
+
+
+def test_sidepanel_js_notes_and_tab_refresh_mocked():
+    sidepanel_url = (EXT_DIR / "sidepanel.js").as_uri()
+    script = f"""
+import assert from "node:assert/strict";
+
+const elements = new Map();
+function makeEl(id) {{
+  const listeners = {{}};
+  const classes = new Set();
+  const el = {{
+    id,
+    value: "",
+    textContent: "",
+    innerHTML: "",
+    disabled: false,
+    style: {{}},
+    dataset: {{}},
+    classList: {{
+      add: (...c) => c.forEach((x) => classes.add(x)),
+      remove: (...c) => c.forEach((x) => classes.delete(x)),
+      contains: (c) => classes.has(c),
+    }},
+    addEventListener: (ev, fn) => {{
+      (listeners[ev] ||= []).push(fn);
+    }},
+    dispatch: async (ev, extra = {{}}) => {{
+      for (const fn of listeners[ev] || []) {{
+        await fn({{ preventDefault: () => {{}}, ...extra }});
+      }}
+    }},
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    appendChild: () => {{}},
+  }};
+  elements.set(id, el);
+  return el;
+}}
+
+for (const id of [
+  "tabs-list", "tabs-count", "tabs-filter", "tabs-all", "tabs-none",
+  "tabs-save", "tabs-prog", "tabs-err", "tabs-tags",
+  "scope-win", "scope-all",
+  "hist-list", "hist-save", "hist-prog", "hist-err", "hist-tags",
+  "hist-range", "hist-max", "hist-q", "hist-go",
+  "s-q", "s-go", "s-list",
+  "tab-tabs", "tab-history", "tab-search",
+]) {{
+  makeEl(id);
+}}
+
+const tabListeners = {{ onCreated: [], onRemoved: [], onUpdated: [] }};
+let tabsList = [
+  {{ url: "https://example.com/one", title: "One Tab", favIconUrl: "" }},
+  {{ url: "https://example.com/two", title: "Two Tab", favIconUrl: "" }},
+];
+let queryCount = 0;
+
+globalThis.window = {{}};
+globalThis.document = {{
+  getElementById: (id) => elements.get(id) || null,
+  querySelectorAll: () => [],
+  createElement: () => ({{ style: {{}} }}),
+}};
+
+globalThis.chrome = {{
+  tabs: {{
+    query: async () => {{
+      queryCount += 1;
+      return tabsList;
+    }},
+    onCreated: {{ addListener: (fn) => tabListeners.onCreated.push(fn) }},
+    onRemoved: {{ addListener: (fn) => tabListeners.onRemoved.push(fn) }},
+    onUpdated: {{ addListener: (fn) => tabListeners.onUpdated.push(fn) }},
+  }},
+  storage: {{
+    sync: {{
+      get: async () => ({{
+        workerUrl: "https://app.keepfor.me/",
+        patToken: "kfm_live_test",
+      }}),
+    }},
+  }},
+  history: {{ search: async () => [] }},
+}};
+
+const searchResults = [
+  {{ id: "note 1", item_type: "note", url: "urn:note:note 1", title: "My Note" }},
+  {{ id: "note-2", url: "urn:note:note-2", title: "" }},
+  {{
+    id: "link-1",
+    item_type: "link",
+    url: "https://example.com/post",
+    title: "Web Post",
+  }},
+];
+
+globalThis.fetch = async () => ({{
+  ok: true,
+  status: 200,
+  headers: {{ get: () => "application/json" }},
+  json: async () => searchResults,
+}});
+
+await import({json.dumps(sidepanel_url)});
+await new Promise((r) => setTimeout(r, 20));
+
+// 1. Note search results link to /items/<encoded-id> with "Personal note" subtitle
+elements.get("s-q").value = "note";
+await elements.get("s-go").dispatch("click");
+const sHtml = elements.get("s-list").innerHTML;
+assert.match(sHtml, /href="https:\\/\\/app\\.keepfor\\.me\\/items\\/note%201"/);
+assert.match(sHtml, />My Note<\\/a>/);
+assert.match(sHtml, /href="https:\\/\\/app\\.keepfor\\.me\\/items\\/note-2"/);
+assert.match(sHtml, />Untitled note<\\/a>/);
+assert.match(sHtml, />Personal note<\\/span>/);
+assert.match(sHtml, /href="https:\\/\\/example\\.com\\/post"/);
+
+// 2. chrome.tabs listeners registered, debounced, and preserve #tabs-filter
+assert.equal(tabListeners.onCreated.length, 1);
+assert.equal(tabListeners.onRemoved.length, 1);
+assert.equal(tabListeners.onUpdated.length, 1);
+
+const beforeQueries = queryCount;
+elements.get("tabs-filter").value = "Two";
+tabsList = [
+  {{ url: "https://example.com/one", title: "One Tab", favIconUrl: "" }},
+  {{ url: "https://example.com/two", title: "Two Tab", favIconUrl: "" }},
+  {{ url: "https://example.com/two-b", title: "Two B Tab", favIconUrl: "" }},
+];
+
+// Burst of events should debounce into a single refresh
+tabListeners.onCreated[0]();
+tabListeners.onUpdated[0]();
+tabListeners.onRemoved[0]();
+await new Promise((r) => setTimeout(r, 220));
+
+assert.equal(queryCount, beforeQueries + 1);
+assert.equal(elements.get("tabs-filter").value, "Two");
+assert.equal(elements.get("tabs-count").textContent, "2 tabs");
+
+// 3. Missing chrome.tabs event emitters do not throw
+globalThis.chrome.tabs = {{
+  query: async () => [],
+}};
+await import({json.dumps(sidepanel_url)} + "?no_events=1");
+"""
+    res = _run_node(script, module=True)
+    assert res.returncode == 0, (
+        f"Sidepanel Node test failed:\n{res.stderr}\n{res.stdout}"
+    )

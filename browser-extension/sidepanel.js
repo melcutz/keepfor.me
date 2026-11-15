@@ -14,7 +14,7 @@ async function loadTabs() {
   const wins = scope === "all" ? await chrome.tabs.query({}) : await chrome.tabs.query({ currentWindow: true });
   tabRows = dedupeByUrl(wins.filter((t) => t.url && !isSkippableUrl(t.url))
     .map((t) => ({ url: t.url, title: t.title || t.url, fav: t.favIconUrl || "" })));
-  renderTabs("");
+  renderTabs($("tabs-filter")?.value || "");
 }
 function esc(s) {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -94,6 +94,16 @@ loadTabs().catch((e) => {
   updateSaveLabels();
 });
 updateSaveLabels();
+let tabRefreshTimer = null;
+function scheduleTabRefresh() {
+  clearTimeout(tabRefreshTimer);
+  tabRefreshTimer = setTimeout(() => {
+    loadTabs().catch(() => {});
+  }, 150);
+}
+chrome.tabs?.onCreated?.addListener?.(scheduleTabRefresh);
+chrome.tabs?.onRemoved?.addListener?.(scheduleTabRefresh);
+chrome.tabs?.onUpdated?.addListener?.(scheduleTabRefresh);
 $("hist-go").addEventListener("click", async () => {
   const range = +$("hist-range").value, max = +$("hist-max").value, text = $("hist-q").value || "";
   const startTime = range ? Date.now() - range : 0;
@@ -140,8 +150,13 @@ async function runSearch() {
   try {
     const items = await searchLib(base, pat, q, 20);
     const arr = Array.isArray(items) ? items : items.items || [];
-    $("s-list").innerHTML = arr.length ? arr.map((it) =>
-      `<div class="item"><span><a href="${esc(it.url)}" target="_blank" rel="noopener">${esc(it.title || it.url)}</a><br><span class="u">${esc(it.url)}</span></span></div>`).join("")
+    $("s-list").innerHTML = arr.length ? arr.map((it) => {
+      const isNote = it.item_type === "note" || (it.url || "").startsWith("urn:note:");
+      const href = isNote ? `${base}/items/${encodeURIComponent(it.id)}` : it.url;
+      const title = it.title || (isNote ? "Untitled note" : it.url);
+      const sub = isNote ? "Personal note" : it.url;
+      return `<div class="item"><span><a href="${esc(href)}" target="_blank" rel="noopener">${esc(title)}</a><br><span class="u">${esc(sub)}</span></span></div>`;
+    }).join("")
       : `<div class="item">0 results (search may have degraded).</div>`;
   } catch (e) { $("s-list").innerHTML = `<div class="item err">${esc(e.message || e)}</div>`; }
 }
