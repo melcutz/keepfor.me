@@ -896,19 +896,47 @@ async def save_popup_get(request: Request, url: str = "", title: str = ""):
 @router.post("/save-popup", response_class=HTMLResponse)
 async def save_popup_post(
     request: Request,
-    url: str = Form(...),
+    url: str = Form(""),
     title: str = Form(""),
+    content: str = Form(""),
     tags: str = Form(""),
     source: str = Form(""),
+    mode: str = Form(""),
 ):
     user = await deps.require_user(request)
     db = deps.get_db(request)
     env = deps.get_env_from_request(request)
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    template = jinja_env.get_template("save_popup.html")
+
+    if mode == "note" or not url.strip():
+        if not content.strip() and not title.strip():
+            raise HTTPException(
+                status_code=400, detail="URL or note content is required"
+            )
+        await save_note(
+            db,
+            env,
+            user["id"],
+            title,
+            content,
+            tag_list,
+            scope=deps.get_scope(request),
+        )
+        html = template.render(
+            is_note=True,
+            url="",
+            title=title,
+            content=content,
+            success=True,
+            source=source,
+        )
+        return HTMLResponse(content=html)
+
     clean_url = extract_url(url)
     if not clean_url:
         logger.warning(f"Save popup validation failed: invalid URL '{url}'")
         raise HTTPException(status_code=400, detail="Invalid URL")
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     await save_item(
         db,
         env,
@@ -918,8 +946,9 @@ async def save_popup_post(
         title=title,
         scope=deps.get_scope(request),
     )
-    template = jinja_env.get_template("save_popup.html")
-    html = template.render(url=clean_url, title=title, success=True, source=source)
+    html = template.render(
+        is_note=False, url=clean_url, title=title, success=True, source=source
+    )
     return HTMLResponse(content=html)
 
 
@@ -1222,13 +1251,22 @@ async def share_target(
         )
     # Android/iOS often puts the link in text instead of url or shares mixed text.
     target = extract_url(url) or extract_url(text)
-    if not target:
+    clean_text = text.strip()
+    clean_title = title.strip()
+    if not target and not clean_text and not clean_title:
         return RedirectResponse(url="/", status_code=303)
     template = jinja_env.get_template("save_popup.html")
     db = deps.get_db(request)
     recent_tags = [r["name"] for r in await suggest_tags(db, user["id"], "", limit=5)]
+    is_note = not target
     html = template.render(
-        url=target, title=title, success=False, source="share", recent_tags=recent_tags
+        is_note=is_note,
+        url=target or "",
+        title=clean_title if is_note else title,
+        content=clean_text if is_note else "",
+        success=False,
+        source="share",
+        recent_tags=recent_tags,
     )
     return HTMLResponse(content=html)
 
