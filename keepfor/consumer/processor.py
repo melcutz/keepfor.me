@@ -299,11 +299,18 @@ async def extract_and_store(
     On failure the item is marked failed in D1 and the error re-raised.
     """
     item_row = await db.query_first(
-        "SELECT user_id, title FROM items WHERE id = ?;", (item_id,)
+        "SELECT user_id, title, url, canonical_url FROM items WHERE id = ?;",
+        (item_id,),
     )
     if not item_row:
         logger.warning(f"Item not found for processing: {item_id}")
         return
+    existing_title = (item_row.get("title") or "").strip()
+    bare_urls = {
+        u.strip()
+        for u in (url, item_row.get("url"), item_row.get("canonical_url"))
+        if u and u.strip()
+    }
     row_user_id = item_row["user_id"]
     if user_id is not None and row_user_id != user_id:
         logger.warning(
@@ -373,6 +380,12 @@ async def extract_and_store(
                 except Exception as exc:
                     logger.warning("Entitlement record for summarize failed: %s", exc)
 
+        extracted_title = (extracted.get("title") or "").strip()
+        if existing_title and (not extracted_title or extracted_title in bare_urls):
+            final_title = existing_title
+        else:
+            final_title = extracted.get("title")
+
         # 4b. Update items in D1
         await db.execute(
             """
@@ -384,7 +397,7 @@ async def extract_and_store(
             WHERE id = ? AND user_id = ?;
             """,
             (
-                extracted["title"],
+                final_title,
                 extracted["byline"],
                 extracted["site_name"],
                 extracted["published_date"],
@@ -407,7 +420,7 @@ async def extract_and_store(
         # that turns textless cannot leave a stale row behind.
         index_item = {
             "url": url,
-            "title": extracted.get("title") or "",
+            "title": final_title or "",
             "content_text": extracted.get("content_text") or "",
             "status": "ok",
         }
@@ -453,14 +466,14 @@ async def extract_and_store(
             await db.execute(
                 "INSERT INTO items_fts (item_id, user_id, title, content_text) "
                 "VALUES (?, ?, ?, ?);",
-                (item_id, user_id, extracted["title"], combined_content),
+                (item_id, user_id, final_title or "", combined_content),
             )
         elif index_title:
             # Title-only row: no text to index, but the title still finds it.
             await db.execute(
                 "INSERT INTO items_fts (item_id, user_id, title, content_text) "
                 "VALUES (?, ?, ?, ?);",
-                (item_id, user_id, extracted["title"], v2_fields),
+                (item_id, user_id, final_title or "", v2_fields),
             )
 
         # 5b. Automatic tagging (fail-open: a tagger defect must never
@@ -480,10 +493,10 @@ async def extract_and_store(
             # The page's own language (or a guess from its text) decides
             # which stopword list the tagger cuts the page at (#58).
             lang = extracted.get("language") or _tagger.detect_language(
-                f"{extracted.get('title') or ''}\n{extracted.get('content_text') or ''}"
+                f"{final_title or ''}\n{extracted.get('content_text') or ''}"
             )
             matched = _tagger.match_existing_tags(
-                title=extracted.get("title") or "",
+                title=final_title or "",
                 excerpt=extracted.get("excerpt") or "",
                 url=url,
                 body=extracted.get("content_text") or "",
@@ -496,7 +509,7 @@ async def extract_and_store(
                 matched.auto_apply
             )
             novel = _tagger.suggest_new_tags(
-                title=extracted.get("title") or "",
+                title=final_title or "",
                 excerpt=extracted.get("excerpt") or "",
                 url=url,
                 body=extracted.get("content_text") or "",
@@ -531,7 +544,7 @@ async def extract_and_store(
             rule_tags = _match_rules(
                 [dict(r) for r in rules_rows],
                 url,
-                extracted.get("title") or "",
+                final_title or "",
             )
             if rule_tags:
                 await add_tags_to_item(db, user_id, item_id, rule_tags)

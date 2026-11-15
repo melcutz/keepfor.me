@@ -182,6 +182,8 @@ async def import_bookmarks(
                 user_id=user_id,
                 url=b["url"],
                 tags=b.get("tags", []),
+                title=b.get("title"),
+                created_at=b.get("created_at"),
                 scope=scope,
                 queue_messages=queue_messages,
                 check_entitlement=(scope is None),

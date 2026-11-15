@@ -211,6 +211,203 @@ https://example.com/9,Nine
 
 
 @pytest.mark.asyncio
+async def test_save_item_persists_title_and_created_at(db):
+    """save_item stores initial title/created_at and indexes non-empty title in FTS."""
+    user = await register_user(db, "save-title@test.local", "password123")
+    user_id = user["id"]
+    env = MockEnv(queue=MockQueue())
+
+    item, is_new = await save_item(
+        db,
+        env,
+        user_id,
+        "https://example.com/queued",
+        title="Queued Bookmark",
+        created_at="2023-11-14 22:13:20",
+    )
+    assert is_new is True
+
+    row = await db.query_first(
+        "SELECT title, created_at FROM items WHERE id = ? AND user_id = ?;",
+        (item["id"], user_id),
+    )
+    assert row["title"] == "Queued Bookmark"
+    assert row["created_at"] == "2023-11-14 22:13:20"
+
+    fts_row = await db.query_first(
+        "SELECT item_id, title FROM items_fts WHERE item_id = ? AND user_id = ?;",
+        (item["id"], user_id),
+    )
+    assert fts_row is not None
+    assert fts_row["title"] == "Queued Bookmark"
+
+    # Duplicate save must not overwrite existing title or created_at
+    dup, dup_is_new = await save_item(
+        db,
+        env,
+        user_id,
+        "https://example.com/queued",
+        title="Different Title",
+        created_at="2025-01-01 00:00:00",
+    )
+    assert dup_is_new is False
+    row_after = await db.query_first(
+        "SELECT title, created_at FROM items WHERE id = ? AND user_id = ?;",
+        (item["id"], user_id),
+    )
+    assert row_after["title"] == "Queued Bookmark"
+    assert row_after["created_at"] == "2023-11-14 22:13:20"
+
+    # Default created_at when omitted, and no FTS row when title is omitted
+    plain, plain_is_new = await save_item(db, env, user_id, "https://example.com/plain")
+    assert plain_is_new is True
+    plain_row = await db.query_first(
+        "SELECT title, created_at FROM items WHERE id = ? AND user_id = ?;",
+        (plain["id"], user_id),
+    )
+    assert plain_row["title"] is None
+    assert plain_row["created_at"] is not None
+    plain_fts = await db.query_first(
+        "SELECT item_id FROM items_fts WHERE item_id = ? AND user_id = ?;",
+        (plain["id"], user_id),
+    )
+    assert plain_fts is None
+
+
+@pytest.mark.asyncio
+async def test_import_bookmarks_preserves_title_and_created_at_on_failed_extraction(
+    db, monkeypatch
+):
+    """import_bookmarks forwards title/created_at and keeps failed items searchable."""
+    import keepfor.consumer.processor as processor
+    from keepfor.search.engine import search_fts
+    from keepfor.utils.importer import import_bookmarks
+
+    user = await register_user(db, "bm-fail@test.local", "password123")
+    user_id = user["id"]
+
+    async def fail_extract(*args, **kwargs):
+        raise RuntimeError("404 Not Found")
+
+    monkeypatch.setattr(processor, "_fetch_and_extract", fail_extract)
+
+    html = (
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n"
+        "<DL><p>\n"
+        '    <DT><A HREF="https://example.com/dead-link" '
+        'ADD_DATE="1700000000" TAGS="ref">Preserved Bookmark Title</A>\n'
+        "</DL><p>\n"
+    )
+    bookmarks = parse_netscape_bookmarks(html)
+    summary = await import_bookmarks(db, MockEnv(queue=None), user_id, bookmarks)
+    assert summary["imported"] == 1
+
+    row = await db.query_first(
+        "SELECT id, title, created_at, status FROM items WHERE user_id = ?;",
+        (user_id,),
+    )
+    assert row["title"] == "Preserved Bookmark Title"
+    assert row["created_at"] == "2023-11-14 22:13:20"
+    assert row["status"] == "failed"
+
+    hits = await search_fts(db, user_id, "Preserved Bookmark")
+    assert any(h["item_id"] == row["id"] for h in hits)
+
+
+@pytest.mark.asyncio
+async def test_extract_and_store_preserves_title_on_bare_url_fallback(db, monkeypatch):
+    """extract_and_store keeps initial title on bare-URL fallback, updates on real."""
+    import keepfor.consumer.processor as processor
+    from keepfor.consumer.processor import extract_and_store
+    from keepfor.search.engine import search_fts
+
+    user = await register_user(db, "bare-fallback@test.local", "password123")
+    user_id = user["id"]
+    queued_env = MockEnv(queue=MockQueue())
+
+    item1, _ = await save_item(
+        db,
+        queued_env,
+        user_id,
+        "https://example.com/bare",
+        title="Imported Bare Fallback Title",
+    )
+
+    async def bare_extract(url, item_id, **kwargs):
+        return (
+            {
+                "title": url,
+                "byline": None,
+                "site_name": None,
+                "published_date": None,
+                "excerpt": "",
+                "content_text": "",
+                "word_count": 0,
+                "is_fallback": 1,
+                "clean_html": "<p>stub</p>",
+            },
+            None,
+        )
+
+    monkeypatch.setattr(processor, "_fetch_and_extract", bare_extract)
+    await extract_and_store(
+        db, MockEnv(), item1["id"], "https://example.com/bare", user_id=user_id
+    )
+
+    row1 = await db.query_first(
+        "SELECT title, status FROM items WHERE id = ? AND user_id = ?;",
+        (item1["id"], user_id),
+    )
+    assert row1["status"] == "ok"
+    assert row1["title"] == "Imported Bare Fallback Title"
+    hits1 = await search_fts(db, user_id, "Bare Fallback")
+    assert any(h["item_id"] == item1["id"] for h in hits1)
+
+    # Real extracted title replaces initial bookmark title
+    item2, _ = await save_item(
+        db,
+        queued_env,
+        user_id,
+        "https://example.com/real-article",
+        title="Placeholder Title",
+    )
+
+    async def real_extract(url, item_id, **kwargs):
+        return (
+            {
+                "title": "Extracted Article Title",
+                "byline": "Author",
+                "site_name": "Example",
+                "published_date": None,
+                "excerpt": "Summary excerpt",
+                "content_text": (
+                    "Detailed article body text with enough words for indexing."
+                ),
+                "word_count": 9,
+                "is_fallback": 0,
+                "clean_html": "<p>Detailed article body text.</p>",
+            },
+            "<html><title>Extracted Article Title</title></html>",
+        )
+
+    monkeypatch.setattr(processor, "_fetch_and_extract", real_extract)
+    await extract_and_store(
+        db,
+        MockEnv(),
+        item2["id"],
+        "https://example.com/real-article",
+        user_id=user_id,
+    )
+
+    row2 = await db.query_first(
+        "SELECT title, status FROM items WHERE id = ? AND user_id = ?;",
+        (item2["id"], user_id),
+    )
+    assert row2["status"] == "ok"
+    assert row2["title"] == "Extracted Article Title"
+
+
+@pytest.mark.asyncio
 async def test_export_library_json_includes_metadata_and_batches_tags(db):
     user = await register_user(db, "exporter@test.local", "password123")
     user_id = user["id"]
