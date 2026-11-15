@@ -21,6 +21,8 @@ class QueryCounterDB(Database):
     def __init__(self, base_db: Database) -> None:
         super().__init__(base_db.d1, base_db.sqlite)
         self.queries: list[str] = []
+        self.executes: list[str] = []
+        self.batches: list[list[str]] = []
 
     async def query_first(self, sql: str, params: tuple | list = ()):
         self.queries.append(" ".join(sql.split()))
@@ -29,6 +31,14 @@ class QueryCounterDB(Database):
     async def query_all(self, sql: str, params: tuple | list = ()):
         self.queries.append(" ".join(sql.split()))
         return await super().query_all(sql, params)
+
+    async def execute(self, sql: str, params: tuple | list = ()):
+        self.executes.append(" ".join(sql.split()))
+        return await super().execute(sql, params)
+
+    async def execute_batch(self, statements: list[tuple[str, tuple | list]]):
+        self.batches.append([" ".join(sql.split()) for sql, _ in statements])
+        return await super().execute_batch(statements)
 
 
 @pytest.mark.asyncio
@@ -259,3 +269,216 @@ async def test_html_payload_optimizations(client, db):
 
     html_size = len(html.encode("utf-8"))
     assert html_size < 360000, f"HTML payload is {html_size} bytes, expected < 360000"
+
+
+@pytest.mark.asyncio
+async def test_search_fts_runs_url_and_fts_concurrently(db: Database):
+    import asyncio
+
+    from keepfor.search.engine import search_fts
+
+    await db.execute(
+        "INSERT INTO users (id, email, password_hash) "
+        "VALUES ('u1', 'u1@example.com', 'h');"
+    )
+    n1 = await save_note(db, None, "u1", "Python Guide", "Learn python basics")
+    n2 = await save_note(db, None, "u1", "Example Site", "Nothing here")
+    await db.execute(
+        "UPDATE items SET url = 'https://example.com/docs', "
+        "canonical_url = 'https://example.com/docs' WHERE id = ?;",
+        (n2["id"],),
+    )
+
+    class ConcurrentBarrierDB(Database):
+        def __init__(self, base_db: Database) -> None:
+            super().__init__(base_db.d1, base_db.sqlite)
+            self.url_entered = asyncio.Event()
+            self.fts_entered = asyncio.Event()
+            self.timed_out = False
+
+        async def query_all(self, sql: str, params: tuple | list = ()):
+            norm = " ".join(sql.split())
+            try:
+                if "canonical_url LIKE ?" in norm:
+                    self.url_entered.set()
+                    await asyncio.wait_for(self.fts_entered.wait(), timeout=0.5)
+                elif "FROM items_fts" in norm:
+                    self.fts_entered.set()
+                    await asyncio.wait_for(self.url_entered.wait(), timeout=0.5)
+            except TimeoutError:
+                self.timed_out = True
+                raise
+            return await super().query_all(sql, params)
+
+    barrier_db = ConcurrentBarrierDB(db)
+    results = await search_fts(barrier_db, "u1", "example.com python", limit=10)
+    assert not barrier_db.timed_out
+    ids = [r["item_id"] for r in results]
+    assert n1["id"] in ids
+    assert n2["id"] in ids
+
+    # URL-only early return when no terms or symbols exist
+    counting_db = QueryCounterDB(db)
+    url_only = await search_fts(counting_db, "u1", "://", limit=10)
+    assert any(r["item_id"] == n2["id"] for r in url_only)
+    assert len(counting_db.queries) == 1
+    assert "canonical_url LIKE ?" in counting_db.queries[0]
+
+
+@pytest.mark.asyncio
+async def test_search_fts_independent_url_and_fts_fallbacks(db: Database):
+    from keepfor.search.engine import search_fts
+
+    await db.execute(
+        "INSERT INTO users (id, email, password_hash) "
+        "VALUES ('u1', 'u1@example.com', 'h');"
+    )
+    n1 = await save_note(db, None, "u1", "Python Guide", "Learn python basics")
+    await db.execute(
+        "UPDATE items SET url = 'https://example.com/python', "
+        "canonical_url = 'https://example.com/python' WHERE id = ?;",
+        (n1["id"],),
+    )
+
+    class UrlFailDB(Database):
+        async def query_all(self, sql: str, params: tuple | list = ()):
+            if "canonical_url LIKE ?" in " ".join(sql.split()):
+                raise RuntimeError("url query failed")
+            return await super().query_all(sql, params)
+
+    res1 = await search_fts(UrlFailDB(db.d1, db.sqlite), "u1", "example.com python")
+    assert [r["item_id"] for r in res1] == [n1["id"]]
+
+    class FtsFailDB(Database):
+        async def query_all(self, sql: str, params: tuple | list = ()):
+            if "FROM items_fts" in " ".join(sql.split()):
+                raise RuntimeError("fts query failed")
+            return await super().query_all(sql, params)
+
+    res2 = await search_fts(FtsFailDB(db.d1, db.sqlite), "u1", "example.com/python")
+    assert [r["item_id"] for r in res2] == [n1["id"]]
+
+
+@pytest.mark.asyncio
+async def test_hybrid_search_no_filters_skips_drop_trashed_and_over_hydration(
+    db: Database, monkeypatch
+):
+    from keepfor.search.engine import hybrid_search
+
+    await db.execute(
+        "INSERT INTO users (id, email, password_hash) "
+        "VALUES ('u1', 'u1@example.com', 'h');"
+    )
+    live_ids: list[str] = []
+    for i in range(12):
+        note = await save_note(
+            db, None, "u1", f"Python note {i}", f"Content about python topic {i}"
+        )
+        live_ids.append(note["id"])
+
+    trashed = await save_note(db, None, "u1", "Trashed python", "Trashed python body")
+    await db.execute(
+        "UPDATE items SET deleted_at = '2026-01-01T00:00:00Z' WHERE id = ?;",
+        (trashed["id"],),
+    )
+
+    # Mock vectorize results with live items and the trashed item
+    vec_hits = [
+        {"item_id": iid, "score": 0.95 - idx * 0.01}
+        for idx, iid in enumerate(live_ids[:8])
+    ]
+
+    async def fake_search_vectorize(env, user_id, query, limit=50, scope=None):
+        return list(vec_hits)
+
+    monkeypatch.setattr("keepfor.search.engine.search_vectorize", fake_search_vectorize)
+
+    class FakeEnv:
+        pass
+
+    counting_db = QueryCounterDB(db)
+    items, total = await hybrid_search(
+        counting_db, FakeEnv(), "u1", "python", mode="hybrid", limit=4, offset=0
+    )
+
+    assert len(items) == 4
+    assert total == 12
+    # Must NOT execute _drop_trashed query
+    assert not any(
+        q.startswith("SELECT id FROM items WHERE user_id = ? AND deleted_at IS NULL")
+        for q in counting_db.queries
+    )
+    # Hydration must only fetch the 4 page IDs (not all 12)
+    hydration_queries = [
+        q for q in counting_db.queries if "FROM items i WHERE i.id IN (" in q
+    ]
+    assert len(hydration_queries) == 1
+    assert hydration_queries[0].count("?") == 4 + 1  # 4 ids + user_id
+
+    # Now put a trashed vector item in page 1 (rank 1) and verify exactness + filtering
+    vec_hits.insert(0, {"item_id": trashed["id"], "score": 0.99})
+    # Also test semantic mode where trashed item is not pre-filtered by FTS
+    counting_db.queries.clear()
+    sem_items, sem_total = await hybrid_search(
+        counting_db, FakeEnv(), "u1", "python", mode="semantic", limit=4, offset=0
+    )
+    assert len(sem_items) == 4
+    assert all(it["id"] != trashed["id"] for it in sem_items)
+    assert sem_total == 8
+    assert not any(
+        q.startswith("SELECT id FROM items WHERE user_id = ? AND deleted_at IS NULL")
+        for q in counting_db.queries
+    )
+
+
+@pytest.mark.asyncio
+async def test_add_tags_to_item_skips_second_select_when_tags_exist(db: Database):
+    from keepfor.models.items import add_tags_to_item, get_item_tags
+
+    await db.execute(
+        "INSERT INTO users (id, email, password_hash) "
+        "VALUES ('u1', 'u1@example.com', 'h');"
+    )
+    await save_note(db, None, "u1", "Seed", "Body", tags=["alpha", "beta"])
+    target = await save_note(db, None, "u1", "Target", "Body", tags=[])
+
+    counting_db = QueryCounterDB(db)
+    await add_tags_to_item(counting_db, "u1", target["id"], ["alpha", "beta"])
+
+    assert len(counting_db.queries) == 1
+    assert len(counting_db.batches) == 1
+    assert await get_item_tags(db, "u1", target["id"]) == ["alpha", "beta"]
+
+
+@pytest.mark.asyncio
+async def test_add_suggestions_batches_via_execute_batch(db: Database):
+    from keepfor.models.items import add_suggestions
+
+    await db.execute(
+        "INSERT INTO users (id, email, password_hash) "
+        "VALUES ('u1', 'u1@example.com', 'h');"
+    )
+    note = await save_note(db, None, "u1", "Note", "Body")
+
+    counting_db = QueryCounterDB(db)
+    count = await add_suggestions(
+        counting_db,
+        "u1",
+        note["id"],
+        [("alpha", 0.9), ("beta", 0.8), ("x", 0.7), ("gamma", 0.6)],
+    )
+    assert count == 3
+    assert len(counting_db.executes) == 0
+    assert len(counting_db.batches) == 1
+    assert len(counting_db.batches[0]) == 3
+
+    rows = await db.query_all(
+        "SELECT phrase FROM suggested_tags WHERE item_id = ? ORDER BY score DESC;",
+        (note["id"],),
+    )
+    assert [r["phrase"] for r in rows] == ["alpha", "beta", "gamma"]
+
+    counting_db.batches.clear()
+    empty_count = await add_suggestions(counting_db, "u1", note["id"], [("a", 0.5)])
+    assert empty_count == 0
+    assert len(counting_db.batches) == 0

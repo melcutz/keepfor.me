@@ -1583,21 +1583,25 @@ async def add_suggestions(
     """Records pending tag suggestions; idempotent per (item, phrase)."""
     from keepfor.utils.tagger import normalize_tag
 
-    inserted = 0
+    stmts: list[tuple[str, tuple[Any, ...]]] = []
     for raw_phrase, score in phrases[:limit]:
         phrase = normalize_tag(raw_phrase or "")
         if len(phrase) < 3:
             continue
-        try:
-            await db.execute(
+        stmts.append(
+            (
                 "INSERT OR IGNORE INTO suggested_tags"
                 " (id, item_id, user_id, phrase, score) VALUES (?, ?, ?, ?, ?);",
                 (str(uuid.uuid4()), item_id, user_id, phrase, float(score)),
             )
-            inserted += 1
-        except Exception:
-            continue
-    return inserted
+        )
+    if not stmts:
+        return 0
+    try:
+        await db.execute_batch(stmts)
+        return len(stmts)
+    except Exception:
+        return 0
 
 
 async def accept_suggestion(db: Database, user_id: str, sugg_id: str) -> bool:
