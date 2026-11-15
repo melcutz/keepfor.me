@@ -119,3 +119,165 @@ async def test_extract_and_store_skips_raw_html_for_proxied_markdown(
     assert raw_key not in bucket.store
     assert clean_key in bucket.store
     assert bucket.puts == [clean_key]
+
+
+@pytest.mark.asyncio
+async def test_save_item_returns_and_updates_custom_title(db: Database):
+    """save_item returns initial_title on create and updates title + FTS on re-save."""
+    from keepfor.models.items import save_item
+    from keepfor.search.engine import search_fts
+    from tests.fakes import FakeQueue
+
+    user = await register_user(db, "save-title@example.com", "password123")
+    user_id = user["id"]
+    queued_env = FakeEnv(queue=FakeQueue())
+
+    # New item with custom title returns "title": initial_title
+    created, is_new = await save_item(
+        db,
+        queued_env,
+        user_id,
+        "https://example.com/custom",
+        title="  Initial Custom Title  ",
+    )
+    assert is_new is True
+    assert created["title"] == "Initial Custom Title"
+
+    # New item without title returns "title": None
+    untitled, is_new_untitled = await save_item(
+        db,
+        queued_env,
+        user_id,
+        "https://example.com/untitled",
+        title="   ",
+    )
+    assert is_new_untitled is True
+    assert untitled["title"] is None
+
+    # Re-saving with None, empty string, or bare URL leaves existing title unchanged
+    for ignored_title in (None, "", "   ", "https://example.com/custom"):
+        unchanged, is_new_again = await save_item(
+            db,
+            queued_env,
+            user_id,
+            "https://example.com/custom",
+            title=ignored_title,
+        )
+        assert is_new_again is False
+        assert unchanged["title"] == "Initial Custom Title"
+
+    # Re-saving with a non-empty, non-bare-URL title updates DB, FTS, and dict
+    updated, is_new_rename = await save_item(
+        db,
+        queued_env,
+        user_id,
+        "https://example.com/custom",
+        title="Renamed Custom Title",
+    )
+    assert is_new_rename is False
+    assert updated["title"] == "Renamed Custom Title"
+
+    row = await db.query_first(
+        "SELECT title FROM items WHERE id = ? AND user_id = ?;",
+        (created["id"], user_id),
+    )
+    assert row["title"] == "Renamed Custom Title"
+
+    hits_new = await search_fts(db, user_id, "Renamed Custom")
+    assert any(h["item_id"] == created["id"] for h in hits_new)
+    hits_old = await search_fts(db, user_id, "Initial")
+    assert not any(h["item_id"] == created["id"] for h in hits_old)
+
+
+@pytest.mark.asyncio
+async def test_extract_and_store_preserves_custom_title_and_fills_empty_or_bare(
+    db: Database, monkeypatch
+):
+    """extract_and_store keeps custom titles and fills empty or bare-URL titles."""
+    from keepfor.models.items import save_item
+    from tests.fakes import FakeQueue
+
+    user = await register_user(db, "extract-title@example.com", "password123")
+    user_id = user["id"]
+    queued_env = FakeEnv(queue=FakeQueue())
+
+    async def fake_extract(url, item_id, **kwargs):
+        return (
+            {
+                "title": "Extracted Page Title",
+                "byline": "Author",
+                "site_name": "Example",
+                "published_date": None,
+                "excerpt": "Excerpt text",
+                "content_text": "Article body text for extraction.",
+                "word_count": 5,
+                "is_fallback": 0,
+                "clean_html": "<p>Article body text for extraction.</p>",
+            },
+            "<html><title>Extracted Page Title</title></html>",
+        )
+
+    monkeypatch.setattr(processor, "_fetch_and_extract", fake_extract)
+
+    # 1. Custom non-bare-URL title is preserved
+    custom_item, _ = await save_item(
+        db,
+        queued_env,
+        user_id,
+        "https://example.com/with-custom",
+        title="User Custom Title",
+    )
+    await processor.extract_and_store(
+        db,
+        FakeEnv(),
+        custom_item["id"],
+        "https://example.com/with-custom",
+        user_id=user_id,
+    )
+    custom_row = await db.query_first(
+        "SELECT title FROM items WHERE id = ? AND user_id = ?;",
+        (custom_item["id"], user_id),
+    )
+    assert custom_row["title"] == "User Custom Title"
+
+    # 2. Empty title is populated from extraction
+    empty_item, _ = await save_item(
+        db,
+        queued_env,
+        user_id,
+        "https://example.com/with-empty",
+        title=None,
+    )
+    await processor.extract_and_store(
+        db,
+        FakeEnv(),
+        empty_item["id"],
+        "https://example.com/with-empty",
+        user_id=user_id,
+    )
+    empty_row = await db.query_first(
+        "SELECT title FROM items WHERE id = ? AND user_id = ?;",
+        (empty_item["id"], user_id),
+    )
+    assert empty_row["title"] == "Extracted Page Title"
+
+    # 3. Bare-URL title is populated from extraction
+    bare_item, _ = await save_item(
+        db,
+        queued_env,
+        user_id,
+        "https://example.com/with-bare",
+        title="https://example.com/with-bare",
+    )
+    await processor.extract_and_store(
+        db,
+        FakeEnv(),
+        bare_item["id"],
+        "https://example.com/with-bare",
+        user_id=user_id,
+    )
+    bare_row = await db.query_first(
+        "SELECT title FROM items WHERE id = ? AND user_id = ?;",
+        (bare_item["id"], user_id),
+    )
+    assert bare_row["title"] == "Extracted Page Title"
