@@ -1,0 +1,48 @@
+{
+  "concurrency": 5,
+  "max_rounds": 3,
+  "max_slice_retries": 2,
+  "agent_timeout_sec": 1800,
+  "gate_timeout_sec": 900,
+  "idle_bg_grace_sec": 45,
+  "auto_polish": true,
+  "auto_approve_clean": true,
+  "base_branch": "main",
+  "merge_method": "merge",
+  "auto_merge": "all",
+  "labels": {
+    "queue": "factory",
+    "needs_info": "factory:needs-info",
+    "needs_human": "factory:needs-human"
+  },
+  "protected_paths": [
+    "factory/",
+    ".agents/",
+    ".github/"
+  ],
+  "models": {
+    "planner": "gemini-4-hydrogen-medium",
+    "intake": "gemini-4-hydrogen-medium",
+    "spec_writer": "gemini-4-hydrogen-medium",
+    "builder": "gemini-4-hydrogen-medium",
+    "approver": "gemini-4-argon-medium",
+    "qa": "gemini-4-hydrogen-medium",
+    "code_low": "gemini-4-hydrogen-low",
+    "code_medium": "gemini-4-hydrogen-low",
+    "code_high": "gemini-4-hydrogen-medium",
+    "security": "gemini-4-argon-medium",
+    "ux": "gemini-4-hydrogen-medium",
+    "ui": "gemini-4-hydrogen-low"
+  },
+  "staging_qa": {
+    "enabled": false,
+    "max_qa_rounds": 3,
+    "max_batch_size": 4,
+    "coalesce_window_sec": 15,
+    "deploy_timeout_sec": 900,
+    "qa_timeout_sec": 1200,
+    "base_url": "https://staging.keepfor.me",
+    "ops_base_url": "https://ops-staging.keepfor.me",
+    "env_files": []
+  }
+}

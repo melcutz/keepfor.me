@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
-.venv/
+.venv*
 venv/
 .venv-workers/
 python_modules/
@@ -10,16 +10,26 @@ pylock.toml
 uv.lock
 dist/
 *.egg-info/
+*.sqlite
 
 # macOS
 .DS_Store
 
 # git worktrees, brainstorm mockups, local dev state
 .worktrees/
+/.worktrees/
 .superpowers/
+docs/superpowers/
 .wrangler/
 wrangler.local.jsonc
 .dev.vars
+.env*
 
 # coverage artifacts
 .coverage
+coverage.xml
+htmlcov/
+
+# Autonomous software factory
+/factory/jobs/*
+!/factory/jobs/.gitkeep
