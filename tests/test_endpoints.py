@@ -875,11 +875,95 @@ async def test_share_extracts_url_from_text(client, db, auth_headers):
 
 @pytest.mark.asyncio
 async def test_share_without_link_redirects_home(client, db, auth_headers):
-    """A share with no URL anywhere just goes back to the library."""
+    """An empty or whitespace-only share goes back to the library."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
-    response = client.get("/share", params={"title": "no link"}, follow_redirects=False)
-    assert response.status_code in [303, 307, 308]
-    assert response.headers["location"] == "/"
+    for params in [{}, {"url": "   ", "text": "  ", "title": "\n\t"}]:
+        response = client.get("/share", params=params, follow_redirects=False)
+        assert response.status_code == 303
+        assert response.headers["location"] == "/"
+
+
+@pytest.mark.asyncio
+async def test_share_plain_text_renders_note_mode(client, db, auth_headers):
+    """A share with text or title and no URL renders the Note mode sheet."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get(
+        "/share",
+        params={"title": "Book Quote", "text": "To be or not to be."},
+    )
+    assert response.status_code == 200
+    assert 'name="mode" value="note"' in response.text
+    assert 'name="source" value="share"' in response.text
+    assert 'id="save-popup-url"' not in response.text
+    assert 'value="Book Quote"' in response.text
+    assert 'name="content"' in response.text
+    assert "To be or not to be." in response.text
+    assert 'name="tags"' in response.text
+    assert "location.replace" in response.text
+    assert "/share/saved" in response.text
+
+
+@pytest.mark.asyncio
+async def test_share_title_only_renders_note_mode(client, db, auth_headers):
+    """A share with only a non-empty title renders Note mode."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.get("/share", params={"title": "Quick thought"})
+    assert response.status_code == 200
+    assert 'name="mode" value="note"' in response.text
+    assert 'value="Quick thought"' in response.text
+    assert 'name="content"' in response.text
+
+
+@pytest.mark.asyncio
+async def test_share_note_post_creates_note_item(client, db, auth_headers):
+    """Submitting Note mode via POST /save-popup creates a note item with tags."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.post(
+        "/save-popup",
+        data={
+            "mode": "note",
+            "title": "Book Quote",
+            "content": "To be or not to be.",
+            "tags": "books, quotes",
+            "source": "share",
+        },
+    )
+    assert response.status_code == 200
+    assert "Saved to your library!" in response.text
+    assert "location.href" not in response.text
+
+    item = await db.query_first(
+        "SELECT id, item_type, title, content_text FROM items WHERE title = ?",
+        ["Book Quote"],
+    )
+    assert item is not None
+    assert item["item_type"] == "note"
+    assert item["content_text"] == "To be or not to be."
+
+    tag_rows = await db.query_all(
+        "SELECT t.name FROM tags t "
+        "JOIN item_tags it ON it.tag_id = t.id "
+        "WHERE it.item_id = ? ORDER BY t.name",
+        [item["id"]],
+    )
+    assert [r["name"] for r in tag_rows] == ["books", "quotes"]
+
+
+@pytest.mark.asyncio
+async def test_share_note_post_empty_returns_400(client, db, auth_headers):
+    """Submitting Note mode with empty title and content returns 400."""
+    client.cookies["kfm_session"] = auth_headers["admin_session"]
+    response = client.post(
+        "/save-popup",
+        data={
+            "mode": "note",
+            "title": "   ",
+            "content": "  ",
+            "tags": "",
+            "source": "share",
+        },
+    )
+    assert response.status_code == 400
 
 
 @pytest.mark.asyncio
@@ -912,11 +996,12 @@ async def test_share_saved_requires_login(client):
 async def test_share_saved_renders_static_success(client, db, auth_headers):
     """The replace() target is a static panel that exits via system back."""
     client.cookies["kfm_session"] = auth_headers["admin_session"]
-    response = client.get("/share/saved", params={"url": "https://example.com/a"})
-    assert response.status_code == 200
-    assert "Saved to your library!" in response.text
-    assert "head back to your app" in response.text
-    assert "location.replace" not in response.text
+    for params in [{"url": "https://example.com/a"}, {}]:
+        response = client.get("/share/saved", params=params)
+        assert response.status_code == 200
+        assert "Saved to your library!" in response.text
+        assert "head back to your app" in response.text
+        assert "location.replace" not in response.text
 
 
 @pytest.mark.asyncio
