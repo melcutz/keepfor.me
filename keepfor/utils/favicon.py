@@ -31,6 +31,7 @@ import base64
 import json
 import re
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlparse
 
@@ -92,11 +93,104 @@ FAVICON_MEM_CACHE_TTL = 3600.0  # 1 hour
 _FAVICON_MEM_CACHE: dict[str, tuple[bytes, str, float]] = {}
 _FAVICON_INFLIGHT: dict[str, asyncio.Future[tuple[bytes, str]]] = {}
 
+# Bounded short-TTL session cache for /favicons/{domain} so a library page
+# burst of 20-50 icons reuses the validated session instead of hitting D1
+# per icon. Invalidated on logout_session() and clear_favicon_mem_cache().
+FAVICON_SESSION_CACHE_MAX = 256
+FAVICON_SESSION_CACHE_TTL = 60.0
+_FAVICON_SESSION_CACHE: dict[str, tuple[dict[str, Any] | None, float]] = {}
+_FAVICON_SESSION_INFLIGHT: dict[str, asyncio.Future[dict[str, Any] | None]] = {}
+_SESSION_CACHE_MISS = object()
+
 
 def clear_favicon_mem_cache() -> None:
     """Clear the in-memory isolate cache and in-flight coalescing state."""
     _FAVICON_MEM_CACHE.clear()
     _FAVICON_INFLIGHT.clear()
+    _FAVICON_SESSION_CACHE.clear()
+    _FAVICON_SESSION_INFLIGHT.clear()
+
+
+def invalidate_favicon_session(session_id: str | None) -> None:
+    """Invalidate a cached session entry on logout."""
+    if not session_id:
+        return
+    _FAVICON_SESSION_CACHE.pop(session_id, None)
+    _FAVICON_SESSION_INFLIGHT.pop(session_id, None)
+
+
+def _session_cache_get(session_id: str) -> Any:
+    entry = _FAVICON_SESSION_CACHE.get(session_id)
+    if entry is None:
+        return _SESSION_CACHE_MISS
+    user, exp = entry
+    if time.time() >= exp:
+        _FAVICON_SESSION_CACHE.pop(session_id, None)
+        return _SESSION_CACHE_MISS
+    _FAVICON_SESSION_CACHE[session_id] = _FAVICON_SESSION_CACHE.pop(session_id)
+    return user
+
+
+def _session_cache_put(session_id: str, user: dict[str, Any] | None) -> None:
+    if session_id in _FAVICON_SESSION_CACHE:
+        _FAVICON_SESSION_CACHE.pop(session_id)
+    elif len(_FAVICON_SESSION_CACHE) >= FAVICON_SESSION_CACHE_MAX:
+        oldest = next(iter(_FAVICON_SESSION_CACHE))
+        _FAVICON_SESSION_CACHE.pop(oldest, None)
+    _FAVICON_SESSION_CACHE[session_id] = (
+        user,
+        time.time() + FAVICON_SESSION_CACHE_TTL,
+    )
+
+
+async def resolve_favicon_user(
+    request: Any,
+    auth_fn: Callable[[], Awaitable[dict[str, Any] | None]],
+) -> dict[str, Any] | None:
+    """Resolve the current user for /favicons/{domain} with short-TTL caching.
+
+    Bearer Authorization requests and cookie-less requests delegate directly
+    to `auth_fn`. Session-cookie requests (`kfm_session` / `rk_session`) reuse
+    `_FAVICON_SESSION_CACHE` (60s TTL, max 256 entries) and coalesce concurrent
+    validations for the same session cookie via `_FAVICON_SESSION_INFLIGHT`.
+    """
+    headers = getattr(request, "headers", None)
+    if headers is not None and headers.get("Authorization"):
+        return await auth_fn()
+
+    cookies = getattr(request, "cookies", None)
+    session_id = (
+        (cookies.get("kfm_session") or cookies.get("rk_session"))
+        if cookies is not None
+        else None
+    )
+    if not session_id:
+        return await auth_fn()
+
+    cached = _session_cache_get(session_id)
+    if cached is not _SESSION_CACHE_MISS:
+        return cached
+
+    inflight = _FAVICON_SESSION_INFLIGHT.get(session_id)
+    if inflight is not None and not inflight.done():
+        return await asyncio.shield(inflight)
+
+    fut = asyncio.get_running_loop().create_future()
+    _FAVICON_SESSION_INFLIGHT[session_id] = fut
+    try:
+        user = await auth_fn()
+        if _FAVICON_SESSION_INFLIGHT.get(session_id) is fut:
+            _session_cache_put(session_id, user)
+        if not fut.done():
+            fut.set_result(user)
+        return user
+    except BaseException:
+        if not fut.done():
+            fut.cancel()
+        raise
+    finally:
+        if _FAVICON_SESSION_INFLIGHT.get(session_id) is fut:
+            _FAVICON_SESSION_INFLIGHT.pop(session_id, None)
 
 
 # Cache-miss rate limit. Every miss makes the Worker fetch an arbitrary

@@ -97,7 +97,9 @@ from keepfor.utils.favicon import (
     FALLBACK_ICON,
     FALLBACK_MAX_AGE,
     FAVICON_MAX_AGE,
+    normalize_host,
     resolve_favicon,
+    resolve_favicon_user,
 )
 from keepfor.utils.logging import logger
 from keepfor.utils.url import extract_url
@@ -149,12 +151,24 @@ async def favicon_proxy(request: Request, domain: str):
     the site's icon: an anonymous request gets the fallback, always, so the
     response never reveals whether the domain is cached.
     """
-    user = await deps.get_current_user(request)
+    if normalize_host(domain) is None:
+        return Response(
+            content=FALLBACK_ICON,
+            media_type="image/png",
+            headers={"Cache-Control": f"public, max-age={FALLBACK_MAX_AGE}"},
+        )
+    user = await resolve_favicon_user(request, lambda: deps.get_current_user(request))
+    db = None
+    if user is not None:
+        try:
+            db = deps.get_db(request)
+        except RuntimeError:
+            db = None
     body, content_type = await resolve_favicon(
         domain,
         deps.get_env_from_request(request),
         may_fetch=user is not None,
-        db=deps.get_db(request) if user is not None else None,
+        db=db,
         headers=request.headers,
         user_id=(user or {}).get("id"),
     )

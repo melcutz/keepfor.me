@@ -645,3 +645,190 @@ async def test_a_favicon_miss_keeps_the_live_auth_counter(r2_client, db, calls):
     assert client.get("/favicons/example.com").content == PNG  # a favicon miss
 
     assert await rl._current_failures(db, key, window) == 1
+
+
+# ------------------------------------------------------------ session fast-path
+
+
+async def test_invalid_or_private_domain_short_circuits_before_auth_and_db(
+    r2_client, db, monkeypatch
+):
+    """Invalid or private domains return FALLBACK_ICON without auth or DB work."""
+    client, _ = r2_client
+    await _sign_in(client, db)
+
+    async def fail_auth(request):
+        raise AssertionError("get_current_user must not be called")
+
+    def fail_db(request):
+        raise AssertionError("get_db must not be called")
+
+    monkeypatch.setattr("keepfor.deps.get_current_user", fail_auth)
+    monkeypatch.setattr("keepfor.deps.get_db", fail_db)
+
+    for domain in ("localhost", "127.0.0.1", "intranet.local", "not_a_host"):
+        res = client.get(f"/favicons/{domain}")
+        assert res.status_code == 200
+        assert res.content == FALLBACK_ICON
+
+
+async def test_signed_in_mem_cache_hit_executes_zero_d1_queries(db, monkeypatch, calls):
+    """Cached session + cached favicon serves hits with zero D1 queries."""
+    from keepfor.models.db import Database
+
+    class CountingDB(Database):
+        def __init__(self, base: Database) -> None:
+            super().__init__(base.d1, base.sqlite)
+            self.queries: list[str] = []
+
+        async def query_first(self, sql: str, params=()):
+            self.queries.append(sql)
+            return await super().query_first(sql, params)
+
+        async def query_all(self, sql: str, params=()):
+            self.queries.append(sql)
+            return await super().query_all(sql, params)
+
+        async def execute(self, sql: str, params=()):
+            self.queries.append(sql)
+            return await super().execute(sql, params)
+
+        async def execute_batch(self, statements):
+            self.queries.extend(sql for sql, _ in statements)
+            return await super().execute_batch(statements)
+
+    calls()
+    bucket = FakeR2Bucket()
+    counting_db = CountingDB(db)
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: counting_db)
+    monkeypatch.setattr(
+        "keepfor.deps.get_env_from_request", lambda request: MockEnv(bucket)
+    )
+
+    client = TestClient(app)
+    await _sign_in(client, db)
+    counting_db.queries.clear()
+
+    # Initial miss validates session and caches both icon and session
+    assert client.get("/favicons/example.com").content == PNG
+    assert len(counting_db.queries) > 0
+
+    # Subsequent hit uses _FAVICON_SESSION_CACHE + _FAVICON_MEM_CACHE: zero D1 queries
+    counting_db.queries.clear()
+    for _ in range(5):
+        res = client.get("/favicons/example.com")
+        assert res.status_code == 200
+        assert res.content == PNG
+    assert counting_db.queries == []
+
+
+async def test_session_cache_ttl_and_max_entries(db, monkeypatch, calls):
+    """Session cache expires after 60s TTL and evicts LRU beyond 256 entries."""
+    from keepfor.utils.favicon import (
+        _FAVICON_SESSION_CACHE,
+        FAVICON_SESSION_CACHE_MAX,
+        FAVICON_SESSION_CACHE_TTL,
+    )
+
+    assert FAVICON_SESSION_CACHE_TTL == 60.0
+    assert FAVICON_SESSION_CACHE_MAX == 256
+
+    calls()
+    bucket = FakeR2Bucket()
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr(
+        "keepfor.deps.get_env_from_request", lambda request: MockEnv(bucket)
+    )
+
+    client = TestClient(app)
+    session_id = await _sign_in(client, db)
+    assert client.get("/favicons/example.com").content == PNG
+    assert session_id in _FAVICON_SESSION_CACHE
+
+    # Expire entry and confirm auth is re-evaluated on next request
+    user, _ = _FAVICON_SESSION_CACHE[session_id]
+    _FAVICON_SESSION_CACHE[session_id] = (user, time.time() - 1.0)
+    auth_calls = 0
+    orig_get_current_user = __import__(
+        "keepfor.deps", fromlist=["get_current_user"]
+    ).get_current_user
+
+    async def spy_auth(request):
+        nonlocal auth_calls
+        auth_calls += 1
+        return await orig_get_current_user(request)
+
+    monkeypatch.setattr("keepfor.deps.get_current_user", spy_auth)
+    assert client.get("/favicons/example.com").content == PNG
+    assert auth_calls == 1
+
+    # Fill beyond FAVICON_SESSION_CACHE_MAX to verify LRU bound
+    for i in range(FAVICON_SESSION_CACHE_MAX + 5):
+        client.cookies["kfm_session"] = f"bogus-session-{i}"
+        client.get("/favicons/example.com")
+    assert len(_FAVICON_SESSION_CACHE) == FAVICON_SESSION_CACHE_MAX
+    assert session_id not in _FAVICON_SESSION_CACHE
+
+
+async def test_concurrent_session_requests_coalesce_auth(db, monkeypatch, calls):
+    """Concurrent /favicons/{domain} requests with same cookie coalesce auth."""
+    import httpx
+
+    calls()
+    bucket = FakeR2Bucket()
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr(
+        "keepfor.deps.get_env_from_request", lambda request: MockEnv(bucket)
+    )
+
+    await register_user(db, "burst@example.com", "password123")
+    _, session_id = await login_user(db, "burst@example.com", "password123")
+
+    orig_get_current_user = __import__(
+        "keepfor.deps", fromlist=["get_current_user"]
+    ).get_current_user
+    auth_calls = 0
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_auth(request):
+        nonlocal auth_calls
+        auth_calls += 1
+        started.set()
+        await release.wait()
+        return await orig_get_current_user(request)
+
+    monkeypatch.setattr("keepfor.deps.get_current_user", slow_auth)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://testserver",
+        cookies={"kfm_session": session_id},
+    ) as async_client:
+        tasks = [
+            asyncio.create_task(async_client.get(f"/favicons/site{i}.com"))
+            for i in range(5)
+        ]
+        await started.wait()
+        await asyncio.sleep(0)
+        release.set()
+        responses = await asyncio.gather(*tasks)
+
+    assert all(r.status_code == 200 and r.content == PNG for r in responses)
+    assert auth_calls == 1
+
+
+async def test_logout_session_invalidates_cached_favicon_session(r2_client, db, calls):
+    """logout_session invalidates _FAVICON_SESSION_CACHE so icon falls back."""
+    client, _ = r2_client
+    calls()
+    session_id = await _sign_in(client, db)
+
+    # Warm both _FAVICON_MEM_CACHE and _FAVICON_SESSION_CACHE
+    assert client.get("/favicons/example.com").content == PNG
+
+    await logout_session(db, session_id)
+
+    res = client.get("/favicons/example.com")
+    assert res.status_code == 200
+    assert res.content == FALLBACK_ICON
