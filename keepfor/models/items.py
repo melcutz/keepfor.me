@@ -98,6 +98,29 @@ async def save_item(
             # url is unique per user, so a second row is not an option.
             await restore_item(db, user_id, item_id)
             existing = {**existing, "deleted_at": None}
+        new_title = (title or "").strip()
+        bare_urls = {
+            u.strip()
+            for u in (
+                url,
+                clean_url,
+                existing.get("url"),
+                existing.get("canonical_url"),
+            )
+            if u and u.strip()
+        }
+        if (
+            new_title
+            and new_title not in bare_urls
+            and new_title != existing.get("title")
+        ):
+            await db.execute(
+                "UPDATE items SET title = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE id = ? AND user_id = ?;",
+                (new_title, item_id, user_id),
+            )
+            await _refresh_fts_for_item(db, user_id, item_id)
+            existing = {**existing, "title": new_title}
         # Merge new tags if provided
         if tags:
             await add_tags_to_item(db, user_id, item_id, tags)
@@ -203,6 +226,7 @@ async def save_item(
         "id": item_id,
         "url": url.strip(),
         "canonical_url": clean_url,
+        "title": initial_title,
         "status": "queued",
         "tags": tags,
     }, True

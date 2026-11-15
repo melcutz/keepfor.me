@@ -938,7 +938,13 @@ async def save_popup_post(
         logger.warning(f"Save popup validation failed: invalid URL '{url}'")
         raise HTTPException(status_code=400, detail="Invalid URL")
     await save_item(
-        db, env, user["id"], clean_url, tag_list, scope=deps.get_scope(request)
+        db,
+        env,
+        user["id"],
+        clean_url,
+        tag_list,
+        title=title,
+        scope=deps.get_scope(request),
     )
     html = template.render(
         is_note=False, url=clean_url, title=title, success=True, source=source

@@ -385,8 +385,7 @@ async def extract_and_store(
                 except Exception as exc:
                     logger.warning("Entitlement record for summarize failed: %s", exc)
 
-        extracted_title = (extracted.get("title") or "").strip()
-        if existing_title and (not extracted_title or extracted_title in bare_urls):
+        if existing_title and existing_title not in bare_urls:
             final_title = existing_title
         else:
             final_title = extracted.get("title")

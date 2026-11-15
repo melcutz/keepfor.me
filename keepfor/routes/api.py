@@ -39,7 +39,13 @@ async def api_save_item(request: Request, body: SaveItemRequest):
         logger.warning(f"API save validation failed: invalid URL '{body.url}'")
         raise HTTPException(status_code=400, detail="Invalid URL")
     item, is_new = await save_item(
-        db, env, user["id"], clean_url, body.tags, scope=deps.get_scope(request)
+        db,
+        env,
+        user["id"],
+        clean_url,
+        body.tags,
+        title=body.title,
+        scope=deps.get_scope(request),
     )
     status_code = 202 if is_new else 200
     return JSONResponse(content={**item, "is_new": is_new}, status_code=status_code)
