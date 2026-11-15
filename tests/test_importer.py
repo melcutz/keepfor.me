@@ -241,7 +241,19 @@ async def test_save_item_persists_title_and_created_at(db):
     assert fts_row is not None
     assert fts_row["title"] == "Queued Bookmark"
 
-    # Duplicate save must not overwrite existing title or created_at
+    # Duplicate save with empty/bare-URL title must not overwrite title or created_at
+    dup_empty, dup_empty_is_new = await save_item(
+        db,
+        env,
+        user_id,
+        "https://example.com/queued",
+        title="",
+        created_at="2025-01-01 00:00:00",
+    )
+    assert dup_empty_is_new is False
+    assert dup_empty["title"] == "Queued Bookmark"
+
+    # Duplicate save with explicit non-bare-URL title updates title, keeps created_at
     dup, dup_is_new = await save_item(
         db,
         env,
@@ -251,11 +263,12 @@ async def test_save_item_persists_title_and_created_at(db):
         created_at="2025-01-01 00:00:00",
     )
     assert dup_is_new is False
+    assert dup["title"] == "Different Title"
     row_after = await db.query_first(
         "SELECT title, created_at FROM items WHERE id = ? AND user_id = ?;",
         (item["id"], user_id),
     )
-    assert row_after["title"] == "Queued Bookmark"
+    assert row_after["title"] == "Different Title"
     assert row_after["created_at"] == "2023-11-14 22:13:20"
 
     # Default created_at when omitted, and no FTS row when title is omitted
@@ -316,7 +329,7 @@ async def test_import_bookmarks_preserves_title_and_created_at_on_failed_extract
 
 @pytest.mark.asyncio
 async def test_extract_and_store_preserves_title_on_bare_url_fallback(db, monkeypatch):
-    """extract_and_store keeps initial title on bare-URL fallback, updates on real."""
+    """extract_and_store preserves custom titles and fills empty/bare-URL titles."""
     import keepfor.consumer.processor as processor
     from keepfor.consumer.processor import extract_and_store
     from keepfor.search.engine import search_fts
@@ -363,13 +376,13 @@ async def test_extract_and_store_preserves_title_on_bare_url_fallback(db, monkey
     hits1 = await search_fts(db, user_id, "Bare Fallback")
     assert any(h["item_id"] == item1["id"] for h in hits1)
 
-    # Real extracted title replaces initial bookmark title
+    # Non-bare-URL custom title is preserved even when extraction finds a <title>
     item2, _ = await save_item(
         db,
         queued_env,
         user_id,
         "https://example.com/real-article",
-        title="Placeholder Title",
+        title="Custom Bookmark Title",
     )
 
     async def real_extract(url, item_id, **kwargs):
@@ -404,7 +417,30 @@ async def test_extract_and_store_preserves_title_on_bare_url_fallback(db, monkey
         (item2["id"], user_id),
     )
     assert row2["status"] == "ok"
-    assert row2["title"] == "Extracted Article Title"
+    assert row2["title"] == "Custom Bookmark Title"
+
+    # Bare-URL initial title is populated from extraction
+    item3, _ = await save_item(
+        db,
+        queued_env,
+        user_id,
+        "https://example.com/bare-initial",
+        title="https://example.com/bare-initial",
+    )
+    await extract_and_store(
+        db,
+        MockEnv(),
+        item3["id"],
+        "https://example.com/bare-initial",
+        user_id=user_id,
+    )
+
+    row3 = await db.query_first(
+        "SELECT title, status FROM items WHERE id = ? AND user_id = ?;",
+        (item3["id"], user_id),
+    )
+    assert row3["status"] == "ok"
+    assert row3["title"] == "Extracted Article Title"
 
 
 @pytest.mark.asyncio
