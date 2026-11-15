@@ -1,4 +1,5 @@
 """Unit tests for generic Factory GitHub ProjectV2 board creation and stage sync."""
+
 from __future__ import annotations
 
 import importlib.machinery
@@ -17,7 +18,9 @@ from factory.lib.project_board import (
 
 
 def _load_cli_module():
-    cli_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "factory", "bin", "factory"))
+    cli_path = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "factory", "bin", "factory")
+    )
     loader = importlib.machinery.SourceFileLoader("factory_cli_board_mod", cli_path)
     spec = importlib.util.spec_from_loader("factory_cli_board_mod", loader)
     mod = importlib.util.module_from_spec(spec)
@@ -34,33 +37,40 @@ class ProjectBoardTests(unittest.TestCase):
             if args[:2] == ["project", "list"]:
                 return json.dumps({"projects": []})
             if args[:2] == ["project", "create"]:
-                return json.dumps({
-                    "id": "PVT_123",
-                    "number": 7,
-                    "title": "Factory",
-                    "url": "https://github.com/users/demo/projects/7",
-                    "owner": {"login": "demo"},
-                })
+                return json.dumps(
+                    {
+                        "id": "PVT_123",
+                        "number": 7,
+                        "title": "Factory",
+                        "url": "https://github.com/users/demo/projects/7",
+                        "owner": {"login": "demo"},
+                    }
+                )
             if args[:2] == ["project", "field-list"]:
-                return json.dumps({
-                    "fields": [
-                        {"id": "F_TITLE", "name": "Title"},
-                        {"id": "F_STATUS", "name": "Status", "options": []},
-                    ]
-                })
+                return json.dumps(
+                    {
+                        "fields": [
+                            {"id": "F_TITLE", "name": "Title"},
+                            {"id": "F_STATUS", "name": "Status", "options": []},
+                        ]
+                    }
+                )
             return "{}"
 
         res = create_factory_board(owner="@me", title="Factory", runner=fake_runner)
         self.assertTrue(res["created"])
         self.assertEqual(res["project"]["number"], 7)
 
-        # Verify description, generic Status options (Needs Human, no personal/product names), and Priority
+        # Verify description, generic Status options (Needs Human, no
+        # personal/product names), and Priority
         graphql_calls = [c for c in calls if c[:2] == ["api", "graphql"]]
         self.assertEqual(len(graphql_calls), 2)
         self.assertIn(f"desc={DEFAULT_BOARD_DESCRIPTION}", graphql_calls[0])
         options_arg = next(a for a in graphql_calls[1] if a.startswith("options="))
         options_data = json.loads(options_arg.split("=", 1)[1])
-        self.assertEqual([o["name"] for o in options_data], [o[0] for o in DEFAULT_STATUS_OPTIONS])
+        self.assertEqual(
+            [o["name"] for o in options_data], [o[0] for o in DEFAULT_STATUS_OPTIONS]
+        )
         self.assertIn("Needs Human", [o["name"] for o in options_data])
 
         field_create = next(c for c in calls if c[:2] == ["project", "field-create"])
@@ -73,11 +83,18 @@ class ProjectBoardTests(unittest.TestCase):
         def fake_runner(args, _cwd):
             calls.append(args)
             if args[:2] == ["project", "list"]:
-                return json.dumps({
-                    "projects": [
-                        {"id": "PVT_99", "number": 2, "title": "Factory", "url": "https://github.com/users/demo/projects/2"}
-                    ]
-                })
+                return json.dumps(
+                    {
+                        "projects": [
+                            {
+                                "id": "PVT_99",
+                                "number": 2,
+                                "title": "Factory",
+                                "url": "https://github.com/users/demo/projects/2",
+                            }
+                        ]
+                    }
+                )
             raise AssertionError(f"Unexpected call: {args}")
 
         res = create_factory_board(runner=fake_runner)
@@ -92,11 +109,19 @@ class ProjectBoardTests(unittest.TestCase):
         self.assertIsNone(ProjectBoardSync.discover(".", runner=failing_runner))
 
         def empty_runner(_args, _cwd):
-            return json.dumps({"projects": [{"id": "PVT_1", "number": 1, "title": "Other", "closed": False}]})
+            return json.dumps(
+                {
+                    "projects": [
+                        {"id": "PVT_1", "number": 1, "title": "Other", "closed": False}
+                    ]
+                }
+            )
 
         self.assertIsNone(ProjectBoardSync.discover(".", runner=empty_runner))
 
-    def test_sync_stage_maps_columns_deduplicates_and_supports_legacy_needs_column(self):
+    def test_sync_stage_maps_columns_deduplicates_and_supports_legacy_needs_column(
+        self,
+    ):
         calls = []
 
         def fake_runner(args, _cwd):
@@ -144,9 +169,14 @@ class ProjectBoardTests(unittest.TestCase):
         with patch.object(
             cli,
             "create_factory_board",
-            return_value={"created": True, "project": {"title": "Factory", "url": "https://example.test/p/1"}},
+            return_value={
+                "created": True,
+                "project": {"title": "Factory", "url": "https://example.test/p/1"},
+            },
         ) as mock_create:
-            self.assertEqual(cli.main(["init-board", "--owner", "octocat", "--title", "Factory"]), 0)
+            self.assertEqual(
+                cli.main(["init-board", "--owner", "octocat", "--title", "Factory"]), 0
+            )
             mock_create.assert_called_once()
 
 
