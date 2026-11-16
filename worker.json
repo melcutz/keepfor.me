@@ -4,9 +4,9 @@
   "active_jobs": 3,
   "max_workers": 6,
   "paused": false,
-  "heartbeat_at": "2026-11-16T08:58:34.881483+00:00",
-  "heartbeat_ts": 1794819514.8814828,
-  "expires_at_ts": 1794819874.8814828,
-  "cpu_load_pct": 11.3,
-  "free_ram_gb": 14.22
+  "heartbeat_at": "2026-11-16T09:01:07.175473+00:00",
+  "heartbeat_ts": 1794819667.1754735,
+  "expires_at_ts": 1794820027.1754735,
+  "cpu_load_pct": 7.5,
+  "free_ram_gb": 14.04
 }
