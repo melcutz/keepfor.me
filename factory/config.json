@@ -1,12 +1,12 @@
 {
-  "concurrency": 5,
+  "concurrency": 10,
   "max_rounds": 3,
   "max_slice_retries": 2,
   "agent_timeout_sec": 1800,
   "gate_timeout_sec": 900,
   "idle_bg_grace_sec": 600,
   "auto_polish": true,
-  "auto_approve_clean": true,
+  "auto_approve_clean": "all",
   "base_branch": "main",
   "merge_method": "merge",
   "auto_merge": "all",
@@ -21,8 +21,8 @@
     ".github/"
   ],
   "models": {
-    "planner": "gemini-4-hydrogen-medium",
-    "intake": "gemini-4-hydrogen-medium",
+    "planner": "gemini-4-hydrogen-low",
+    "intake": "gemini-4-hydrogen-low",
     "spec_writer": "gemini-4-hydrogen-medium",
     "builder": "gemini-4-hydrogen-medium",
     "approver": "gemini-4-argon-medium",
@@ -30,7 +30,7 @@
     "code_low": "gemini-4-hydrogen-low",
     "code_medium": "gemini-4-hydrogen-low",
     "code_high": "gemini-4-hydrogen-medium",
-    "security": "gemini-4-argon-medium",
+    "security": "gemini-4-hydrogen-medium",
     "ux": "gemini-4-hydrogen-medium",
     "ui": "gemini-4-hydrogen-low"
   },
