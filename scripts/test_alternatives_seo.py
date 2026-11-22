@@ -1,9 +1,13 @@
 """Focused SEO and structure tests for keepfor.me comparison pages (#378)."""
 
+import ast
+import glob
 import os
 import re
+import subprocess
 import sys
 from bs4 import BeautifulSoup
+import pytest
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -290,5 +294,110 @@ def test_non_blocking_pocket_karakeep_and_readwise_facts():
     readwise_text = BeautifulSoup(_read_page("alternatives/readwise/index.html"), "html.parser").get_text(" ", strip=True)
     assert "$9.99/month" in readwise_text
     assert "readwise.io/export" in readwise_text
+
+
+def _get_core_mcp_tool_count() -> int:
+    code = None
+    for ref in ("origin/main:keepfor/mcp/server.py", "main:keepfor/mcp/server.py"):
+        try:
+            res = subprocess.run(
+                ["git", "show", ref],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            code = res.stdout
+            break
+        except Exception:
+            continue
+
+    if not code:
+        pytest.skip("git or main branch is unavailable to read keepfor/mcp/server.py")
+
+    try:
+        tree = ast.parse(code)
+    except Exception as exc:
+        pytest.skip(f"Failed to parse keepfor/mcp/server.py: {exc}")
+
+    count = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "MCP_TOOLS":
+                    if isinstance(node.value, (ast.List, ast.Tuple)):
+                        count = len(node.value.elts)
+                        break
+
+    if count is None or count <= 0:
+        pytest.skip("Could not find positive integer MCP_TOOLS in keepfor/mcp/server.py")
+
+    return count
+
+
+def test_claude_mcp_tool_count_matches_core():
+    core_count = _get_core_mcp_tool_count()
+    assert core_count == 46, f"Expected core count to be 46, got {core_count}"
+
+    pages_to_check = [
+        "claude-mcp/index.html",
+        *COMPARISON_PAGES,
+    ]
+    for rel_path in pages_to_check:
+        html = _read_page(rel_path)
+        soup = BeautifulSoup(html, "html.parser")
+        text = soup.get_text(" ", strip=True)
+
+        matches = re.findall(r"\b(\d+)\s+(?:MCP\s+)?tools\b", text, re.IGNORECASE)
+        assert matches, f"{rel_path}: expected to find MCP tool count phrasing"
+        for m in matches:
+            assert int(m) == core_count, (
+                f"{rel_path}: tool count {m} does not match core count {core_count}"
+            )
+        assert "47 tools" not in html, f"{rel_path}: contains outdated '47 tools'"
+
+
+def test_no_csv_export_claim_site_wide():
+    re_csv_json = re.compile(r"CSV,?\s+or\s+(?:structured\s+)?JSON", re.IGNORECASE)
+    re_export_csv = re.compile(r"export[^\n.;]{0,40}CSV", re.IGNORECASE)
+    re_html_csv = re.compile(r"HTML,\s*CSV", re.IGNORECASE)
+
+    offenses = []
+    html_files = sorted(glob.glob(os.path.join(BASE_DIR, "**", "*.html"), recursive=True))
+    assert html_files, "No HTML files found to scan"
+
+    for full_path in html_files:
+        rel_path = os.path.relpath(full_path, BASE_DIR)
+        with open(full_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        for idx, line in enumerate(lines, 1):
+            soup = BeautifulSoup(line, "html.parser")
+            text = soup.get_text(" ", strip=True)
+            if not text:
+                continue
+
+            if re_csv_json.search(text):
+                offenses.append(f"{rel_path}:{idx}: '{text}' matched CSV or JSON export claim")
+                continue
+
+            m_exp = re_export_csv.search(text)
+            if m_exp:
+                if not re.search(r"\b(?:Pocket|Readwise|Instapaper|Omnivore)\s+CSV\s+export", text, re.IGNORECASE):
+                    offenses.append(f"{rel_path}:{idx}: '{text}' matched export ... CSV claim")
+                    continue
+
+            if re_html_csv.search(text):
+                clauses = re.split(r"[;.]", text)
+                has_export_claim = False
+                for c in clauses:
+                    if re_html_csv.search(c) and not re.search(r"\bimport", c, re.IGNORECASE):
+                        has_export_claim = True
+                        break
+                if has_export_claim:
+                    offenses.append(f"{rel_path}:{idx}: '{text}' matched HTML, CSV claim outside import clause")
+                    continue
+
+    assert not offenses, "Found CSV export claims site-wide:\n" + "\n".join(offenses)
+
 
 
