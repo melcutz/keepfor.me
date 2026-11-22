@@ -139,14 +139,26 @@ def test_pricing_and_mcp_facts_on_comparison_pages():
         assert not re.search(r"\b(?:TODO|TBD|FIXME)\b", text), f"{rel_path}: contains placeholder marker"
         assert "$5/mo" in text or "$5/month" in text, f"{rel_path}: missing Personal $5/mo pricing"
         assert "$9/mo" in text or "$9/month" in text, f"{rel_path}: missing Pro $9/mo pricing"
-        counts = re.findall(
-            r"\b(\d+)\s+(?:MCP\s+tools|tools\s+over\s+(?:the\s+)?(?:Model\s+Context\s+Protocol|MCP))",
-            text,
-            re.IGNORECASE,
-        )
-        assert counts, f"{rel_path}: missing sourced MCP tool count"
-        for c in counts:
-            assert int(c) == 46, f"{rel_path}: expected 46 MCP tools, found {c}"
+        if rel_path == "alternatives/mem/index.html":
+            assert re.search(
+                r"\bMCP\s+tools\b",
+                text,
+                re.IGNORECASE,
+            ), f"{rel_path}: missing MCP tools mention"
+            assert not re.search(
+                r"\b\d+\s+MCP\s+tools\b",
+                text,
+                re.IGNORECASE,
+            ), f"{rel_path}: should not have numeric MCP tool count"
+        else:
+            counts = re.findall(
+                r"\b(\d+)\s+(?:MCP\s+tools|tools\s+over\s+(?:the\s+)?(?:Model\s+Context\s+Protocol|MCP))",
+                text,
+                re.IGNORECASE,
+            )
+            assert counts, f"{rel_path}: missing sourced MCP tool count"
+            for c in counts:
+                assert int(c) == 46, f"{rel_path}: expected 46 MCP tools, found {c}"
 
 
 def test_zero_em_or_en_dashes_and_footer_donation():
