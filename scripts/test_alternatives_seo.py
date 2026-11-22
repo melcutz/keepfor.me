@@ -341,6 +341,10 @@ def test_mem_page_shutdown_and_export_claims():
     # Archive limit
     assert "25 MB" in mem_text, f"{mem_path}: missing 25 MB limit mention"
 
+    # Data export formats claim (HTML or JSON only; no CSV claim)
+    assert not re.search(r"\bCSV\b", mem_text), f"{mem_path}: contains CSV claim"
+    assert "HTML or JSON" in mem_text, f"{mem_path}: missing HTML or JSON export claim"
+
     # Honest claims: ensure unfounded claims and unverified shortcuts are not present
     for unfounded in ("keyboard shortcut", "well under 25 MB", "fits easily"):
         assert unfounded not in mem_text.lower(), f"{mem_path}: contains unfounded claim '{unfounded}'"
