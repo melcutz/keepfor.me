@@ -15,6 +15,7 @@ COMPARISON_PAGES = [
     "alternatives/karakeep/index.html",
     "alternatives/readwise/index.html",
     "alternatives/best-read-it-later-apps-2026/index.html",
+    "alternatives/mem/index.html",
 ]
 
 
@@ -290,5 +291,43 @@ def test_non_blocking_pocket_karakeep_and_readwise_facts():
     readwise_text = BeautifulSoup(_read_page("alternatives/readwise/index.html"), "html.parser").get_text(" ", strip=True)
     assert "$9.99/month" in readwise_text
     assert "readwise.io/export" in readwise_text
+
+
+def test_mem_page_shutdown_and_export_claims():
+    mem_path = "alternatives/mem/index.html"
+    mem_html = _read_page(mem_path)
+    mem_soup = BeautifulSoup(mem_html, "html.parser")
+    mem_text = mem_soup.get_text(" ", strip=True)
+
+    # Placeholders check
+    assert not re.search(r"\b(?:TODO|TBD|FIXME|lorem)\b", mem_text, re.IGNORECASE), (
+        f"{mem_path}: contains placeholder marker"
+    )
+
+    # Dates
+    assert "December 18, 2026" in mem_text, f"{mem_path}: missing December 18, 2026 read-only date"
+    assert "January 15, 2027" in mem_text, f"{mem_path}: missing January 15, 2027 shutdown date"
+
+    # Official links
+    assert "https://get.mem.ai/blog/mem-is-shutting-down" in mem_html, (
+        f"{mem_path}: missing official shutdown blog link"
+    )
+    assert "https://help.mem.ai/migration/save-a-copy" in mem_html, (
+        f"{mem_path}: missing official migration help link"
+    )
+
+    # Export steps
+    for step in ("Settings", "Exports", "Start new export", "My Computer", "Download"):
+        assert step in mem_text, f"{mem_path}: missing export step {step}"
+
+    # Tagging and attachments
+    assert "from-mem" in mem_text, f"{mem_path}: missing from-mem tag mention"
+    assert re.search(r"attachments[^\n.]*not\s+imported|not\s+imported[^\n.]*attachments", mem_text, re.IGNORECASE), (
+        f"{mem_path}: missing statement that attachments are not imported"
+    )
+
+    # Archive limit
+    assert "25 MB" in mem_text, f"{mem_path}: missing 25 MB limit mention"
+
 
 
