@@ -1,0 +1,12 @@
+{
+  "worker_id": "Rocket",
+  "hostname": "Rocket",
+  "active_jobs": 0,
+  "max_workers": 6,
+  "paused": false,
+  "heartbeat_at": "2026-11-22T17:01:12.869864+00:00",
+  "heartbeat_ts": 1795366872.8698642,
+  "expires_at_ts": 1795367232.8698642,
+  "cpu_load_pct": 10.3,
+  "free_ram_gb": 11.88
+}
