@@ -143,11 +143,11 @@
               <li>Click <strong>Exports</strong> in the settings navigation.</li>
               <li>Click <strong>Start new export</strong>.</li>
               <li>Select <strong>My Computer</strong> as the export destination, then click <strong>Next</strong>.</li>
-              <li>Review the export options. Leave meeting audio recordings unselected unless you specifically need them (audio files make the ZIP much larger and may cause it to exceed upload caps).</li>
+              <li>Review the export options. Leave meeting audio recordings unselected unless you need them (they make the ZIP much larger).</li>
               <li>Click <strong>Start export</strong>.</li>
               <li>When the export status shows ready, click <strong>Download</strong> to save the ZIP file to your computer.</li>
             </ol>
-            <p><strong>Important:</strong> Keep the ZIP zipped. Do not uncompress or modify the ZIP file before uploading, because Keepfor inspects the internal archive structure to detect and process your notes automatically.</p>
+            <p><strong>Important:</strong> Keep the ZIP zipped. Upload the ZIP as downloaded from Mem, so Keepfor can recognize the Mem layout (notes, collections, attachments, export report).</p>
 
             <h2 id="import-into-keepfor">Step 2: Import your notes into Keepfor</h2>
             <p>Importing your Mem archive into Keepfor is straightforward:</p>
@@ -196,7 +196,7 @@
                   <tr>
                     <td class="col-feature">Meeting audio recordings</td>
                     <td>Not imported</td>
-                    <td>Original meeting audio recordings are not stored in Keepfor. Meeting transcripts inside note text are fully imported. Leave audio unselected during export to keep archive size small.</td>
+                    <td>Original meeting audio recordings are not stored in Keepfor. Meeting transcripts inside note text are fully imported. Leave audio unselected during export unless you need it.</td>
                   </tr>
                   <tr>
                     <td class="col-feature">Export report (export-report.md)</td>
@@ -213,13 +213,13 @@
             </div>
 
             <h2 id="limits">Archive size limits</h2>
-            <p>Keepfor Cloud accepts a ZIP up to 25 MB per upload. Because Keepfor runs on serverless edge architecture, individual archive uploads are capped at 25 MB. If your Mem export exceeds 25 MB, the most common cause is meeting audio recordings. Re-run your export in Mem with meeting audio unselected to produce a compact archive that fits easily within the 25 MB limit.</p>
+            <p>Keepfor Cloud accepts a ZIP up to 25 MB per upload. Meeting audio can make the ZIP much larger, so leave it unselected unless you need it; if the ZIP is still over 25 MB it cannot be uploaded in one piece today.</p>
 
             <h2 id="undo-import">Find or undo your import in Keepfor</h2>
             <p>If you want to review what was imported or undo the migration entirely, Keepfor gives you full control through existing Library tools:</p>
             <ul>
               <li><strong>Find imported notes:</strong> Open your <strong>Library</strong>. In the sidebar under <strong>Filter by Tag</strong>, select the <strong>#from-mem</strong> tag (or tap <strong>#from-mem</strong> in the mobile tag bar). This filters your view to show only notes from your Mem migration.</li>
-              <li><strong>Bulk select:</strong> Open the filters drawer and click <strong>Bulk select</strong> (or press the <strong>x</strong> keyboard shortcut), then choose <strong>Select all</strong>.</li>
+              <li><strong>Bulk select:</strong> Open the filters drawer and click <strong>Bulk select</strong>, then choose <strong>Select all</strong>.</li>
               <li><strong>Move to Trash:</strong> In the bulk actions toolbar, click <strong>Move to Trash</strong>. An <strong>Undo</strong> prompt is offered right away if you clicked by mistake.</li>
               <li><strong>Restoring or permanent deletion:</strong> Notes in Trash remain recoverable for 30 days. You can restore them anytime from Trash or choose to delete them permanently.</li>
             </ul>
@@ -245,12 +245,12 @@
             <p>No. Keepfor does not import attachment files like images or PDFs from <code>attachments/</code>. Any relative Markdown links to attachments will not display media inside Keepfor. The import summary reports the number of non-imported attachments. We recommend keeping your unzipped Mem export folder on your computer so you retain local copies of all attachments.</p>
 
             <h3>What should I do if my Mem export ZIP is larger than 25 MB?</h3>
-            <p>Keepfor Cloud enforces a 25 MB limit per ZIP upload. The primary cause of oversized archives is meeting audio files. Go back to Mem, start a new export to My Computer, and ensure meeting audio recordings remain unselected. Note text and meeting transcripts will still be included, and the resulting file will be well under 25 MB.</p>
+            <p>Keepfor Cloud accepts a ZIP up to 25 MB per upload. Meeting audio can make the ZIP much larger, so leave it unselected unless you need it; if the ZIP is still over 25 MB it cannot be uploaded in one piece today.</p>
 
             <h3>Can I remove imported Mem notes without deleting my other saves?</h3>
             <p>Yes. Every note from Mem receives the <code>from-mem</code> tag. In Keepfor, navigate to Library, filter by <code>#from-mem</code>, click Bulk select, select all matching items, and click Move to Trash. Undo is available immediately, and Trash preserves your notes for 30 days before permanent removal.</p>
 
-            <p style="margin-top: 32px;"><em>Sources: Mem shutdown announcement (November 16, 2026) at <a href="https://get.mem.ai/blog/mem-is-shutting-down" target="_blank" rel="noopener noreferrer">get.mem.ai/blog/mem-is-shutting-down</a>; official Mem export documentation at <a href="https://help.mem.ai/migration/save-a-copy" target="_blank" rel="noopener noreferrer">help.mem.ai/migration/save-a-copy</a>; Keepfor Cloud pricing and plan details from <a href="/pricing/">keepfor.me/pricing</a>; 46 MCP tools verified from Keepfor open-source repository.</em></p>
+            <p style="margin-top: 32px;"><em>Sources: Mem shutdown announcement (November 16, 2026) at <a href="https://get.mem.ai/blog/mem-is-shutting-down" target="_blank" rel="noopener noreferrer">get.mem.ai/blog/mem-is-shutting-down</a>; official Mem export documentation at <a href="https://help.mem.ai/migration/save-a-copy" target="_blank" rel="noopener noreferrer">help.mem.ai/migration/save-a-copy</a>; Keepfor Cloud pricing and plan details from <a href="/pricing/">keepfor.me/pricing</a>; 46 MCP tools verified from the Keepfor open-source repository (<code>keepfor/mcp/server.py</code>).</em></p>
           </article>
         </div>
       </div>

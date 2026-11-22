@@ -329,5 +329,10 @@ def test_mem_page_shutdown_and_export_claims():
     # Archive limit
     assert "25 MB" in mem_text, f"{mem_path}: missing 25 MB limit mention"
 
+    # Honest claims: ensure unfounded claims and unverified shortcuts are not present
+    for unfounded in ("keyboard shortcut", "well under 25 MB", "fits easily"):
+        assert unfounded not in mem_text.lower(), f"{mem_path}: contains unfounded claim '{unfounded}'"
+        assert unfounded not in mem_html.lower(), f"{mem_path}: HTML contains unfounded claim '{unfounded}'"
+
 
 
