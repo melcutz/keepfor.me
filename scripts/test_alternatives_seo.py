@@ -338,8 +338,25 @@ def test_mem_page_shutdown_and_export_claims():
         f"{mem_path}: missing statement that attachments are not imported"
     )
 
-    # Archive limit
+    # Archive limit and workaround
     assert "25 MB" in mem_text, f"{mem_path}: missing 25 MB limit mention"
+    assert "cannot be uploaded in one piece today" not in mem_text, (
+        f"{mem_path}: dead end wording still present"
+    )
+
+    # FAQ contains 25 MB workaround
+    faq_h3 = mem_soup.find(lambda tag: tag.name == "h3" and "larger than 25 MB" in tag.get_text())
+    assert faq_h3 is not None, f"{mem_path}: missing 25 MB FAQ question"
+    faq_p = faq_h3.find_next_sibling("p")
+    assert faq_p is not None, f"{mem_path}: missing FAQ paragraph for 25 MB question"
+    faq_text = faq_p.get_text(" ", strip=True)
+    assert "unzip" in faq_text.lower(), f"{mem_path}: FAQ missing unzip step"
+    assert "attachments" in faq_text.lower(), f"{mem_path}: FAQ missing attachments folder mention"
+    assert "collections" in faq_text.lower(), f"{mem_path}: FAQ missing collections folder mention"
+    assert "meeting audio" in faq_text.lower(), f"{mem_path}: FAQ missing meeting audio mention"
+    assert "cannot be uploaded in one piece today" not in faq_text, (
+        f"{mem_path}: FAQ still has dead end"
+    )
 
     # Data export formats claim (HTML or JSON only; no CSV claim)
     assert not re.search(r"\bCSV\b", mem_text), f"{mem_path}: contains CSV claim"
