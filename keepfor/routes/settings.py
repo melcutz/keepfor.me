@@ -39,6 +39,7 @@ from keepfor.utils.importer import (
     parse_enex,
     parse_keep_takeout,
     parse_markdown_zip,
+    parse_mem_zip,
     parse_netscape_bookmarks,
     plan_quota,
 )
@@ -438,7 +439,7 @@ async def import_route(
     bookmarks: list[dict] = []
 
     if file_type == "zip":
-        # Keep Takeout first (Keep/*.json), then a Markdown/text zip.
+        # Keep Takeout first (Keep/*.json), then Mem, then generic Markdown.
         zip_errors = 0
         try:
             notes = parse_keep_takeout(raw, stats=parse_stats)
@@ -452,6 +453,17 @@ async def import_route(
         except Exception as exc:
             zip_errors += 1
             logger.warning(f"Keep parse failed: {type(exc).__name__}")
+        if not notes:
+            try:
+                notes = parse_mem_zip(raw, stats=parse_stats)
+            except ZipBombError as exc:
+                logger.warning(f"Zip rejected: {exc}")
+                summary["error"] = str(exc)
+                await _fail_import(db, user["id"], import_id, summary["error"])
+                return _redirect_with_summary("/settings")
+            except Exception as exc:
+                zip_errors += 1
+                logger.warning(f"Mem parse failed: {type(exc).__name__}")
         if not notes:
             try:
                 notes = parse_markdown_zip(raw, stats=parse_stats)
@@ -491,8 +503,9 @@ async def import_route(
 
     else:
         summary["error"] = (
-            "Unrecognized file type. Upload a Google Keep Takeout zip, an "
-            "Evernote .enex file, a Markdown/text zip, Netscape HTML or CSV."
+            "Unrecognized file type. Upload a Google Keep Takeout zip, a "
+            "Mem export zip, an Evernote .enex file, a Markdown/text zip, "
+            "Netscape HTML or CSV."
         )
         return _redirect_with_summary("/settings")
 
