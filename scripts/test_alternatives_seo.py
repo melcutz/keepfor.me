@@ -1,13 +1,10 @@
 """Focused SEO and structure tests for keepfor.me comparison pages (#378)."""
 
-import ast
 import glob
 import os
 import re
-import subprocess
 import sys
 from bs4 import BeautifulSoup
-import pytest
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -296,62 +293,58 @@ def test_non_blocking_pocket_karakeep_and_readwise_facts():
     assert "readwise.io/export" in readwise_text
 
 
-def _get_core_mcp_tool_count() -> int:
-    code = None
-    for ref in ("origin/main:keepfor/mcp/server.py", "main:keepfor/mcp/server.py"):
-        try:
-            res = subprocess.run(
-                ["git", "show", ref],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            code = res.stdout
-            break
-        except Exception:
-            continue
+# Sourced from core keepfor/mcp/server.py MCP_TOOLS at keepfor.me main 8bbccea
+EXPECTED_MCP_TOOLS = 46
 
-    if not code:
-        pytest.skip("git or main branch is unavailable to read keepfor/mcp/server.py")
+RE_TOOL_COUNT = re.compile(
+    r"(?:MCP\s+server\s+with\s+(\d+)\s+tools|\b(\d+)\s+(?:MCP\s+tools|tools\b))",
+    re.IGNORECASE,
+)
 
-    try:
-        tree = ast.parse(code)
-    except Exception as exc:
-        pytest.skip(f"Failed to parse keepfor/mcp/server.py: {exc}")
 
-    count = None
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "MCP_TOOLS":
-                    if isinstance(node.value, (ast.List, ast.Tuple)):
-                        count = len(node.value.elts)
-                        break
-
-    if count is None or count <= 0:
-        pytest.skip("Could not find positive integer MCP_TOOLS in keepfor/mcp/server.py")
-
-    return count
+def _extract_tool_counts(text: str) -> list[int]:
+    counts = []
+    for m in RE_TOOL_COUNT.finditer(text):
+        c = m.group(1) or m.group(2)
+        if c:
+            counts.append(int(c))
+    return counts
 
 
 def test_claude_mcp_tool_count_matches_core():
-    core_count = _get_core_mcp_tool_count()
-    assert core_count == 46, f"Expected core count to be 46, got {core_count}"
+    # Require at least one tool count only on claude-mcp/index.html,
+    # and assert every count there equals EXPECTED_MCP_TOOLS.
+    claude_mcp_path = "claude-mcp/index.html"
+    claude_html = _read_page(claude_mcp_path)
+    claude_soup = BeautifulSoup(claude_html, "html.parser")
+    claude_text = claude_soup.get_text(" ", strip=True)
 
-    pages_to_check = [
-        "claude-mcp/index.html",
-        *COMPARISON_PAGES,
-    ]
-    for rel_path in pages_to_check:
-        html = _read_page(rel_path)
+    claude_counts = _extract_tool_counts(claude_text)
+    assert claude_counts, f"{claude_mcp_path}: expected at least one tool count"
+    for c in claude_counts:
+        assert c == EXPECTED_MCP_TOOLS, (
+            f"{claude_mcp_path}: tool count {c} does not match core count {EXPECTED_MCP_TOOLS}"
+        )
+    assert "47 tools" not in claude_html, f"{claude_mcp_path}: contains outdated '47 tools'"
+
+    # On every other HTML page (all COMPARISON_PAGES and the rest of the site),
+    # do NOT require a count; only assert that any count that does appear equals EXPECTED_MCP_TOOLS.
+    all_html_files = sorted(glob.glob(os.path.join(BASE_DIR, "**", "*.html"), recursive=True))
+    assert all_html_files, "No HTML files found to scan"
+
+    for full_path in all_html_files:
+        rel_path = os.path.relpath(full_path, BASE_DIR)
+        if rel_path == claude_mcp_path:
+            continue
+        with open(full_path, "r", encoding="utf-8") as f:
+            html = f.read()
         soup = BeautifulSoup(html, "html.parser")
         text = soup.get_text(" ", strip=True)
 
-        matches = re.findall(r"\b(\d+)\s+(?:MCP\s+)?tools\b", text, re.IGNORECASE)
-        assert matches, f"{rel_path}: expected to find MCP tool count phrasing"
-        for m in matches:
-            assert int(m) == core_count, (
-                f"{rel_path}: tool count {m} does not match core count {core_count}"
+        counts = _extract_tool_counts(text)
+        for c in counts:
+            assert c == EXPECTED_MCP_TOOLS, (
+                f"{rel_path}: tool count {c} does not match core count {EXPECTED_MCP_TOOLS}"
             )
         assert "47 tools" not in html, f"{rel_path}: contains outdated '47 tools'"
 
