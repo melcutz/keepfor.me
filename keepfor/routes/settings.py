@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import datetime
+import io
 import json
+import zipfile
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from fastapi import (
@@ -35,6 +37,7 @@ from keepfor.utils.importer import (
     detect_file_type,
     import_bookmarks,
     import_notes,
+    is_mem_zip,
     parse_csv_bookmarks,
     parse_enex,
     parse_keep_takeout,
@@ -454,16 +457,28 @@ async def import_route(
             zip_errors += 1
             logger.warning(f"Keep parse failed: {type(exc).__name__}")
         if not notes:
+            is_mem = False
             try:
-                notes = parse_mem_zip(raw, stats=parse_stats)
-            except ZipBombError as exc:
-                logger.warning(f"Zip rejected: {exc}")
-                summary["error"] = str(exc)
-                await _fail_import(db, user["id"], import_id, summary["error"])
-                return _redirect_with_summary("/settings")
-            except Exception as exc:
-                zip_errors += 1
-                logger.warning(f"Mem parse failed: {type(exc).__name__}")
+                with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                    is_mem, _ = is_mem_zip(zf)
+            except Exception:
+                pass
+            if is_mem:
+                try:
+                    notes = parse_mem_zip(raw, stats=parse_stats)
+                except ZipBombError as exc:
+                    logger.warning(f"Zip rejected: {exc}")
+                    summary["error"] = str(exc)
+                    await _fail_import(db, user["id"], import_id, summary["error"])
+                    return _redirect_with_summary("/settings")
+                except Exception as exc:
+                    logger.warning(f"Mem parse failed: {type(exc).__name__}")
+                if not notes:
+                    summary["error"] = (
+                        "The Mem export could not be read; nothing was imported."
+                    )
+                    await _fail_import(db, user["id"], import_id, summary["error"])
+                    return _redirect_with_summary("/settings")
         if not notes:
             try:
                 notes = parse_markdown_zip(raw, stats=parse_stats)

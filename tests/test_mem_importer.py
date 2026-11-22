@@ -9,6 +9,7 @@ source and tag invariants, route dispatching, and duplicate handling.
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 
 import pytest
@@ -313,3 +314,111 @@ def test_generic_markdown_zip_unchanged():
         assert note["source"] == "markdown"
         assert "markdown" in note["tags"]
         assert "from-mem" not in note["tags"]
+
+
+def _import_summary(resp) -> dict:
+    """Parse the import summary cookie of an /import redirect."""
+    set_cookie = resp.headers.get("set-cookie", "")
+    raw = set_cookie.split("import_summary=", 1)[1].split(";", 1)[0]
+    decoded = (
+        raw.strip('"').replace("\\054", ",").replace("\\073", ";").replace('\\"', '"')
+    )
+    return json.loads(decoded)
+
+
+@pytest.mark.asyncio
+async def test_import_route_mem_parse_error_no_markdown_fallback(db, monkeypatch):
+    """Mem parse error does not fall back to generic Markdown parser."""
+    env = FakeEnv(db=db, queue=FakeQueue())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    client = TestClient(app)
+
+    user = await register_user(db, "mem_err@test.local", "password123")
+    _, session_id = await login_user(db, "mem_err@test.local", "password123")
+    client.cookies.set("kfm_session", session_id)
+
+    markdown_called = False
+
+    def fake_parse_markdown_zip(raw, stats=None):
+        nonlocal markdown_called
+        markdown_called = True
+        return []
+
+    def fake_parse_mem_zip(raw, stats=None):
+        raise ValueError("Corrupt Mem export")
+
+    monkeypatch.setattr(
+        "keepfor.routes.settings.parse_markdown_zip", fake_parse_markdown_zip
+    )
+    monkeypatch.setattr("keepfor.routes.settings.parse_mem_zip", fake_parse_mem_zip)
+
+    zip_bytes = make_mem_export_zip()
+    resp = client.post(
+        "/import",
+        files={"file": ("mem-export.zip", zip_bytes, "application/zip")},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"].endswith("/settings")
+
+    assert markdown_called is False
+
+    # No notes were queued or imported
+    note_messages = [m for m in env.QUEUE.sent if "import_notes_batch" in m]
+    assert len(note_messages) == 0
+
+    items = await db.query_all("SELECT * FROM items WHERE user_id = ?;", (user["id"],))
+    assert len(items) == 0
+
+    records = await list_imports(db, user["id"])
+    assert len(records) == 1
+    record = records[0]
+    assert record["status"] == "failed"
+    expected_msg = "The Mem export could not be read; nothing was imported."
+    assert record["error"] == expected_msg
+
+    summary = _import_summary(resp)
+    assert summary["error"] == expected_msg
+
+
+@pytest.mark.asyncio
+async def test_import_route_non_mem_zip_still_falls_back_to_markdown(db, monkeypatch):
+    """Non-Mem zip upload still falls back to generic Markdown parser."""
+    env = FakeEnv(db=db, queue=FakeQueue())
+    monkeypatch.setattr("keepfor.deps.get_db", lambda request: db)
+    monkeypatch.setattr("keepfor.deps.get_env_from_request", lambda request: env)
+    client = TestClient(app)
+
+    user = await register_user(db, "markdown_fallback@test.local", "password123")
+    _, session_id = await login_user(db, "markdown_fallback@test.local", "password123")
+    client.cookies.set("kfm_session", session_id)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("docs/guide.md", "# Guide\n\nSome documentation.")
+        zf.writestr("notes/simple.md", "# Simple\n\nJust a simple note.")
+    data = buf.getvalue()
+
+    resp = client.post(
+        "/import",
+        files={"file": ("markdown-export.zip", data, "application/zip")},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    assert resp.headers["location"].endswith("/")
+
+    note_messages = [m for m in env.QUEUE.sent if "import_notes_batch" in m]
+    assert len(note_messages) == 1
+    batch = note_messages[0]["import_notes_batch"]
+    assert len(batch) == 2
+    assert note_messages[0]["source"] == "markdown"
+    for note in batch:
+        assert note["source"] == "markdown"
+        assert "markdown" in note["tags"]
+        assert "from-mem" not in note["tags"]
+
+    records = await list_imports(db, user["id"])
+    assert len(records) == 1
+    assert records[0]["status"] == "running"
+    assert records[0]["source"] == "markdown"
