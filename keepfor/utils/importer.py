@@ -641,9 +641,9 @@ def parse_enex(enex_bytes: bytes) -> list[dict[str, Any]]:
 
 
 def _parse_front_matter(content: str) -> tuple[dict[str, Any], str]:
-    """Extract the `title` and `tags` keys from YAML front matter.
+    """Extract `title`, `tags`, and date keys from YAML front matter.
 
-    shortcut: line-based parsing of two known keys only (PyYAML is not a
+    shortcut: line-based parsing of known keys only (PyYAML is not a
     dependency and would not ship in the Workers bundle); upgrade to a real
     YAML parser if more front-matter keys are ever imported.
     """
@@ -676,6 +676,18 @@ def _parse_front_matter(content: str) -> tuple[dict[str, Any], str]:
                 if t.strip()
             ]
             front_matter["tags"] = items
+        elif key in ("created", "created_at", "createdat", "date"):
+            raw_val = value.strip("\"'")
+            if raw_val and "created_at" not in front_matter:
+                try:
+                    dt = datetime.fromisoformat(raw_val.replace("Z", "+00:00"))
+                    front_matter["created_at"] = (
+                        dt.isoformat().replace("+00:00", "Z")
+                        if raw_val.endswith("Z")
+                        else dt.isoformat()
+                    )
+                except (ValueError, TypeError):
+                    pass
     return front_matter, parts[2].lstrip("\n")
 
 
