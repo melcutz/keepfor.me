@@ -16,6 +16,7 @@ COMPARISON_PAGES = [
     "alternatives/karakeep/index.html",
     "alternatives/readwise/index.html",
     "alternatives/best-read-it-later-apps-2026/index.html",
+    "alternatives/mem/index.html",
 ]
 
 
@@ -139,14 +140,26 @@ def test_pricing_and_mcp_facts_on_comparison_pages():
         assert not re.search(r"\b(?:TODO|TBD|FIXME)\b", text), f"{rel_path}: contains placeholder marker"
         assert "$5/mo" in text or "$5/month" in text, f"{rel_path}: missing Personal $5/mo pricing"
         assert "$9/mo" in text or "$9/month" in text, f"{rel_path}: missing Pro $9/mo pricing"
-        counts = re.findall(
-            r"\b(\d+)\s+(?:MCP\s+tools|tools\s+over\s+(?:the\s+)?(?:Model\s+Context\s+Protocol|MCP))",
-            text,
-            re.IGNORECASE,
-        )
-        assert counts, f"{rel_path}: missing sourced MCP tool count"
-        for c in counts:
-            assert int(c) == 46, f"{rel_path}: expected 46 MCP tools, found {c}"
+        if rel_path == "alternatives/mem/index.html":
+            assert re.search(
+                r"\bMCP\s+tools\b",
+                text,
+                re.IGNORECASE,
+            ), f"{rel_path}: missing MCP tools mention"
+            assert not re.search(
+                r"\b\d+\s+MCP\s+tools\b",
+                text,
+                re.IGNORECASE,
+            ), f"{rel_path}: should not have numeric MCP tool count"
+        else:
+            counts = re.findall(
+                r"\b(\d+)\s+(?:MCP\s+tools|tools\s+over\s+(?:the\s+)?(?:Model\s+Context\s+Protocol|MCP))",
+                text,
+                re.IGNORECASE,
+            )
+            assert counts, f"{rel_path}: missing sourced MCP tool count"
+            for c in counts:
+                assert int(c) == 46, f"{rel_path}: expected 46 MCP tools, found {c}"
 
 
 def test_zero_em_or_en_dashes_and_footer_donation():
@@ -291,6 +304,85 @@ def test_non_blocking_pocket_karakeep_and_readwise_facts():
     readwise_text = BeautifulSoup(_read_page("alternatives/readwise/index.html"), "html.parser").get_text(" ", strip=True)
     assert "$9.99/month" in readwise_text
     assert "readwise.io/export" in readwise_text
+
+
+def test_mem_page_shutdown_and_export_claims():
+    mem_path = "alternatives/mem/index.html"
+    mem_html = _read_page(mem_path)
+    mem_soup = BeautifulSoup(mem_html, "html.parser")
+    mem_text = mem_soup.get_text(" ", strip=True)
+
+    # Placeholders check
+    assert not re.search(r"\b(?:TODO|TBD|FIXME|lorem)\b", mem_text, re.IGNORECASE), (
+        f"{mem_path}: contains placeholder marker"
+    )
+
+    # Meta and social descriptions length (160 characters or fewer)
+    desc_tag = mem_soup.find("meta", attrs={"name": "description"})
+    assert desc_tag is not None, f"{mem_path}: missing meta description"
+    desc_content = (desc_tag.get("content") or "").strip()
+    assert len(desc_content) <= 160, (
+        f"{mem_path}: meta description exceeds 160 characters ({len(desc_content)} chars)"
+    )
+    for og_prop in ("og:description", "twitter:description"):
+        og_tag = mem_soup.find("meta", attrs={"property": og_prop}) or mem_soup.find(
+            "meta", attrs={"name": og_prop}
+        )
+        assert og_tag is not None, f"{mem_path}: missing {og_prop}"
+        assert len((og_tag.get("content") or "").strip()) <= 160, (
+            f"{mem_path}: {og_prop} exceeds 160 characters"
+        )
+
+    # Dates
+    assert "December 18, 2026" in mem_text, f"{mem_path}: missing December 18, 2026 read-only date"
+    assert "January 15, 2027" in mem_text, f"{mem_path}: missing January 15, 2027 shutdown date"
+
+    # Official links
+    assert "https://get.mem.ai/blog/mem-is-shutting-down" in mem_html, (
+        f"{mem_path}: missing official shutdown blog link"
+    )
+    assert "https://help.mem.ai/migration/save-a-copy" in mem_html, (
+        f"{mem_path}: missing official migration help link"
+    )
+
+    # Export steps
+    for step in ("Settings", "Exports", "Start new export", "My Computer", "Download"):
+        assert step in mem_text, f"{mem_path}: missing export step {step}"
+
+    # Tagging and attachments
+    assert "from-mem" in mem_text, f"{mem_path}: missing from-mem tag mention"
+    assert re.search(r"attachments[^\n.]*not\s+imported|not\s+imported[^\n.]*attachments", mem_text, re.IGNORECASE), (
+        f"{mem_path}: missing statement that attachments are not imported"
+    )
+
+    # Archive limit and workaround
+    assert "25 MB" in mem_text, f"{mem_path}: missing 25 MB limit mention"
+    assert "cannot be uploaded in one piece today" not in mem_text, (
+        f"{mem_path}: dead end wording still present"
+    )
+
+    # FAQ contains 25 MB workaround
+    faq_h3 = mem_soup.find(lambda tag: tag.name == "h3" and "larger than 25 MB" in tag.get_text())
+    assert faq_h3 is not None, f"{mem_path}: missing 25 MB FAQ question"
+    faq_p = faq_h3.find_next_sibling("p")
+    assert faq_p is not None, f"{mem_path}: missing FAQ paragraph for 25 MB question"
+    faq_text = faq_p.get_text(" ", strip=True)
+    assert "unzip" in faq_text.lower(), f"{mem_path}: FAQ missing unzip step"
+    assert "attachments" in faq_text.lower(), f"{mem_path}: FAQ missing attachments folder mention"
+    assert "collections" in faq_text.lower(), f"{mem_path}: FAQ missing collections folder mention"
+    assert "meeting audio" in faq_text.lower(), f"{mem_path}: FAQ missing meeting audio mention"
+    assert "cannot be uploaded in one piece today" not in faq_text, (
+        f"{mem_path}: FAQ still has dead end"
+    )
+
+    # Data export formats claim (HTML or JSON only; no CSV claim)
+    assert not re.search(r"\bCSV\b", mem_text), f"{mem_path}: contains CSV claim"
+    assert "HTML or JSON" in mem_text, f"{mem_path}: missing HTML or JSON export claim"
+
+    # Honest claims: ensure unfounded claims and unverified shortcuts are not present
+    for unfounded in ("keyboard shortcut", "well under 25 MB", "fits easily"):
+        assert unfounded not in mem_text.lower(), f"{mem_path}: contains unfounded claim '{unfounded}'"
+        assert unfounded not in mem_html.lower(), f"{mem_path}: HTML contains unfounded claim '{unfounded}'"
 
 
 # Sourced from core keepfor/mcp/server.py MCP_TOOLS at keepfor.me main 8bbccea

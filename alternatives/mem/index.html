@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Switching from Mem: Move Your Notes to Keepfor.me</title>
+  <meta name="description" content="Mem is shutting down. Learn how to export your Mem Markdown ZIP and import your notes into Keepfor.me before notes become read-only on December 18, 2026.">
+  <link rel="canonical" href="https://keepfor.me/alternatives/mem/">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://keepfor.me/alternatives/mem/">
+  <meta property="og:title" content="Switching from Mem: Move Your Notes to Keepfor.me">
+  <meta property="og:description" content="Mem is shutting down. Learn how to export your Mem Markdown ZIP and import your notes into Keepfor.me before notes become read-only on December 18, 2026.">
+  <meta property="og:image" content="https://keepfor.me/assets/og-preview.png">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:url" content="https://keepfor.me/alternatives/mem/">
+  <meta name="twitter:title" content="Switching from Mem: Move Your Notes to Keepfor.me">
+  <meta name="twitter:description" content="Mem is shutting down. Learn how to export your Mem Markdown ZIP and import your notes into Keepfor.me before notes become read-only on December 18, 2026.">
+  <meta name="twitter:image" content="https://keepfor.me/assets/og-preview.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Cdefs%3E%3ClinearGradient id='kfm' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%230ea5e9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='40' height='40' rx='11' fill='url(%23kfm)'/%3E%3Cpath d='M17 11h10v16l-5-3.8-5 3.8z' fill='%23fff'/%3E%3C/svg%3E">
+
+  <!-- Typography: Plus Jakarta Sans & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="/assets/css/site.css">
+
+  <!-- Structured Data: Article -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    "headline": "Switching from Mem: Move Your Notes to Keepfor.me",
+    "description": "Mem is shutting down. Learn how to export your Mem Markdown ZIP and import your notes into Keepfor.me before notes become read-only on December 18, 2026.",
+    "mainEntityOfPage": {"@type": "WebPage", "@id": "https://keepfor.me/alternatives/mem/"},
+    "author": {"@type": "Organization", "name": "Keepfor.me", "url": "https://keepfor.me/"},
+    "publisher": {"@type": "Organization", "name": "Keepfor.me", "logo": {"@type": "ImageObject", "url": "https://keepfor.me/assets/og-preview.png"}},
+    "datePublished": "2026-11-22",
+    "image": "https://keepfor.me/assets/og-preview.png"
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Site Navigation -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
+        <svg width="28" height="28" viewBox="0 0 44 44" aria-hidden="true">
+          <defs>
+            <linearGradient id="header-logo" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#4f46e5"/>
+              <stop offset="100%" stop-color="#0ea5e9"/>
+            </linearGradient>
+          </defs>
+          <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#header-logo)"/>
+          <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
+        </svg>
+        <span>Keepfor<span class="dot-me">.me</span></span>
+        <span class="brand-badge">Guide</span>
+      </a>
+
+      <nav aria-label="Main Navigation">
+        <ul class="nav-links">
+          <li><a href="/" class="nav-link">Home</a></li>
+          <li><a href="#why-now" class="nav-link">Why Now</a></li>
+          <li><a href="#export-from-mem" class="nav-link">Export</a></li>
+          <li><a href="#import-into-keepfor" class="nav-link">Import</a></li>
+          <li><a href="#what-transfers" class="nav-link">What Transfers</a></li>
+          <li><a href="/pricing/" class="nav-link">Pricing</a></li>
+          <li><a href="/self-host/" class="nav-link" style="color: var(--brand-indigo); font-weight: 700;">Self-Host Free</a></li>
+          <li class="mobile-only-auth"><a href="https://app.keepfor.me/auth/login" class="nav-link kfm-login-cta" data-kfm-cta="login">Log in</a></li>
+        </ul>
+      </nav>
+
+      <div class="header-actions">
+        <a href="https://app.keepfor.me/auth/login" class="btn-header-login kfm-login-cta" data-kfm-cta="login">
+          <span class="cta-label">Log in</span>
+        </a>
+        <a href="https://app.keepfor.me/auth/register" class="btn-header-cta kfm-primary-cta" data-kfm-cta="primary" aria-label="Start free trial">
+          <span class="cta-label">Start free trial</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </a>
+        <button class="mobile-toggle" aria-label="Toggle navigation menu" aria-expanded="false">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Page Header -->
+    <section class="pricing-page-header">
+      <div class="container">
+        <div class="hero-pill-badge">
+          <span class="sparkle">📝</span>
+          <span>Mem Alternative &amp; Migration Guide</span>
+        </div>
+
+        <h1 class="hero-title">
+          Switching from Mem: <span class="gradient-text">Move Your Notes to Keepfor.me</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          Mem announced it is shutting down. Here is how to export your notes, import your Markdown archive into Keepfor.me, and keep your personal knowledge vault safe from future shutdowns.
+        </p>
+      </div>
+    </section>
+
+    <!-- Article Content -->
+    <section class="legal-section">
+      <div class="container">
+        <div class="legal-document-wrapper">
+          <article class="legal-document">
+            <div class="legal-meta-bar">
+              <span class="legal-updated">Migration Guide | November 2026</span>
+              <a href="/" class="legal-back-link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                <span>Back to Homepage</span>
+              </a>
+            </div>
+
+            <h2 id="why-now">Why now: Mem is shutting down</h2>
+            <p>On November 16, 2026, Mem announced that it is shutting down its product and service. You can read the official announcement on the Mem blog: <a href="https://get.mem.ai/blog/mem-is-shutting-down" target="_blank" rel="noopener noreferrer">https://get.mem.ai/blog/mem-is-shutting-down</a>.</p>
+            <p>The shutdown follows a two-stage timeline:</p>
+            <ul>
+              <li><strong>December 18, 2026:</strong> Notes become read-only. After this date, you cannot create or edit notes in Mem.</li>
+              <li><strong>January 15, 2027:</strong> Mem shuts down completely, and access to accounts and data ends.</li>
+            </ul>
+            <p>Our recommendation is to export before December 18 while your workspace remains fully active and accessible. This is practical advice for protecting your data, not a Keepfor deadline. Keepfor Cloud will continue to accept Mem export archives after December 18 as long as you have your downloaded ZIP file.</p>
+
+            <h2 id="export-from-mem">Step 1: Export your notes from Mem</h2>
+            <p>Mem provides an official export tool that bundles your workspace into a Markdown ZIP archive. Follow the official migration guide at <a href="https://help.mem.ai/migration/save-a-copy" target="_blank" rel="noopener noreferrer">https://help.mem.ai/migration/save-a-copy</a>.</p>
+            <p>On a computer, complete these steps inside Mem:</p>
+            <ol>
+              <li>Open <strong>Settings</strong> in Mem.</li>
+              <li>Click <strong>Exports</strong> in the settings navigation.</li>
+              <li>Click <strong>Start new export</strong>.</li>
+              <li>Select <strong>My Computer</strong> as the export destination, then click <strong>Next</strong>.</li>
+              <li>Review the export options. Leave meeting audio recordings unselected unless you need them (they make the ZIP much larger).</li>
+              <li>Click <strong>Start export</strong>.</li>
+              <li>When the export status shows ready, click <strong>Download</strong> to save the ZIP file to your computer.</li>
+            </ol>
+            <p><strong>Important:</strong> Keep the ZIP zipped. Upload the ZIP as downloaded from Mem, so Keepfor can recognize the Mem layout (notes, collections, attachments, export report).</p>
+
+            <h2 id="import-into-keepfor">Step 2: Import your notes into Keepfor</h2>
+            <p>Importing your Mem archive into Keepfor is straightforward:</p>
+            <ol>
+              <li>Log in to your Keepfor account and navigate to <strong>Settings</strong>.</li>
+              <li>Scroll down to the <strong>Data Management &amp; Backup</strong> section (under the <strong>Import Bookmarks &amp; Notes</strong> card).</li>
+              <li>Click the file input button to select your downloaded Mem ZIP archive.</li>
+              <li>Click <strong>Upload &amp; Ingest</strong>.</li>
+            </ol>
+            <p>Keepfor processes your archive asynchronously through background queues. Both the one-shot summary and the persisted import status panel show real-time progress and final results, including notes imported, duplicates skipped, attachments not imported, and any errors. If you refresh the page, the import status remains available for your review.</p>
+
+            <h2 id="what-transfers">What comes across and what does not</h2>
+            <p>Keepfor parses the official Mem export layout to extract your written knowledge cleanly. Here is exactly what transfers and what does not:</p>
+
+            <div class="mobile-table-hint">Scroll horizontally to compare</div>
+            <div class="comparison-table-wrap">
+              <table class="comparison-table">
+                <thead>
+                  <tr>
+                    <th class="col-feature">Content Type</th>
+                    <th class="col-tier">Transferred to Keepfor?</th>
+                    <th class="col-tier">Details &amp; Handling</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="col-feature">Notes (notes/ folder)</td>
+                    <td>Yes</td>
+                    <td>Every Markdown note under <code>notes/</code> is imported as an individual note. Titles are extracted from front matter, the first H1 header, or the filename. Meeting transcripts that are part of the note text are imported in full.</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Collections (collections/ folder)</td>
+                    <td>Yes (as tags)</td>
+                    <td>Mem collection index files are converted into tags on their linked notes. If a note belongs to two collections, it receives both tags. Collection index files themselves are not imported as separate notes.</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Source tag (from-mem)</td>
+                    <td>Yes</td>
+                    <td>Every imported note is automatically tagged <code>from-mem</code> so you can easily identify, filter, or bulk-manage your imported items in the Library.</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Attachments (attachments/ folder)</td>
+                    <td>Not imported</td>
+                    <td>Files in <code>attachments/</code> (such as images, PDFs, and media) are not imported into Keepfor. Links to attachments in notes will not open in Keepfor; the import summary counts non-imported attachments. Keep your extracted Mem folder on your local drive for access to attachment files.</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Meeting audio recordings</td>
+                    <td>Not imported</td>
+                    <td>Original meeting audio recordings are not stored in Keepfor. Meeting transcripts inside note text are fully imported. Leave audio unselected during export unless you need it.</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Export report (export-report.md)</td>
+                    <td>Not imported</td>
+                    <td>Diagnostic files such as <code>export-report.md</code> are skipped automatically and are not imported as notes.</td>
+                  </tr>
+                  <tr>
+                    <td class="col-feature">Duplicate imports</td>
+                    <td>Skipped automatically</td>
+                    <td>Re-importing the same export skips notes already imported, preventing duplicates.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <h2 id="limits">Archive size limits</h2>
+            <p>Keepfor Cloud accepts a ZIP up to 25 MB per upload. If your Mem export is larger than the 25 MB limit, export again from Mem with meeting audio recordings left unselected, or unzip it, delete the files inside the attachments folder (keep the notes and collections folders), and zip the outer folder again. Attachments are not imported anyway, so removing them brings the archive under the limit while keeping all your notes and collections intact.</p>
+
+            <h2 id="undo-import">Find or undo your import in Keepfor</h2>
+            <p>If you want to review what was imported or undo the migration entirely, Keepfor gives you full control through existing Library tools:</p>
+            <ul>
+              <li><strong>Find imported notes:</strong> Open your <strong>Library</strong>. In the sidebar under <strong>Filter by Tag</strong>, select the <strong>#from-mem</strong> tag (or tap <strong>#from-mem</strong> in the mobile tag bar). This filters your view to show only notes from your Mem migration.</li>
+              <li><strong>Bulk select:</strong> Open the filters drawer and click <strong>Bulk select</strong>, then choose <strong>Select all</strong>.</li>
+              <li><strong>Move to Trash:</strong> In the bulk actions toolbar, click <strong>Move to Trash</strong>. An <strong>Undo</strong> prompt is offered right away if you clicked by mistake.</li>
+              <li><strong>Restoring or permanent deletion:</strong> Notes in Trash remain recoverable for 30 days. You can restore them anytime from Trash or choose to delete them permanently.</li>
+            </ul>
+
+            <h2 id="keepfor-overview">Why Keepfor is built to last</h2>
+            <p>When an app like Mem shuts down, it highlights the risk of proprietary, closed-core notes platforms. Keepfor is designed with structural guarantees that protect you against vendor lock-in and unexpected shutdowns:</p>
+            <ul>
+              <li><strong>Open source and self-hostable:</strong> Keepfor's core is licensed under AGPL-3.0-only. You can self-host your own single-tenant instance on Cloudflare for $0 with zero server maintenance.</li>
+              <li><strong>Sustainable cloud pricing:</strong> Hosted plans pay their own way from day one. Personal is $5/mo ($55/yr) and Pro is $9/mo ($90/yr), backed by a 14-day free trial with no credit card required.</li>
+              <li><strong>AI assistant integration:</strong> Keepfor exposes MCP tools over the Model Context Protocol. You can connect Claude Desktop, Claude Code, Cursor, or other MCP clients to search, read, and manage your notes and saved links directly.</li>
+              <li><strong>Full data export anytime:</strong> Download your entire library in HTML or JSON whenever you want. You own your data.</li>
+            </ul>
+
+            <h2 id="faq">Frequently Asked Questions</h2>
+
+            <h3>What happens if I do not export from Mem before December 18, 2026?</h3>
+            <p>According to Mem's announcement, workspaces become read-only on December 18, 2026. You can still log in and download an export until full shutdown on January 15, 2027. However, we strongly advise exporting before December 18 so you have time to verify your files while Mem remains fully operational.</p>
+
+            <h3>How are Mem collections handled during import?</h3>
+            <p>Mem stores collections as Markdown index files with links to member notes. Keepfor reads these collections and converts each collection name into a tag on the corresponding notes. If a note belongs to multiple collections, Keepfor applies all relevant tags.</p>
+
+            <h3>Can I access image and PDF attachments in Keepfor?</h3>
+            <p>No. Keepfor does not import attachment files like images or PDFs from <code>attachments/</code>. Any relative Markdown links to attachments will not display media inside Keepfor. The import summary reports the number of non-imported attachments. We recommend keeping your unzipped Mem export folder on your computer so you retain local copies of all attachments.</p>
+
+            <h3>What should I do if my Mem export ZIP is larger than 25 MB?</h3>
+            <p>If your ZIP is larger than the 25 MB upload limit, export again from Mem with meeting audio recordings left unselected, or unzip it, delete the files inside the attachments folder (keep the notes and collections folders), and zip the outer folder again. Attachments are not imported anyway, so removing them brings the archive under 25 MB without losing any notes or tags.</p>
+
+            <h3>Can I remove imported Mem notes without deleting my other saves?</h3>
+            <p>Yes. Every note from Mem receives the <code>from-mem</code> tag. In Keepfor, navigate to Library, filter by <code>#from-mem</code>, click Bulk select, select all matching items, and click Move to Trash. Undo is available immediately, and Trash preserves your notes for 30 days before permanent removal.</p>
+
+            <p style="margin-top: 32px;"><em>Sources: Mem shutdown announcement (November 16, 2026) at <a href="https://get.mem.ai/blog/mem-is-shutting-down" target="_blank" rel="noopener noreferrer">get.mem.ai/blog/mem-is-shutting-down</a>; official Mem export documentation at <a href="https://help.mem.ai/migration/save-a-copy" target="_blank" rel="noopener noreferrer">help.mem.ai/migration/save-a-copy</a>; Keepfor Cloud pricing and plan details from <a href="/pricing/">keepfor.me/pricing</a>; MCP tools verified from the Keepfor open-source repository (<code>keepfor/mcp/server.py</code>).</em></p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA Banner -->
+    <section class="cta-banner-section">
+      <div class="container">
+        <div class="cta-banner-box">
+          <h2 class="cta-banner-title">Move your notes to a permanent vault</h2>
+          <p class="cta-banner-desc">
+            Start a 14-day free trial of Keepfor Cloud with no credit card required, or self-host free on Cloudflare under AGPL-3.0.
+          </p>
+          <div class="cta-banner-actions">
+            <a href="https://app.keepfor.me/auth/register" class="btn-banner-primary kfm-primary-cta" data-kfm-cta="primary" aria-label="Start free trial">
+              <span class="cta-label">Start free trial</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </a>
+            <a href="/self-host/" class="btn-banner-secondary">
+              <span>Self-Host Free</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-grid">
+        <!-- Col 1: Brand -->
+        <div class="footer-brand">
+          <a href="/" class="brand-link" aria-label="Keepfor.me Homepage">
+            <svg width="28" height="28" viewBox="0 0 44 44" aria-hidden="true">
+              <defs>
+                <linearGradient id="footer-logo" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stop-color="#4f46e5"/>
+                  <stop offset="100%" stop-color="#0ea5e9"/>
+                </linearGradient>
+              </defs>
+              <rect x="2" y="2" width="40" height="40" rx="11" fill="url(#footer-logo)"/>
+              <path d="M17 11h10v16l-5-3.8-5 3.8z" fill="#ffffff"/>
+            </svg>
+            <span>Keepfor<span class="dot-me">.me</span></span>
+            <span class="brand-badge">Guide</span>
+          </a>
+          <p class="footer-tagline">
+            The personal library and AI context vault for developers and researchers. Fast, private, open core.
+          </p>
+        </div>
+
+        <!-- Col 2: Product -->
+        <div>
+          <div class="footer-col-title">Product</div>
+          <ul class="footer-col-links">
+            <li><a href="/#showcase">Context in Action</a></li>
+            <li><a href="/#pillars">Features</a></li>
+            <li><a href="/#mcp">Works with AI (MCP)</a></li>
+            <li><a href="/#reader">Reader Sanctuary</a></li>
+            <li><a href="/pricing/">Pricing &amp; Plans</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 3: Alternatives & Guides -->
+        <div>
+          <div class="footer-col-title">Alternatives</div>
+          <ul class="footer-col-links">
+            <li><a href="/alternatives/pocket/">Pocket Alternative</a></li>
+            <li><a href="/alternatives/omnivore/">Omnivore Alternative</a></li>
+            <li><a href="/alternatives/karakeep/">Karakeep Alternative</a></li>
+            <li><a href="/alternatives/readwise/">Readwise Alternative</a></li>
+            <li><a href="/alternatives/best-read-it-later-apps-2026/">Best Read-It-Later Apps 2026</a></li>
+            <li><a href="/alternatives/mem/">Mem Alternative</a></li>
+            <li><a href="/keepfor-vs-raindrop/">Keepfor vs Raindrop.io</a></li>
+            <li><a href="/claude-mcp/">Claude MCP Guide</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 4: Open Source & Self-Host -->
+        <div>
+          <div class="footer-col-title">Open Source</div>
+          <ul class="footer-col-links">
+            <li><a href="/self-host/">Self-Host Free (5 Steps)</a></li>
+            <li><a href="https://oss.keepfor.me" target="_blank" rel="noopener noreferrer">Live OSS Demo</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me" target="_blank" rel="noopener noreferrer">GitHub Repository</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me/blob/main/LICENSING.md" target="_blank" rel="noopener noreferrer">Licensing (AGPL-3.0)</a></li>
+            <li><a href="https://github.com/melcutz/keepfor.me/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Contributing</a></li>
+            <li><a href="https://donate.stripe.com/14AeVea8gcxp4ja0Za4Vy00" target="_blank" rel="noopener noreferrer">Support this project</a></li>
+          </ul>
+        </div>
+
+        <!-- Col 5: Trust & Access -->
+        <div>
+          <div class="footer-col-title">Access &amp; Trust</div>
+          <ul class="footer-col-links">
+            <li><a href="https://app.keepfor.me/auth/register" class="kfm-primary-cta" data-kfm-cta="primary">Start Free Trial</a></li>
+            <li><a href="https://app.keepfor.me/auth/login" class="kfm-login-cta" data-kfm-cta="login">Log In</a></li>
+            <li><a href="/terms/">Terms of Service</a></li>
+            <li><a href="/privacy/">Privacy Policy</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>&copy; 2026 Keepfor.me. All rights reserved.</span>
+        <span>Open source under AGPL-3.0-only. Commercial licensing available upon request.</span>
+        <div class="footer-badges">
+          <a href="https://fazier.com" target="_blank" rel="noopener"><img src="https://fazier.com/api/v1//public/badges/launch_badges.svg?badge_type=launched&theme=light" width="120" alt="Fazier badge" /></a>
+          <a href="https://startupbase.io" target="_blank" rel="noopener">StartupBase</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Toast for feedback -->
+  <div id="copy-toast" role="status" aria-live="polite">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+    <span id="copy-toast-msg">Copied!</span>
+  </div>
+
+  <script src="/assets/js/site.js"></script>
+</body>
+</html>
