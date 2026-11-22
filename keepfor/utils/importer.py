@@ -7,6 +7,7 @@ import html
 import io
 import json
 import math
+import posixpath
 import re
 import time
 import zipfile
@@ -14,7 +15,7 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import iterparse
@@ -793,6 +794,287 @@ def parse_markdown_zip(
                     "source_id": source_id,
                     "urls": urls,
                     "attachments_count": 0,
+                }
+            )
+
+    return notes
+
+
+# ===== Mem Export Zip Parser =====
+
+
+def _is_ignored_zip_member(name: str) -> bool:
+    """True if name is under __MACOSX/ or any path segment starts with a dot."""
+    parts = name.split("/")
+    for part in parts:
+        if not part:
+            continue
+        if part == "__MACOSX" or part.startswith("."):
+            return True
+    return False
+
+
+def is_mem_zip(zf: zipfile.ZipFile) -> tuple[bool, str]:
+    """Detect Mem export layout by inspecting zf.infolist().
+
+    Identifies root prefix ("" or "<outer_folder>/").
+    Returns (True, root) if {root}notes/ contains .md files AND at least one
+    of {root}collections/, {root}attachments/, or {root}export-report.md exists
+    at the same root.
+    Returns (False, "") for generic Markdown zips (including zips with only notes/).
+    """
+    valid_names = [
+        info.filename
+        for info in zf.infolist()
+        if not _is_ignored_zip_member(info.filename)
+    ]
+    if not valid_names:
+        return False, ""
+
+    def _check_root(root: str) -> bool:
+        notes_prefix = f"{root}notes/"
+        has_notes_md = any(
+            name.startswith(notes_prefix) and name.endswith(".md")
+            for name in valid_names
+        )
+        if not has_notes_md:
+            return False
+        collections_prefix = f"{root}collections/"
+        attachments_prefix = f"{root}attachments/"
+        report_file = f"{root}export-report.md"
+        has_other = any(
+            name == collections_prefix
+            or name.startswith(collections_prefix)
+            or name == attachments_prefix
+            or name.startswith(attachments_prefix)
+            or name == report_file
+            for name in valid_names
+        )
+        return has_other
+
+    if _check_root(""):
+        return True, ""
+
+    # Check for exactly one wrapping top-level folder
+    top_levels = set()
+    for name in valid_names:
+        parts = name.split("/", 1)
+        if len(parts) < 2:
+            # A file directly at root, so not wrapped in a single folder
+            return False, ""
+        top_levels.add(parts[0])
+
+    if len(top_levels) == 1:
+        outer = list(top_levels)[0] + "/"
+        if _check_root(outer):
+            return True, outer
+
+    return False, ""
+
+
+def _extract_mem_attachments(body: str) -> tuple[int, list[str]]:
+    """Extract non-imported attachment references from note body."""
+    matches = re.findall(r"(?:(?:\.\./|\./)?attachments/([^)\s\"'>]+))", body)
+    att_types = [_attachment_mime_or_ext(None, unquote(m).strip()) for m in matches]
+    return len(matches), att_types
+
+
+def _parse_mem_collections(
+    zf: zipfile.ZipFile, root: str, stats: dict[str, Any] | None
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Parse collection indexes under {root}collections/*.md.
+
+    Returns (path_tags, stem_or_title_tags).
+    """
+    path_tags: dict[str, set[str]] = {}
+    stem_tags: dict[str, set[str]] = {}
+
+    prefix = f"{root}collections/"
+    for info in zf.infolist():
+        if _is_ignored_zip_member(info.filename):
+            continue
+        if not info.filename.startswith(prefix) or not info.filename.endswith(".md"):
+            continue
+
+        raw = _zip_member_read(zf, info, stats)
+        if raw is None:
+            continue
+
+        if stats is not None:
+            stats["collections_skipped"] = stats.get("collections_skipped", 0) + 1
+            stats["skipped_collections"] = stats.get("skipped_collections", 0) + 1
+
+        text = raw.decode("utf-8", errors="replace")
+
+        # Collection title from first # H1 or filename stem
+        title = ""
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("# "):
+                title = line[2:].strip()
+                break
+        if not title:
+            title = Path(info.filename).stem
+
+        tag = title.strip().lower()
+        if not tag:
+            continue
+
+        # Markdown links: [text](target)
+        for match in re.finditer(r"\[([^\]]+)\]\(([^)]+)\)", text):
+            raw_target = match.group(2).strip()
+            unquoted = unquote(raw_target)
+            target = unquoted.split("#")[0].split("?")[0].strip()
+            if not target:
+                continue
+            norm = posixpath.normpath(posixpath.join("collections", target))
+            if norm.startswith("notes/"):
+                path_tags.setdefault(norm, set()).add(tag)
+                base = posixpath.basename(target)
+                stem_tags.setdefault(base.lower(), set()).add(tag)
+                stem_tags.setdefault(Path(base).stem.lower(), set()).add(tag)
+
+        # Wiki links: [[Note Title]] or [[Note Title|Display Text]]
+        for match in re.finditer(r"\[\[([^\]]+)\]\]", text):
+            raw_wiki = match.group(1).strip()
+            wiki_target = raw_wiki.split("|")[0].strip().lower()
+            if wiki_target:
+                stem_tags.setdefault(wiki_target, set()).add(tag)
+
+    return path_tags, stem_tags
+
+
+def parse_mem_zip(
+    zip_bytes: bytes, stats: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """Parse a Mem export zip archive.
+
+    - Requires Mem export layout: notes/ with .md files and at least one of
+      collections/, attachments/, or export-report.md at the export root.
+    - Root can be zip root or a single outer wrapping folder.
+    - Imports only {root}notes/**/*.md as notes.
+    - Skips collections/ and export-report.md (counted in stats if present).
+    - Tags: 'from-mem' + collection tags + front matter tags + inline #tags.
+      Explicitly excludes 'markdown' and 'notes' folder tags.
+    - Attachments: reference-counted from notes, attachment bytes are never read.
+    - source = 'mem', source_id = path relative to the export root.
+    """
+    notes: list[dict[str, Any]] = []
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        _zip_guard(zf)
+        is_mem, root = is_mem_zip(zf)
+        if not is_mem:
+            return []
+
+        path_tags, stem_tags = _parse_mem_collections(zf, root, stats)
+
+        # Count export-report.md if present
+        report_file = f"{root}export-report.md"
+        for info in zf.infolist():
+            if info.filename == report_file:
+                if stats is not None:
+                    stats["report_skipped"] = stats.get("report_skipped", 0) + 1
+                    stats["skipped_report"] = stats.get("skipped_report", 0) + 1
+                break
+
+        notes_prefix = f"{root}notes/"
+        for info in zf.infolist():
+            name = info.filename
+            if _is_ignored_zip_member(name):
+                continue
+            if name.endswith("/"):
+                continue
+            if not name.startswith(notes_prefix) or not name.endswith(".md"):
+                continue
+
+            raw = _zip_member_read(zf, info, stats)
+            if raw is None:
+                continue
+            content = raw.decode("utf-8", errors="replace")
+
+            front_matter, body = _parse_front_matter(content)
+
+            # Title: front-matter > first H1 > filename
+            title = front_matter.get("title", "").strip()
+            if not title:
+                for line in body.splitlines():
+                    line = line.strip()
+                    if line.startswith("# "):
+                        title = line[2:].strip()
+                        break
+            if not title:
+                title = Path(name).stem
+
+            # Tags: from-mem + front-matter tags + inline #tags + collection tags
+            # Explicitly no 'markdown' or 'notes' tags
+            raw_tags = ["from-mem"]
+            fm_tags = front_matter.get("tags")
+            if isinstance(fm_tags, list):
+                raw_tags.extend([t.strip().lower() for t in fm_tags if t.strip()])
+            elif isinstance(fm_tags, str):
+                raw_tags.extend(
+                    [
+                        t.strip().lower()
+                        for t in fm_tags.replace(";", ",").split(",")
+                        if t.strip()
+                    ]
+                )
+
+            raw_tags.extend(_extract_inline_tags(body))
+
+            # Collection tags matching this note
+            note_rel = name[len(root) :]  # e.g. "notes/my-note.md"
+            note_stem = Path(name).stem.lower()
+            note_file = Path(name).name.lower()
+            note_title = title.lower()
+
+            matched_col_tags: set[str] = set()
+            if note_rel in path_tags:
+                matched_col_tags.update(path_tags[note_rel])
+            if note_stem in stem_tags:
+                matched_col_tags.update(stem_tags[note_stem])
+            if note_file in stem_tags:
+                matched_col_tags.update(stem_tags[note_file])
+            if note_title in stem_tags:
+                matched_col_tags.update(stem_tags[note_title])
+
+            raw_tags.extend(sorted(matched_col_tags))
+
+            # Deduplicate tags preserving order, excluding 'markdown' and 'notes'
+            tags = []
+            seen = set()
+            for t in raw_tags:
+                if t in ("markdown", "notes"):
+                    continue
+                if t not in seen:
+                    seen.add(t)
+                    tags.append(t)
+
+            source_id = note_rel
+
+            created_at = front_matter.get("created_at")
+            if not created_at and info.date_time:
+                try:
+                    created_at = datetime(*info.date_time).isoformat()
+                except ValueError:
+                    pass
+
+            urls = _extract_urls_from_text(body, title)
+            att_count, att_types = _extract_mem_attachments(body)
+
+            notes.append(
+                {
+                    "title": title,
+                    "body": body,
+                    "tags": tags,
+                    "is_pinned": False,
+                    "read_state": "unread",
+                    "created_at": created_at,
+                    "source": "mem",
+                    "source_id": source_id,
+                    "urls": urls,
+                    "attachments_count": att_count,
+                    "attachments": att_types,
                 }
             )
 
