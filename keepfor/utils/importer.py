@@ -975,6 +975,9 @@ def parse_mem_zip(
                 if stats is not None:
                     stats["report_skipped"] = stats.get("report_skipped", 0) + 1
                     stats["skipped_report"] = stats.get("skipped_report", 0) + 1
+                    stats["export_report_skipped"] = (
+                        stats.get("export_report_skipped", 0) + 1
+                    )
                 break
 
         notes_prefix = f"{root}notes/"
@@ -1061,6 +1064,13 @@ def parse_mem_zip(
 
             urls = _extract_urls_from_text(body, title)
             att_count, att_types = _extract_mem_attachments(body)
+            if stats is not None and att_count > 0:
+                stats["attachments_not_imported"] = (
+                    stats.get("attachments_not_imported", 0) + att_count
+                )
+                by_type = stats.setdefault("attachments_by_type", {})
+                for t in att_types:
+                    by_type[t] = by_type.get(t, 0) + 1
 
             notes.append(
                 {
