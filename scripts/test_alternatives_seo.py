@@ -316,6 +316,22 @@ def test_mem_page_shutdown_and_export_claims():
         f"{mem_path}: contains placeholder marker"
     )
 
+    # Meta and social descriptions length (160 characters or fewer)
+    desc_tag = mem_soup.find("meta", attrs={"name": "description"})
+    assert desc_tag is not None, f"{mem_path}: missing meta description"
+    desc_content = (desc_tag.get("content") or "").strip()
+    assert len(desc_content) <= 160, (
+        f"{mem_path}: meta description exceeds 160 characters ({len(desc_content)} chars)"
+    )
+    for og_prop in ("og:description", "twitter:description"):
+        og_tag = mem_soup.find("meta", attrs={"property": og_prop}) or mem_soup.find(
+            "meta", attrs={"name": og_prop}
+        )
+        assert og_tag is not None, f"{mem_path}: missing {og_prop}"
+        assert len((og_tag.get("content") or "").strip()) <= 160, (
+            f"{mem_path}: {og_prop} exceeds 160 characters"
+        )
+
     # Dates
     assert "December 18, 2026" in mem_text, f"{mem_path}: missing December 18, 2026 read-only date"
     assert "January 15, 2027" in mem_text, f"{mem_path}: missing January 15, 2027 shutdown date"
