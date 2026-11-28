@@ -1078,11 +1078,11 @@ def extract_wikipedia_article(html: str, url: str) -> dict[str, Any]:
     }
 
 
-def _extract_with_readability(html: str, url: str) -> str | None:
+def _extract_with_readability(html: str, url: str) -> tuple[str, str] | None:
     """Simple readability-like extraction using BeautifulSoup.
 
-    Scores content containers and extracts paragraph text from the best one.
-    Returns None if no substantial content found.
+    Scores content containers and extracts paragraph text and clean HTML.
+    Returns (plain_text, clean_html_raw) or None if no substantial content found.
     """
     soup_cls, _ = _load_parsers()
     soup = soup_cls(html or "", "html.parser")
@@ -1090,6 +1090,10 @@ def _extract_with_readability(html: str, url: str) -> str | None:
     for tag in soup.find_all(
         ["script", "style", "nav", "aside", "footer", "header", "form", "button"]
     ):
+        if tag.name == "header" and (
+            tag.find_parent(["article", "main"]) or tag.find(["h1", "h2"])
+        ):
+            continue
         tag.decompose()
 
     candidates: list[tuple[int, Any]] = []
@@ -1136,7 +1140,17 @@ def _extract_with_readability(html: str, url: str) -> str | None:
         return None
 
     result = "\n\n".join(paragraphs)
-    return result if len(result.strip()) >= 50 else None
+    if len(result.strip()) < 50:
+        return None
+
+    doc_h1 = None
+    if not best.find("h1"):
+        h1 = soup.find("h1")
+        if h1 and not h1.find_parent(["nav", "aside", "footer"]):
+            doc_h1 = str(h1)
+
+    clean_html_raw = f"{doc_h1}{str(best)}" if doc_h1 else str(best)
+    return (result, clean_html_raw)
 
 
 _NAV_WORDS = frozenset(
@@ -1461,13 +1475,11 @@ def extract_article(
 
         safe_title = html_module.escape(title or "", quote=True)
         readable = _extract_with_readability(html, url)
-        if readable and len(readable.strip()) >= 50:
-            plain_text = readable
-            safe_readable = html_module.escape(readable, quote=True)
-            clean_html_raw = f"<h1>{safe_title}</h1><p>{safe_readable}</p>"
+        if readable:
+            plain_text, clean_html_raw = readable
             # A substantial paragraph recovery is a real article, not a
             # link-only stub: don't show the "Link Only" badge for it.
-            if len(readable.split()) >= _READABILITY_REAL_ARTICLE_WORDS:
+            if len(plain_text.split()) >= _READABILITY_REAL_ARTICLE_WORDS:
                 is_fallback = False
         else:
             plain_text = excerpt or title or "No readable text extracted."
