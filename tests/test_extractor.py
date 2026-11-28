@@ -533,6 +533,77 @@ def test_substantial_readability_recovery_clears_fallback(force_bs4_fallback):
     assert out["is_fallback"] == 0
 
 
+def test_fallback_keeps_leading_h1_that_differs_from_title(force_bs4_fallback):
+    """Fallback extraction keeps an H1 that differs from title (issue #158)."""
+    prose_a = "Cloudflare runs AI models on GPUs next to users all over the world."
+    prose_b = (
+        "Additional technical details about edge deployment and latency reduction."
+    )
+    html = f"""
+    <html><head><title>Reading list: October</title></head>
+    <body>
+    <article>
+    <h1>How we cut our cold starts</h1>
+    <p>{prose_a}</p>
+    <p>{prose_b}</p>
+    </article>
+    </body></html>
+    """
+    out = extract_article(html, "https://example.com/post")
+    assert out["title"] == "Reading list: October"
+    assert "<h1>How we cut our cold starts</h1>" in out["clean_html"]
+
+
+def test_fallback_recovers_h1_outside_content_container(force_bs4_fallback):
+    """Fallback extraction recovers an H1 before content container (issue #158)."""
+    p1 = (
+        "Building reliable distributed systems requires "
+        "understanding consensus protocols."
+    )
+    p2 = (
+        "We explore practical lessons learned from operating key-value stores at scale."
+    )
+    html = f"""
+    <html><head><title>Blog Archives</title></head>
+    <body>
+    <header class="entry-header">
+      <h1>Distributed Systems in Practice</h1>
+    </header>
+    <div class="entry-content">
+      <p>{p1}</p>
+      <p>{p2}</p>
+    </div>
+    </body></html>
+    """
+    out = extract_article(html, "https://example.com/distributed")
+    assert out["title"] == "Blog Archives"
+    assert "<h1>Distributed Systems in Practice</h1>" in out["clean_html"]
+    assert "consensus protocols" in out["clean_html"]
+
+
+def test_fallback_preserves_subheadings_and_structure(force_bs4_fallback):
+    """Fallback extraction preserves headings and paragraph tags (issue #158)."""
+    p1 = "The system consists of core components: ingest worker, DB, and search engine."
+    p2 = "Data flows through Cloudflare Queues into D1 and Vectorize with batching."
+    html = f"""
+    <html><head><title>Architecture Overview</title></head>
+    <body>
+    <article>
+    <h1>Architecture Overview</h1>
+    <h2>Component Breakdown</h2>
+    <p>{p1}</p>
+    <h2>Data Pipeline</h2>
+    <p>{p2}</p>
+    </article>
+    </body></html>
+    """
+    out = extract_article(html, "https://example.com/arch")
+    assert out["title"] == "Architecture Overview"
+    assert "<h1" not in out["clean_html"]
+    assert "<h2>Component Breakdown</h2>" in out["clean_html"]
+    assert "<h2>Data Pipeline</h2>" in out["clean_html"]
+
+
 def test_fallback_falls_back_to_url_when_nothing_found(force_bs4_fallback):
     """When no content can be extracted, title falls back to URL."""
     html = """
