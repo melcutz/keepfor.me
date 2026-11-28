@@ -109,7 +109,9 @@ from keepfor.spi import (
     scopes_of,
     self_hosted_account,
 )
+from keepfor.utils.logging import logger
 from keepfor.utils.tagger import validate_tag_name
+from keepfor.utils.url import extract_url
 
 if TYPE_CHECKING:
     from keepfor.spi import Providers, TenantScope
@@ -2075,6 +2077,9 @@ async def handle_tool_call(
         url = arguments.get("url")
         if not url or not isinstance(url, str):
             raise _invalid("save_url requires a valid url")
+        clean_url = extract_url(url)
+        if not clean_url:
+            raise _invalid("save_url requires a valid HTTP or HTTPS url")
         tags = _as_list(arguments.get("tags"))
         # v2 fields
         agent_summary = arguments.get("agent_summary")
@@ -2085,7 +2090,7 @@ async def handle_tool_call(
             db,
             env,
             user_id,
-            url,
+            clean_url,
             tags,
             scope=scope,
             agent_summary=agent_summary,
@@ -3148,11 +3153,18 @@ async def process_mcp_request(
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
+                "isError": True,
                 "error": {
                     "code": -32602,
                     "message": (
                         f"Unsupported protocol version: {params.get('protocolVersion')}"
                     ),
+                    "isError": True,
+                    "data": {
+                        "type": "invalid_arguments",
+                        "code": "invalid_arguments",
+                        "isError": True,
+                    },
                 },
             }
         return {
@@ -3184,10 +3196,17 @@ async def process_mcp_request(
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
+                "isError": True,
                 "error": {
                     "code": -32602,
                     "message": f"Unknown tool: {tool_name}",
-                    "data": {"type": "not_found", "tool": tool_name},
+                    "isError": True,
+                    "data": {
+                        "type": "not_found",
+                        "code": "not_found",
+                        "tool": tool_name,
+                        "isError": True,
+                    },
                 },
             }
         required = _tool_scope(tool)
@@ -3196,17 +3215,21 @@ async def process_mcp_request(
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
+                "isError": True,
                 "error": {
                     "code": -32001,
                     "message": (
                         f"Tool '{tool_name}' needs the '{required}' scope; "
                         f"this token has {', '.join(sorted(scopes)) or 'none'}."
                     ),
+                    "isError": True,
                     "data": {
                         "type": "insufficient_scope",
+                        "code": "insufficient_scope",
                         "tool": tool_name,
                         "required_scope": required,
                         "scopes": sorted(scopes),
+                        "isError": True,
                     },
                 },
             }
@@ -3233,20 +3256,36 @@ async def process_mcp_request(
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
+                "isError": True,
                 "error": {
                     "code": -32602,
                     "message": str(exc),
-                    "data": {"type": exc.kind, "tool": tool_name, **exc.details},
+                    "isError": True,
+                    "data": {
+                        "type": exc.kind,
+                        "code": exc.kind,
+                        "tool": tool_name,
+                        "isError": True,
+                        **exc.details,
+                    },
                 },
             }
-        except Exception as exc:
+        except Exception:
+            logger.exception("MCP tool execution failed: %s", tool_name)
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
+                "isError": True,
                 "error": {
                     "code": -32603,
-                    "message": str(exc),
-                    "data": {"type": "internal_error", "tool": tool_name},
+                    "message": "Internal server error",
+                    "isError": True,
+                    "data": {
+                        "type": "internal_error",
+                        "code": "internal_error",
+                        "tool": tool_name,
+                        "isError": True,
+                    },
                 },
             }
 
@@ -3262,8 +3301,15 @@ async def process_mcp_request(
         return {
             "jsonrpc": "2.0",
             "id": req_id,
+            "isError": True,
             "error": {
                 "code": -32601,
                 "message": f"Method '{method}' not found",
+                "isError": True,
+                "data": {
+                    "type": "not_found",
+                    "code": "not_found",
+                    "isError": True,
+                },
             },
         }

@@ -14,6 +14,9 @@ dependencies = [
     "defusedxml>=0.7.1"
 ]
 
+[project.scripts]
+keepfor = "keepfor.cli:main"
+
 [project.optional-dependencies]
 extract = [
     "trafilatura>=1.12.0"

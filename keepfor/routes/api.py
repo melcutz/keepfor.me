@@ -184,9 +184,31 @@ async def mcp_endpoint(request: Request):
                 }
             )
 
-    response_payload = await process_mcp_request(
-        body, db, env, user, scope=scope, providers=providers
-    )
+    try:
+        response_payload = await process_mcp_request(
+            body, db, env, user, scope=scope, providers=providers
+        )
+    except Exception:
+        logger.exception("MCP request handling crashed")
+        req_id = body.get("id") if isinstance(body, dict) else None
+        return JSONResponse(
+            status_code=500,
+            content={
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "isError": True,
+                "error": {
+                    "code": -32603,
+                    "message": "Internal server error",
+                    "isError": True,
+                    "data": {
+                        "type": "internal_error",
+                        "code": "internal_error",
+                        "isError": True,
+                    },
+                },
+            },
+        )
     if response_payload is None:
         return Response(status_code=202)
 

@@ -356,6 +356,47 @@ refused on `/settings/*` entirely, so a token can never mint a broader one.
 Self-hosters: the scope column comes from migration `0012_pat_scopes.sql`, so
 apply the migrations (step 3 above) before deploying.
 
+### Structured Machine-Readable Errors
+
+For automated agent loops and tool callers, failure paths never return a success-shaped response:
+- Every tool failure returns `isError: true` at the root and in the error object. Note that `isError` sits on the JSON-RPC envelope and error object, not on a tool result as in the MCP spec.
+- Stable machine-readable error codes (`data.code` and `data.type`), such as `invalid_arguments`, `insufficient_scope`, `not_found`, `rate_limited`, and `internal_error`.
+- Human-readable messages contain clean descriptions without exposing internal stack traces or secrets.
+
+---
+
+## Keepfor CLI
+
+The `keepfor` command-line interface provides fast, scriptable access to your Keepfor library. It guarantees deterministic non-zero exit codes on failure and sends error messages to `stderr`.
+
+### Installation and Setup
+
+Set your instance URL and token via flags or environment variables:
+
+```bash
+export KEEPFOR_URL="https://app.keepfor.me"
+export KEEPFOR_TOKEN="kfm_live_..."
+```
+
+### Commands
+
+- `keepfor save <url> [--tag <tag>] [--title <title>]`: Save a web page or article.
+- `keepfor search <query> [--limit <n>] [--tag <tag>] [--mode hybrid|keyword|semantic]`: Search your library.
+- `keepfor get <item_id>`: Retrieve item details by ID.
+- `keepfor list [--limit <n>] [--tag <tag>]`: List recent library items.
+- Global options: `--url <url>`, `--token <token>`, `--json` (machine-readable stdout).
+
+### Exit Codes
+
+| Code | Status | Meaning |
+|---|---|---|
+| `0` | Success | Command completed successfully (output written to `stdout`). |
+| `1` | General failure | Server 5xx error, network failure, timeout, or runtime error. |
+| `2` | Usage error | Validation error, invalid arguments, or malformed URL. |
+| `3` | Auth error | Missing token or invalid credentials (HTTP 401/403). |
+
+All errors are written to `stderr`. Commands exit `0` only on success.
+
 ---
 
 ## Browser & Mobile Capture

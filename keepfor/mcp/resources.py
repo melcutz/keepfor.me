@@ -27,6 +27,7 @@ from keepfor.mcp.server import ToolError, _invalid, _not_found
 from keepfor.models.items import get_item
 from keepfor.models.tags import get_tag, list_tags
 from keepfor.search.engine import hybrid_search, list_items_compact, reading_history
+from keepfor.utils.logging import logger
 
 if TYPE_CHECKING:
     from keepfor.models.db import Database
@@ -423,20 +424,34 @@ async def handle_resource_request(
         return {
             "jsonrpc": "2.0",
             "id": req_id,
+            "isError": True,
             "error": {
                 "code": _error_code(method, exc.kind),
                 "message": str(exc),
-                "data": {"type": exc.kind, **exc.details},
+                "isError": True,
+                "data": {
+                    "type": exc.kind,
+                    "code": exc.kind,
+                    "isError": True,
+                    **exc.details,
+                },
             },
         }
-    except Exception as exc:
+    except Exception:
+        logger.exception("MCP resource request failed: %s", method)
         return {
             "jsonrpc": "2.0",
             "id": req_id,
+            "isError": True,
             "error": {
                 "code": -32603,
-                "message": str(exc),
-                "data": {"type": "internal_error"},
+                "message": "Internal server error",
+                "isError": True,
+                "data": {
+                    "type": "internal_error",
+                    "code": "internal_error",
+                    "isError": True,
+                },
             },
         }
 
