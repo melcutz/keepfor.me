@@ -233,7 +233,7 @@ def test_cli_save_success(capsys):
     ).encode("utf-8")
     mock_resp.__enter__.return_value = mock_resp
 
-    with patch("urllib.request.urlopen", return_value=mock_resp):
+    with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
         code = run_cli(
             [
                 "save",
@@ -247,9 +247,45 @@ def test_cli_save_success(capsys):
             ]
         )
     assert code == EXIT_OK
+    req = mock_urlopen.call_args[0][0]
+    body = json.loads(req.data.decode("utf-8"))
+    assert body["url"] == "https://example.com/article"
+    assert body["tags"] == ["reading", "tech"]
+    assert body["title"] == "Example Article"
     captured = capsys.readouterr()
     assert "Saved: Example Article (id: item-123)" in captured.out
     assert captured.err == ""
+
+
+def test_cli_save_posts_clean_url(capsys):
+    """CLI posts clean_url (e.g. schemeless input normalized) to /api/save."""
+    mock_resp = MagicMock()
+    mock_resp.status = 202
+    mock_resp.headers = {"Content-Type": "application/json"}
+    mock_resp.read.return_value = json.dumps(
+        {
+            "id": "item-123",
+            "url": "https://example.com/article",
+            "title": "Example Article",
+            "status": "queued",
+            "is_new": True,
+        }
+    ).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+
+    with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+        code = run_cli(
+            [
+                "save",
+                "example.com/article",
+                "--token",
+                "valid-token",
+            ]
+        )
+    assert code == EXIT_OK
+    req = mock_urlopen.call_args[0][0]
+    body = json.loads(req.data.decode("utf-8"))
+    assert body["url"] == "https://example.com/article"
 
 
 def test_cli_save_json_success(capsys):

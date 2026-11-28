@@ -10,7 +10,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Sequence
+from typing import Any, NoReturn, Sequence
 
 from keepfor.utils.url import extract_url
 
@@ -24,14 +24,14 @@ EXIT_AUTH = 3
 class CLIArgumentParser(argparse.ArgumentParser):
     """Custom parser that routes usage errors to stderr and exits with status 2."""
 
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         self.print_usage(sys.stderr)
         sys.stderr.write(f"error: {message}\n")
         sys.exit(EXIT_USAGE)
 
 
 def _build_parser() -> CLIArgumentParser:
-    common_parser = argparse.ArgumentParser(add_help=False)
+    common_parser = CLIArgumentParser(add_help=False)
     common_parser.add_argument(
         "--url",
         "-u",
@@ -276,7 +276,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
                 if clean_tag and clean_tag not in tags:
                     tags.append(clean_tag)
 
-        payload: dict[str, Any] = {"url": url}
+        payload: dict[str, Any] = {"url": clean_url}
         if tags:
             payload["tags"] = tags
         if args.title:

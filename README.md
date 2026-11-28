@@ -359,7 +359,7 @@ apply the migrations (step 3 above) before deploying.
 ### Structured Machine-Readable Errors
 
 For automated agent loops and tool callers, failure paths never return a success-shaped response:
-- Every tool failure returns `isError: true` at the root and in the error object.
+- Every tool failure returns `isError: true` at the root and in the error object. Note that `isError` sits on the JSON-RPC envelope and error object, not on a tool result as in the MCP spec.
 - Stable machine-readable error codes (`data.code` and `data.type`), such as `invalid_arguments`, `insufficient_scope`, `not_found`, `rate_limited`, and `internal_error`.
 - Human-readable messages contain clean descriptions without exposing internal stack traces or secrets.
 
